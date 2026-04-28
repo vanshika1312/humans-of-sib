@@ -10,7 +10,8 @@ import { BulkImportForm } from "./BulkImportForm";
 import { MonthSelector } from "./MonthSelector";
 import { ReviewForm, type ReviewRow, type LockBulkState } from "./ReviewForm";
 import { SendModal, type SendSummary } from "./SendModal";
-import { setPeriodSheetUrl, bulkImportRevenue, lockMonthBulk, sendMonthToAccounts } from "../actions";
+import { DeleteButton } from "./DeleteButton";
+import { setPeriodSheetUrl, bulkImportRevenue, lockMonthBulk, sendMonthToAccounts, deleteSheet, unlockSheet } from "../actions";
 import { Input, Label } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 
@@ -240,6 +241,7 @@ function LiveView({ sheets, noRevenueYet, slabs, year, month, period, totalReven
                   <th className="text-left py-3 px-5">Target Progress</th>
                   <th className="text-right py-3 px-5">Incentive (Est.)</th>
                   <th className="text-left py-3 px-5">Status</th>
+                  <th className="py-3 px-5">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-ink-50">
@@ -282,6 +284,31 @@ function LiveView({ sheets, noRevenueYet, slabs, year, month, period, totalReven
                       </td>
                       <td className="py-3.5 px-5">
                         <StatusPill status={st} sheetStatus={s.status} />
+                      </td>
+                      <td className="py-3.5 px-5">
+                        <div className="flex items-center gap-1.5">
+                          {/* Edit — go to review tab pre-scrolled to this user */}
+                          <Link
+                            href={`/incentives?tab=review&year=${year}&month=${month}`}
+                            className="h-7 px-2.5 rounded-md border border-ink-200 text-xs font-medium text-ink-600 hover:bg-ink-50 transition-colors inline-flex items-center"
+                          >
+                            Edit
+                          </Link>
+                          {/* Unlock (only for LOCKED sheets) */}
+                          {s.status === "LOCKED" && (
+                            <form action={unlockSheet}>
+                              <input type="hidden" name="sheetId" value={s.id} />
+                              <button
+                                type="submit"
+                                className="h-7 px-2.5 rounded-md border border-amber-200 text-xs font-medium text-amber-600 hover:bg-amber-50 transition-colors"
+                              >
+                                Unlock
+                              </button>
+                            </form>
+                          )}
+                          {/* Remove */}
+                          <DeleteButton sheetId={s.id} userName={s.user.name ?? ""} deleteAction={deleteSheet} />
+                        </div>
                       </td>
                     </tr>
                   );

@@ -167,6 +167,45 @@ export async function markPaid(sheetId: string) {
   revalidatePath("/incentives");
 }
 
+// ─── delete / unlock individual sheet ─────────────────────────────────────────
+
+export async function deleteSheet(formData: FormData) {
+  const me = await getMe();
+  requireSalesHead(me.role);
+
+  const sheetId = formData.get("sheetId") as string;
+  if (!sheetId) throw new Error("Missing sheetId.");
+
+  await prisma.incentiveSheet.delete({ where: { id: sheetId } });
+  revalidatePath("/incentives");
+}
+
+export async function unlockSheet(formData: FormData) {
+  const me = await getMe();
+  requireSalesHead(me.role);
+
+  const sheetId = formData.get("sheetId") as string;
+  if (!sheetId) throw new Error("Missing sheetId.");
+
+  const sheet = await prisma.incentiveSheet.findUnique({ where: { id: sheetId } });
+  if (!sheet) throw new Error("Sheet not found.");
+  if (sheet.status === "APPROVED" || sheet.status === "PAID") {
+    throw new Error("Cannot unlock an approved or paid sheet.");
+  }
+
+  await prisma.incentiveSheet.update({
+    where: { id: sheetId },
+    data: {
+      status: "DRAFT",
+      lockedById: null,
+      lockedAt: null,
+      finalAmount: sheet.incentiveAmount,
+    },
+  });
+
+  revalidatePath("/incentives");
+}
+
 // ─── lock month in bulk (saves revenues + notes, then locks all drafts) ──────
 
 type LockBulkState = { error?: string; success?: boolean };
