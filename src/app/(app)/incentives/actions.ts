@@ -169,7 +169,7 @@ export async function markPaid(sheetId: string) {
 
 // ─── lock month in bulk (saves revenues + notes, then locks all drafts) ──────
 
-export type LockBulkState = { error?: string; success?: boolean };
+type LockBulkState = { error?: string; success?: boolean };
 
 export async function lockMonthBulk(
   _prev: LockBulkState,

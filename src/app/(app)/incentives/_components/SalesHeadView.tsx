@@ -8,9 +8,9 @@ import { ExternalLink } from "lucide-react";
 import { TabNav } from "./TabNav";
 import { BulkImportForm } from "./BulkImportForm";
 import { MonthSelector } from "./MonthSelector";
-import { ReviewForm, type ReviewRow } from "./ReviewForm";
+import { ReviewForm, type ReviewRow, type LockBulkState } from "./ReviewForm";
 import { SendModal, type SendSummary } from "./SendModal";
-import { setPeriodSheetUrl, bulkImportRevenue } from "../actions";
+import { setPeriodSheetUrl, bulkImportRevenue, lockMonthBulk, sendMonthToAccounts } from "../actions";
 import { Input, Label } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 
@@ -135,7 +135,7 @@ export async function SalesHeadView({
                 Send to Accounts
               </Link>
             ) : (
-              <SendModal summary={sendSummary} />
+              <SendModal summary={sendSummary} sendAction={sendMonthToAccounts} />
             )}
           </div>
         )}
@@ -392,6 +392,7 @@ function ReviewTab({ sheets, allSalesUsers, noRevenueYet, slabs, year, month, pe
         periodSheetUrl={period?.sheetUrl ?? null}
         periodNote={period?.note ?? null}
         allLocked={allLocked}
+        lockAction={lockMonthBulk}
       />
 
       {/* Bulk import (secondary) */}

@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useActionState } from "react";
+import { useState, useActionState, useEffect } from "react";
 import { Avatar } from "@/components/ui/avatar";
-import { lockMonthBulk, type LockBulkState } from "../actions";
+
+export type LockBulkState = { error?: string; success?: boolean };
 
 const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
@@ -39,6 +40,7 @@ export function ReviewForm({
   periodSheetUrl,
   periodNote,
   allLocked,
+  lockAction,
 }: {
   rows: ReviewRow[];
   slabs: Slab[];
@@ -47,6 +49,7 @@ export function ReviewForm({
   periodSheetUrl: string | null;
   periodNote: string | null;
   allLocked: boolean;
+  lockAction: (state: LockBulkState, formData: FormData) => Promise<LockBulkState>;
 }) {
   const [revenues, setRevenues] = useState<Record<string, number>>(
     Object.fromEntries(initialRows.map((r) => [r.userId, r.estRevenue])),
@@ -55,13 +58,11 @@ export function ReviewForm({
     Object.fromEntries(initialRows.map((r) => [r.userId, r.adjustmentNote ?? ""])),
   );
   const [locked, setLocked] = useState(allLocked);
-  const [state, formAction, isPending] = useActionState(lockMonthBulk, initState);
+  const [state, formAction, isPending] = useActionState(lockAction, initState);
 
-  // Transition to locked state after successful server action
-  if (state?.success && !locked) {
-    // Safe to call outside useEffect in React 19 during render if it's idempotent
-    setTimeout(() => setLocked(true), 0);
-  }
+  useEffect(() => {
+    if (state?.success) setLocked(true);
+  }, [state?.success]);
 
   const estTotal = initialRows.reduce((a, r) => a + r.estIncentive, 0);
   const finalTotal = initialRows.reduce((a, r) => {

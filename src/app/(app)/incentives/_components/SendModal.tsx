@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { sendMonthToAccounts } from "../actions";
 
 const MONTHS = [
   "January","February","March","April","May","June",
@@ -17,7 +16,13 @@ export type SendSummary = {
   sentBy: string;
 };
 
-export function SendModal({ summary }: { summary: SendSummary }) {
+export function SendModal({
+  summary,
+  sendAction,
+}: {
+  summary: SendSummary;
+  sendAction: (formData: FormData) => Promise<void>;
+}) {
   const [open, setOpen]         = useState(false);
   const [sent, setSent]         = useState(false);
   const [isPending, startTrans] = useTransition();
@@ -27,7 +32,7 @@ export function SendModal({ summary }: { summary: SendSummary }) {
       const fd = new FormData();
       fd.set("year",  String(summary.year));
       fd.set("month", String(summary.month));
-      await sendMonthToAccounts(fd);
+      await sendAction(fd);
       setSent(true);
       setOpen(false);
     });
