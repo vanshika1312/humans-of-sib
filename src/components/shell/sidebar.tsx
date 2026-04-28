@@ -14,6 +14,7 @@ import {
   GraduationCap,
   Target,
   Users,
+  Gift,
   FileText,
   Cake,
   Sparkles,
@@ -40,6 +41,7 @@ const nav = [
     { href: "/okrs", label: "OKRs", icon: Target },
     { href: "/one-on-one", label: "1-on-1s", icon: Users },
     { href: "/trainings", label: "Trainings", icon: GraduationCap },
+    { href: "/incentives", label: "Incentives", icon: Gift },
   ]},
   { group: "Me", items: [
     { href: "/documents", label: "Documents", icon: FileText },

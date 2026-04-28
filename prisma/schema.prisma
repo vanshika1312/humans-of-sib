@@ -108,6 +108,10 @@ model User {
   offboardingTasks    OffboardingTask[]
   learnerImpact       LearnerImpact[]
   compensation        Compensation?
+  salesEntries        SaleEntry[]          @relation("CounsellorSales")
+  incentiveSheets     IncentiveSheet[]     @relation("IncentiveOwner")
+  lockedSheets        IncentiveSheet[]     @relation("IncentiveLocker")
+  approvedSheets      IncentiveSheet[]     @relation("IncentiveApprover")
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -619,4 +623,94 @@ model Compensation {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Incentives (Sales / Counselling team)
+// ──────────────────────────────────────────────────────────────────────────────
+
+// Configurable payout tiers set by the Sales Head / Admin.
+// The slab with the highest minRev that is ≤ total active revenue applies.
+model IncentiveSlab {
+  id       String   @id @default(cuid())
+  label    String   // "Bronze", "Silver", "Gold"
+  minRev   Int      // minimum revenue (₹) for this slab
+  maxRev   Int?     // null = no upper bound
+  rate     Float    // incentive % (e.g. 5.0 = 5%)
+  order    Int      @default(0)
+
+  createdAt DateTime @default(now())
+
+  @@index([order])
+}
+
+enum SaleEntryStatus {
+  ACTIVE
+  REFUNDED
+  CANCELLED
+}
+
+// One row per course enrollment closed by a counsellor.
+model SaleEntry {
+  id          String          @id @default(cuid())
+  userId      String
+  month       Int             // 1–12
+  year        Int
+  studentName String
+  courseName  String
+  revenue     Int             // amount in INR (paise-free)
+  status      SaleEntryStatus @default(ACTIVE)
+  note        String?
+  saleDate    DateTime        @db.Date
+  sheetId     String?
+
+  user  User            @relation("CounsellorSales", fields: [userId], references: [id], onDelete: Cascade)
+  sheet IncentiveSheet? @relation(fields: [sheetId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, year, month])
+  @@index([sheetId])
+}
+
+enum IncentiveSheetStatus {
+  DRAFT     // live, counsellor can still add/edit sales
+  LOCKED    // Sales Head reviewed & locked; awaiting Accounts approval
+  APPROVED  // Accounts Manager approved
+  PAID      // payout processed
+}
+
+// One sheet per counsellor per month.
+model IncentiveSheet {
+  id               String               @id @default(cuid())
+  userId           String
+  month            Int
+  year             Int
+
+  grossRevenue     Int                  @default(0)  // sum of all ACTIVE sales
+  adjustedRevenue  Int                  @default(0)  // after REFUNDED/CANCELLED are excluded
+  slabRate         Float                @default(0)  // % rate applied at lock time
+  incentiveAmount  Int                  @default(0)  // adjustedRevenue × slabRate / 100
+  manualAdjustment Int                  @default(0)  // +/- applied by Sales Head
+  finalAmount      Int                  @default(0)  // incentiveAmount + manualAdjustment
+  adjustmentNote   String?
+
+  status           IncentiveSheetStatus @default(DRAFT)
+  lockedById       String?
+  lockedAt         DateTime?
+  approvedById     String?
+  approvedAt       DateTime?
+  paidAt           DateTime?
+
+  user       User          @relation("IncentiveOwner",    fields: [userId],       references: [id])
+  lockedBy   User?         @relation("IncentiveLocker",   fields: [lockedById],   references: [id])
+  approvedBy User?         @relation("IncentiveApprover", fields: [approvedById], references: [id])
+  sales      SaleEntry[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, year, month])
+  @@index([year, month, status])
 }
