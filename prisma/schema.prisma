@@ -3,6 +3,7 @@
 
 generator client {
   provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
 }
 
 datasource db {
@@ -628,6 +629,21 @@ model Compensation {
 // ──────────────────────────────────────────────────────────────────────────────
 // Incentives (Sales / Counselling team)
 // ──────────────────────────────────────────────────────────────────────────────
+
+// Month-level metadata: one record per month shared across the whole team.
+// Stores the Google Sheet URL and any global notes for that month.
+model IncentivePeriod {
+  id        String   @id @default(cuid())
+  year      Int
+  month     Int      // 1-12
+  sheetUrl  String?  // link to the shared Finance / Sales Google Sheet
+  note      String?  // e.g. "Q2 incentive run · revised targets"
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([year, month])
+}
 
 // Configurable payout tiers set by the Sales Head / Admin.
 // The slab with the highest minRev that is ≤ total active revenue applies.

@@ -6,7 +6,9 @@ import { CounsellorView } from "./_components/CounsellorView";
 import { SalesHeadView } from "./_components/SalesHeadView";
 import { AccountsView } from "./_components/AccountsView";
 
-export default async function IncentivesPage() {
+type SearchParams = Promise<{ tab?: string }>;
+
+export default async function IncentivesPage({ searchParams }: { searchParams: SearchParams }) {
   const session = await auth();
   const me = await prisma.user.findUnique({
     where: { email: session!.user!.email! },
@@ -14,12 +16,14 @@ export default async function IncentivesPage() {
   });
   if (!me) return null;
 
+  const { tab = "live" } = await searchParams;
+
   const now = new Date();
-  const year = now.getFullYear();
+  const year  = now.getFullYear();
   const month = now.getMonth() + 1;
 
   const isAccountsManager = ["ADMIN", "HR", "CEO"].includes(me.role);
-  const isSalesHead = ["MANAGER", "DEPT_HEAD"].includes(me.role);
+  const isSalesHead       = ["MANAGER", "DEPT_HEAD"].includes(me.role);
 
   return (
     <div>
@@ -30,21 +34,21 @@ export default async function IncentivesPage() {
           isAccountsManager
             ? "Review locked sheets, approve payouts, and track disbursements."
             : isSalesHead
-            ? "Track your team's sales, apply adjustments, and lock monthly sheets."
-            : "Log your sales and see your live estimated incentive for the month."
+            ? "Track your team's revenue, adjust, and lock monthly incentive sheets."
+            : "View your estimated incentive for the month."
         }
       />
 
       {isAccountsManager ? (
-        <Suspense fallback={<LoadingSkeleton />}>
+        <Suspense fallback={<Skeleton />}>
           <AccountsView />
         </Suspense>
       ) : isSalesHead ? (
-        <Suspense fallback={<LoadingSkeleton />}>
-          <SalesHeadView year={year} month={month} />
+        <Suspense fallback={<Skeleton />}>
+          <SalesHeadView year={year} month={month} tab={tab} />
         </Suspense>
       ) : (
-        <Suspense fallback={<LoadingSkeleton />}>
+        <Suspense fallback={<Skeleton />}>
           <CounsellorView userId={me.id} />
         </Suspense>
       )}
@@ -52,10 +56,11 @@ export default async function IncentivesPage() {
   );
 }
 
-function LoadingSkeleton() {
+function Skeleton() {
   return (
     <div className="space-y-4">
-      <div className="h-40 rounded-2xl bg-ink-100 animate-pulse" />
+      <div className="h-12 rounded-lg bg-ink-100 animate-pulse w-72" />
+      <div className="h-32 rounded-xl bg-ink-100 animate-pulse" />
       <div className="h-64 rounded-xl bg-ink-100 animate-pulse" />
     </div>
   );
