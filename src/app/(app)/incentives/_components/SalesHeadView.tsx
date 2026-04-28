@@ -2,16 +2,20 @@ import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Avatar } from "@/components/ui/avatar";
-import { Input, Label } from "@/components/ui/input";
 import { EmptyState } from "@/components/ui/page-header";
 import { ExternalLink } from "lucide-react";
 import { TabNav } from "./TabNav";
 import { BulkImportForm } from "./BulkImportForm";
-import { setRevenue, setPeriodSheetUrl, lockSheet, bulkImportRevenue } from "../actions";
+import { MonthSelector } from "./MonthSelector";
+import { ReviewForm, type ReviewRow } from "./ReviewForm";
+import { SendModal, type SendSummary } from "./SendModal";
+import { setPeriodSheetUrl, bulkImportRevenue } from "../actions";
+import { Input, Label } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 
-const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const MONTHS      = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const FULL_MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -27,12 +31,12 @@ async function fetchMonthData(year: number, month: number) {
       where: { year, month },
       orderBy: { adjustedRevenue: "desc" },
       include: {
-        user: { select: { id: true, name: true, image: true, department: { select: { name: true } } } },
+        user:     { select: { id: true, name: true, image: true, department: { select: { name: true } } } },
         lockedBy: { select: { name: true } },
       },
     }),
     prisma.user.findMany({
-      where: { status: "ACTIVE", role: "EMPLOYEE", department: { slug: { in: ["sales", "counselling", "admissions"] } } },
+      where: { status: "ACTIVE" },
       select: { id: true, name: true, image: true, department: { select: { name: true } } },
       orderBy: { name: "asc" },
     }),
@@ -49,23 +53,38 @@ function getStatus(revenue: number, slabs: Slab[]) {
   const top = topSlabMinRev(slabs);
   if (top === 0) return "neutral";
   const pct = revenue / top;
-  if (pct >= 1)   return "on-track";
-  if (pct >= 0.5) return "needs-push";
+  if (pct >= 0.7) return "on-track";
+  if (pct >= 0.4) return "needs-push";
   return "below-target";
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export async function SalesHeadView({ year, month, tab }: { year: number; month: number; tab: string }) {
+export async function SalesHeadView({
+  year,
+  month,
+  tab,
+  historyYear,
+  historyMonth,
+  userName,
+}: {
+  year: number;
+  month: number;
+  tab: string;
+  historyYear?: number;
+  historyMonth?: number;
+  userName: string;
+}) {
   const { period, sheets, allSalesUsers, slabs } = await fetchMonthData(year, month);
 
-  const sheetUserIds  = new Set(sheets.map((s) => s.user.id));
-  const noRevenueYet  = allSalesUsers.filter((u) => !sheetUserIds.has(u.id));
+  const sheetUserIds = new Set(sheets.map((s) => s.user.id));
+  const noRevenueYet = allSalesUsers.filter((u) => !sheetUserIds.has(u.id));
 
   const totalRevenue  = sheets.reduce((a, s) => a + s.adjustedRevenue, 0);
   const totalPayout   = sheets.reduce((a, s) => a + s.finalAmount, 0);
   const avgIncentive  = sheets.length ? Math.round(totalPayout / sheets.length) : 0;
   const onTrackCount  = sheets.filter((s) => getStatus(s.adjustedRevenue, slabs) === "on-track").length;
+  const allLocked     = sheets.length > 0 && sheets.every((s) => s.status !== "DRAFT");
 
   const TABS = [
     { id: "live",    label: "Live View" },
@@ -73,103 +92,161 @@ export async function SalesHeadView({ year, month, tab }: { year: number; month:
     { id: "history", label: "History" },
   ];
 
+  const sendSummary: SendSummary = {
+    year,
+    month,
+    counsellorCount: sheets.length + noRevenueYet.length,
+    totalRevenue,
+    totalIncentive: totalPayout,
+    sentBy: userName,
+  };
+
   return (
     <div className="space-y-6">
-      {/* Tab bar + actions */}
+      {/* Tab bar + month selector + actions */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
-        <TabNav tabs={TABS} active={tab} />
-        {tab === "live" && period?.sheetUrl && (
-          <a
-            href={period.sheetUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 text-sm font-medium text-sky-600 hover:underline"
-          >
-            <ExternalLink className="size-3.5" /> Open sales sheet
-          </a>
+        <div className="flex items-center gap-3 flex-wrap">
+          <TabNav tabs={TABS} active={tab} />
+          <MonthSelector year={year} month={month} />
+        </div>
+
+        {/* Tab-level actions (Live View only) */}
+        {tab === "live" && (
+          <div className="flex items-center gap-2">
+            {period?.sheetUrl && (
+              <a
+                href={period.sheetUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg border border-ink-200 text-sm font-medium text-sky-600 hover:bg-sky-50 transition-colors"
+              >
+                <ExternalLink className="size-3.5" /> Sales Sheet
+              </a>
+            )}
+            <ExportButton sheets={sheets} year={year} month={month} />
+            {!allLocked ? (
+              <Link
+                href={`/incentives?tab=review&year=${year}&month=${month}`}
+                className="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg bg-ink-700 text-white text-sm font-medium hover:bg-ink-600 transition-colors"
+              >
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M2 8l5 5 7-7"/>
+                </svg>
+                Send to Accounts
+              </Link>
+            ) : (
+              <SendModal summary={sendSummary} />
+            )}
+          </div>
         )}
       </div>
 
-      {tab === "live"    && <LiveView    sheets={sheets} noRevenueYet={noRevenueYet} slabs={slabs} year={year} month={month} period={period} totalRevenue={totalRevenue} totalPayout={totalPayout} avgIncentive={avgIncentive} onTrackCount={onTrackCount} />}
-      {tab === "review"  && <ReviewView  sheets={sheets} noRevenueYet={noRevenueYet} slabs={slabs} year={year} month={month} period={period} />}
-      {tab === "history" && <HistoryView year={year} month={month} />}
+      {tab === "live"    && <LiveView sheets={sheets} noRevenueYet={noRevenueYet} slabs={slabs} year={year} month={month} period={period} totalRevenue={totalRevenue} totalPayout={totalPayout} avgIncentive={avgIncentive} onTrackCount={onTrackCount} allLocked={allLocked} />}
+      {tab === "review"  && <ReviewTab sheets={sheets} allSalesUsers={allSalesUsers} noRevenueYet={noRevenueYet} slabs={slabs} year={year} month={month} period={period} allLocked={allLocked} />}
+      {tab === "history" && <HistoryView currentYear={year} currentMonth={month} historyYear={historyYear} historyMonth={historyMonth} />}
     </div>
   );
 }
 
 // ─── Live View ────────────────────────────────────────────────────────────────
 
-function LiveView({ sheets, noRevenueYet, slabs, year, month, period, totalRevenue, totalPayout, avgIncentive, onTrackCount }: {
+function LiveView({ sheets, noRevenueYet, slabs, year, month, period, totalRevenue, totalPayout, avgIncentive, onTrackCount, allLocked }: {
   sheets: SheetWithUser[];
   noRevenueYet: { id: string; name: string | null; image: string | null; department: { name: string } | null }[];
   slabs: Slab[];
   year: number; month: number;
   period: { sheetUrl: string | null; note: string | null } | null;
   totalRevenue: number; totalPayout: number; avgIncentive: number; onTrackCount: number;
+  allLocked: boolean;
 }) {
   return (
     <div className="space-y-6">
       {/* Summary cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <SummaryCard emoji="💰" label="Total incentive (est.)" value={`₹${totalPayout.toLocaleString("en-IN")}`} />
-        <SummaryCard emoji="📈" label="Revenue collected" value={`₹${(totalRevenue / 100000).toFixed(1)}L`} sub={`${sheets.length} counsellor${sheets.length !== 1 ? "s" : ""}`} />
-        <SummaryCard emoji="🎯" label="On target" value={`${onTrackCount} / ${sheets.length}`} sub="≥ top slab revenue" />
-        <SummaryCard emoji="⚡" label="Avg. incentive" value={`₹${avgIncentive.toLocaleString("en-IN")}`} />
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <SummaryCard
+          emoji="💰"
+          label="Total Incentives (Est.)"
+          value={`₹${totalPayout.toLocaleString("en-IN")}`}
+          accent="orange"
+        />
+        <SummaryCard
+          emoji="📈"
+          label="Revenue Collected"
+          value={`₹${(totalRevenue / 100000).toFixed(1)}L`}
+          sub={`${sheets.length} counsellor${sheets.length !== 1 ? "s" : ""}`}
+          accent="blue"
+        />
+        <SummaryCard
+          emoji="🎯"
+          label="On Target"
+          value={`${onTrackCount} / ${sheets.length + noRevenueYet.length}`}
+          sub="≥ 70% of top slab"
+          accent="green"
+        />
+        <SummaryCard
+          emoji="⚡"
+          label="Avg. Incentive"
+          value={`₹${avgIncentive.toLocaleString("en-IN")}`}
+          accent="gold"
+        />
       </div>
 
-      {/* Slab reference */}
+      {/* Slab reference chips */}
       {slabs.length > 0 && (
         <div className="flex flex-wrap gap-2">
           {slabs.map((s) => (
-            <div key={s.id} className="px-3 py-1.5 rounded-lg text-xs font-medium bg-ink-50 border border-ink-100 text-ink-500">
+            <div key={s.id} className="px-3 py-1.5 rounded-lg text-xs font-medium bg-white border border-ink-100 text-ink-500">
               {s.label} · {s.rate}%
               {s.maxRev
-                ? ` (₹${(s.minRev/1000).toFixed(0)}k–₹${(s.maxRev/1000).toFixed(0)}k)`
-                : ` (₹${(s.minRev/1000).toFixed(0)}k+)`}
+                ? ` (₹${(s.minRev / 1000).toFixed(0)}k–₹${(s.maxRev / 1000).toFixed(0)}k)`
+                : ` (₹${(s.minRev / 1000).toFixed(0)}k+)`}
             </div>
           ))}
         </div>
       )}
 
-      {/* Team table */}
+      {/* Team breakdown table */}
       <Card>
         <div className="px-5 py-4 border-b border-ink-100 flex items-center justify-between gap-3">
           <div>
-            <h2 className="font-semibold text-ink-700">Team breakdown</h2>
+            <h2 className="font-semibold text-ink-700">Team Breakdown</h2>
             <p className="text-xs text-ink-400 mt-0.5">
-              {MONTHS[month - 1]} {year} · figures from the sales sheet
+              {FULL_MONTHS[month - 1]} {year} · figures from the sales sheet
               {period?.note && ` · ${period.note}`}
             </p>
           </div>
-          <Link
-            href="/incentives?tab=review"
-            className="text-xs font-medium text-sky-600 hover:underline"
-          >
-            Go to review →
-          </Link>
+          <div className="flex items-center gap-2">
+            <Link
+              href={`/incentives?tab=review&year=${year}&month=${month}`}
+              className="text-xs font-medium text-sky-600 hover:underline"
+            >
+              Go to review →
+            </Link>
+          </div>
         </div>
 
         {sheets.length === 0 ? (
           <div className="p-6">
-            <EmptyState emoji="📋" title="No revenue entered yet" description="Switch to Month-End Review to enter revenue figures." />
+            <EmptyState emoji="📋" title="No revenue entered yet" description="Switch to Month-End Review to enter revenue figures for the team." />
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="bg-ink-50 border-b border-ink-100 text-xs text-ink-400 uppercase tracking-wide">
-                  <th className="text-left py-3 px-5 font-medium">Counsellor</th>
-                  <th className="text-right py-3 px-5 font-medium">Revenue</th>
-                  <th className="text-left py-3 px-5 font-medium">Progress</th>
-                  <th className="text-right py-3 px-5 font-medium">Incentive (est.)</th>
-                  <th className="text-left py-3 px-5 font-medium">Status</th>
+                <tr className="bg-ink-50 border-b border-ink-100 text-[10.5px] text-ink-400 uppercase tracking-wide font-semibold">
+                  <th className="text-left py-3 px-5">Counsellor</th>
+                  <th className="text-right py-3 px-5">Sales</th>
+                  <th className="text-right py-3 px-5">Revenue</th>
+                  <th className="text-left py-3 px-5">Target Progress</th>
+                  <th className="text-right py-3 px-5">Incentive (Est.)</th>
+                  <th className="text-left py-3 px-5">Status</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-ink-50">
                 {sheets.map((s) => {
-                  const st = getStatus(s.adjustedRevenue, slabs);
+                  const st     = getStatus(s.adjustedRevenue, slabs);
                   const topMin = topSlabMinRev(slabs);
-                  const pct = topMin > 0 ? Math.min(100, Math.round((s.adjustedRevenue / topMin) * 100)) : 0;
+                  const pct    = topMin > 0 ? Math.min(100, Math.round((s.adjustedRevenue / topMin) * 100)) : 0;
                   return (
                     <tr key={s.id} className="hover:bg-ink-50/50 transition-colors">
                       <td className="py-3.5 px-5">
@@ -181,28 +258,27 @@ function LiveView({ sheets, noRevenueYet, slabs, year, month, period, totalReven
                           </div>
                         </div>
                       </td>
-                      <td className="py-3.5 px-5 text-right font-medium text-ink-700">
+                      <td className="py-3.5 px-5 text-right text-ink-500 tabular-nums">—</td>
+                      <td className="py-3.5 px-5 text-right font-medium text-ink-700 tabular-nums">
                         ₹{s.adjustedRevenue.toLocaleString("en-IN")}
                       </td>
                       <td className="py-3.5 px-5">
                         <div className="flex items-center gap-2 min-w-[120px]">
-                          <div className="flex-1 h-1.5 rounded-full bg-ink-100 overflow-hidden">
+                          <div className="flex-1 h-[5px] rounded-full bg-ink-100 overflow-hidden">
                             <div
-                              className={`h-full rounded-full ${st === "on-track" ? "bg-green-500" : st === "needs-push" ? "bg-orange-400" : "bg-red-400"}`}
+                              className={`h-full rounded-full transition-all ${st === "on-track" ? "bg-green-500" : st === "needs-push" ? "bg-amber-400" : "bg-red-400"}`}
                               style={{ width: `${pct}%` }}
                             />
                           </div>
-                          <span className="text-xs text-ink-400 w-8 text-right">{pct}%</span>
+                          <span className="text-xs text-ink-400 w-8 text-right tabular-nums">{pct}%</span>
                         </div>
                       </td>
                       <td className="py-3.5 px-5 text-right">
-                        <span className="font-semibold text-ink-700">₹{s.finalAmount.toLocaleString("en-IN")}</span>
-                        {s.status === "DRAFT" && (
-                          <span className="ml-1.5 text-[10px] font-bold text-orange-500 bg-orange-50 px-1.5 py-0.5 rounded">EST</span>
-                        )}
-                        {s.status !== "DRAFT" && (
-                          <span className="ml-1.5 text-[10px] font-bold text-green-600 bg-green-50 px-1.5 py-0.5 rounded">FINAL</span>
-                        )}
+                        <span className="font-bold text-ink-700 tabular-nums">₹{s.finalAmount.toLocaleString("en-IN")}</span>
+                        {s.status === "DRAFT"
+                          ? <span className="ml-1.5 text-[10px] font-bold text-orange-500 bg-orange-50 px-1.5 py-0.5 rounded">EST</span>
+                          : <span className="ml-1.5 text-[10px] font-bold text-green-600 bg-green-50 px-1.5 py-0.5 rounded">FINAL</span>
+                        }
                       </td>
                       <td className="py-3.5 px-5">
                         <StatusPill status={st} sheetStatus={s.status} />
@@ -212,21 +288,26 @@ function LiveView({ sheets, noRevenueYet, slabs, year, month, period, totalReven
                 })}
               </tbody>
             </table>
-            {/* Bottom bar */}
             <div className="px-5 py-3 border-t border-ink-100 bg-ink-50/50 flex items-center justify-between gap-3">
               <p className="text-xs text-ink-400">
                 Figures tagged <span className="font-bold text-orange-500">EST</span> are estimates — finalise in Month-End Review before payout
               </p>
+              <Link
+                href={`/incentives?tab=review&year=${year}&month=${month}`}
+                className="inline-flex items-center h-7 px-3 rounded-md bg-ink-700 text-white text-xs font-medium hover:bg-ink-600 transition-colors"
+              >
+                Go to Review →
+              </Link>
             </div>
           </div>
         )}
       </Card>
 
-      {/* Counsellors with no revenue + sheet link */}
+      {/* Counsellors with no revenue */}
       {noRevenueYet.length > 0 && (
         <Card>
           <CardContent className="pt-5">
-            <h3 className="text-sm font-semibold text-ink-600 mb-3">No revenue entered yet</h3>
+            <h3 className="text-sm font-semibold text-ink-600 mb-3">No revenue entered yet ({noRevenueYet.length})</h3>
             <div className="flex flex-wrap gap-2">
               {noRevenueYet.map((u) => (
                 <div key={u.id} className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-ink-100 text-sm text-ink-500 bg-white">
@@ -237,7 +318,7 @@ function LiveView({ sheets, noRevenueYet, slabs, year, month, period, totalReven
             </div>
             <p className="mt-3 text-xs text-ink-400">
               Switch to{" "}
-              <Link href="/incentives?tab=review" className="text-sky-600 hover:underline">
+              <Link href={`/incentives?tab=review&year=${year}&month=${month}`} className="text-sky-600 hover:underline">
                 Month-End Review
               </Link>{" "}
               to enter their figures.
@@ -249,38 +330,35 @@ function LiveView({ sheets, noRevenueYet, slabs, year, month, period, totalReven
   );
 }
 
-// ─── Review View ──────────────────────────────────────────────────────────────
+// ─── Review Tab ───────────────────────────────────────────────────────────────
 
-function ReviewView({ sheets, noRevenueYet, slabs, year, month, period }: {
+function ReviewTab({ sheets, allSalesUsers, noRevenueYet, slabs, year, month, period, allLocked }: {
   sheets: SheetWithUser[];
+  allSalesUsers: { id: string; name: string | null; image: string | null; department: { name: string } | null }[];
   noRevenueYet: { id: string; name: string | null; image: string | null; department: { name: string } | null }[];
   slabs: Slab[];
   year: number; month: number;
   period: { sheetUrl: string | null; note: string | null } | null;
+  allLocked: boolean;
 }) {
-  const allLocked = sheets.length > 0 && sheets.every((s) => s.status !== "DRAFT");
+  // Build rows for ALL users (sheets + those without revenue)
+  const rows: ReviewRow[] = allSalesUsers.map((u) => {
+    const sheet = sheets.find((s) => s.user.id === u.id);
+    return {
+      userId:         u.id,
+      name:           u.name,
+      image:          u.image,
+      department:     u.department?.name ?? null,
+      estRevenue:     sheet?.adjustedRevenue ?? 0,
+      estIncentive:   sheet?.incentiveAmount ?? 0,
+      isLocked:       sheet ? sheet.status !== "DRAFT" : false,
+      adjustmentNote: sheet?.adjustmentNote ?? null,
+    };
+  });
 
   return (
     <div className="space-y-5">
-      {/* Alert or locked banner */}
-      {!allLocked ? (
-        <div className="flex items-start gap-3 p-4 rounded-xl bg-orange-50 border border-orange-100">
-          <span className="text-lg shrink-0">⚠️</span>
-          <div>
-            <p className="font-semibold text-orange-700">Review before locking</p>
-            <p className="text-sm text-orange-600 mt-0.5">
-              Adjust any figures that need correction (refunds, data errors). Add a note for each change. Once locked, figures are frozen for payout.
-            </p>
-          </div>
-        </div>
-      ) : (
-        <div className="flex items-center gap-3 p-4 rounded-xl bg-green-50 border border-green-100">
-          <span className="text-lg">🔒</span>
-          <p className="font-semibold text-green-700">All sheets locked for {MONTHS[month - 1]} {year} — ready to send to Accounts Manager.</p>
-        </div>
-      )}
-
-      {/* Sales sheet link */}
+      {/* Sales sheet URL form */}
       <Card>
         <CardContent className="pt-5">
           <form action={setPeriodSheetUrl} className="flex items-end gap-3 flex-wrap">
@@ -296,7 +374,8 @@ function ReviewView({ sheets, noRevenueYet, slabs, year, month, period }: {
             </div>
             <Button type="submit" variant="outline">Save</Button>
             {period?.sheetUrl && (
-              <a href={period.sheetUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 h-10 px-4 rounded-md border border-ink-200 text-sm font-medium text-sky-600 hover:bg-sky-50 transition-colors">
+              <a href={period.sheetUrl} target="_blank" rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 h-10 px-4 rounded-md border border-ink-200 text-sm font-medium text-sky-600 hover:bg-sky-50 transition-colors">
                 <ExternalLink className="size-3.5" /> Open
               </a>
             )}
@@ -304,141 +383,22 @@ function ReviewView({ sheets, noRevenueYet, slabs, year, month, period }: {
         </CardContent>
       </Card>
 
-      {/* Adjustment table */}
-      <Card>
-        <div className="px-5 py-4 border-b border-ink-100">
-          <h2 className="font-semibold text-ink-700">Final adjustment sheet</h2>
-          <p className="text-xs text-ink-400 mt-0.5">
-            {MONTHS[month - 1]} {year} · Edit revenue figures as needed; incentive recalculates on save
-          </p>
-        </div>
+      {/* Main review form */}
+      <ReviewForm
+        rows={rows}
+        slabs={slabs}
+        year={year}
+        month={month}
+        periodSheetUrl={period?.sheetUrl ?? null}
+        periodNote={period?.note ?? null}
+        allLocked={allLocked}
+      />
 
-        {sheets.length === 0 && noRevenueYet.length === 0 ? (
-          <div className="p-6">
-            <EmptyState emoji="📋" title="No counsellors yet" description="No revenue data for this month." />
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-ink-50 border-b border-ink-100 text-xs text-ink-400 uppercase tracking-wide">
-                  <th className="text-left py-3 px-5 font-medium">Counsellor</th>
-                  <th className="text-right py-3 px-5 font-medium">Current revenue</th>
-                  <th className="text-right py-3 px-5 font-medium">Rate</th>
-                  <th className="text-right py-3 px-5 font-medium">Incentive</th>
-                  <th className="text-right py-3 px-5 font-medium">Adj.</th>
-                  <th className="text-right py-3 px-5 font-medium">Final</th>
-                  <th className="py-3 px-5 font-medium">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-ink-50">
-                {sheets.map((s) => (
-                  <tr key={s.id} className="hover:bg-ink-50/50 transition-colors">
-                    <td className="py-3 px-5">
-                      <div className="flex items-center gap-3">
-                        <Avatar src={s.user.image} name={s.user.name} size="sm" />
-                        <div>
-                          <div className="font-medium text-ink-700">{s.user.name}</div>
-                          {s.user.department && <div className="text-xs text-ink-400">{s.user.department.name}</div>}
-                        </div>
-                      </div>
-                    </td>
-                    <td className="py-3 px-5 text-right text-ink-600">₹{s.adjustedRevenue.toLocaleString("en-IN")}</td>
-                    <td className="py-3 px-5 text-right text-ink-400">{s.slabRate}%</td>
-                    <td className="py-3 px-5 text-right font-medium text-ink-700">₹{s.incentiveAmount.toLocaleString("en-IN")}</td>
-                    <td className="py-3 px-5 text-right">
-                      {s.manualAdjustment !== 0 ? (
-                        <span className={`text-sm font-medium ${s.manualAdjustment >= 0 ? "text-green-600" : "text-red-600"}`}>
-                          {s.manualAdjustment >= 0 ? "+" : ""}₹{s.manualAdjustment.toLocaleString("en-IN")}
-                        </span>
-                      ) : <span className="text-ink-300">—</span>}
-                    </td>
-                    <td className="py-3 px-5 text-right font-bold text-ink-700">₹{s.finalAmount.toLocaleString("en-IN")}</td>
-                    <td className="py-3 px-5">
-                      {s.status === "DRAFT" ? (
-                        <div className="flex flex-col gap-2">
-                          <form action={setRevenue} className="flex items-center gap-2">
-                            <input type="hidden" name="userId" value={s.user.id} />
-                            <input type="hidden" name="year"   value={year} />
-                            <input type="hidden" name="month"  value={month} />
-                            <Input name="revenue" type="number" min={0} defaultValue={s.adjustedRevenue} className="w-28 h-8 text-sm" />
-                            <Button type="submit" variant="outline" size="sm">Update</Button>
-                          </form>
-                          <form action={lockSheet} className="flex items-center gap-2 flex-wrap">
-                            <input type="hidden" name="sheetId" value={s.id} />
-                            <Input name="manualAdjustment" type="number" defaultValue={0} className="w-20 h-8 text-sm" placeholder="Adj." />
-                            <Input name="adjustmentNote" placeholder="Reason" className="w-28 h-8 text-sm" />
-                            <Button type="submit" variant="accent" size="sm">🔒 Lock</Button>
-                          </form>
-                        </div>
-                      ) : (
-                        <div className="flex items-center gap-2">
-                          <Badge tone="orange">Locked</Badge>
-                          {s.lockedBy?.name && <span className="text-xs text-ink-400">by {s.lockedBy.name}</span>}
-                        </div>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-                {/* Empty rows for counsellors with no revenue */}
-                {noRevenueYet.map((u) => (
-                  <tr key={u.id} className="hover:bg-ink-50/50 transition-colors opacity-60">
-                    <td className="py-3 px-5">
-                      <div className="flex items-center gap-3">
-                        <Avatar src={u.image} name={u.name} size="sm" />
-                        <div>
-                          <div className="font-medium text-ink-700">{u.name}</div>
-                          {u.department && <div className="text-xs text-ink-400">{u.department.name}</div>}
-                        </div>
-                      </div>
-                    </td>
-                    <td className="py-3 px-5 text-right text-ink-300">—</td>
-                    <td className="py-3 px-5 text-right text-ink-300">—</td>
-                    <td className="py-3 px-5 text-right text-ink-300">—</td>
-                    <td className="py-3 px-5 text-right text-ink-300">—</td>
-                    <td className="py-3 px-5 text-right text-ink-300">—</td>
-                    <td className="py-3 px-5">
-                      <form action={setRevenue} className="flex items-center gap-2">
-                        <input type="hidden" name="userId" value={u.id} />
-                        <input type="hidden" name="year"   value={year} />
-                        <input type="hidden" name="month"  value={month} />
-                        <Input name="revenue" type="number" min={0} required placeholder="₹0" className="w-28 h-8 text-sm" />
-                        <Button type="submit" variant="accent" size="sm">Set</Button>
-                      </form>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-
-            {/* Totals footer */}
-            {sheets.length > 0 && (
-              <div className="px-5 py-4 border-t border-ink-100 bg-ink-50/50 flex items-center gap-6 flex-wrap">
-                <div className="text-sm text-ink-500">
-                  Total revenue: <span className="font-semibold text-ink-700">₹{sheets.reduce((a, s) => a + s.adjustedRevenue, 0).toLocaleString("en-IN")}</span>
-                </div>
-                <div className="text-sm text-ink-500">
-                  Total payout: <span className="font-semibold text-sky-600">₹{sheets.reduce((a, s) => a + s.finalAmount, 0).toLocaleString("en-IN")}</span>
-                </div>
-                <div className="text-sm text-ink-500">
-                  Net adj.: <span className="font-semibold text-ink-700">
-                    {(() => {
-                      const adj = sheets.reduce((a, s) => a + s.manualAdjustment, 0);
-                      return adj === 0 ? "—" : `${adj >= 0 ? "+" : ""}₹${adj.toLocaleString("en-IN")}`;
-                    })()}
-                  </span>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-      </Card>
-
-      {/* Bulk import */}
+      {/* Bulk import (secondary) */}
       <Card>
         <CardContent className="pt-5">
           <h3 className="font-semibold text-ink-700 mb-1">📥 Bulk import via CSV</h3>
-          <p className="text-xs text-ink-400 mb-4">Paste revenue figures from the sales sheet — two columns, one row per counsellor.</p>
+          <p className="text-xs text-ink-400 mb-4">Two columns: <code>counsellor_email</code> and <code>revenue</code></p>
           <BulkImportForm action={bulkImportRevenue} templateHref="/incentives/template" year={year} month={month} forTeam />
         </CardContent>
       </Card>
@@ -448,21 +408,30 @@ function ReviewView({ sheets, noRevenueYet, slabs, year, month, period }: {
 
 // ─── History View ─────────────────────────────────────────────────────────────
 
-async function HistoryView({ year, month }: { year: number; month: number }) {
+async function HistoryView({
+  currentYear,
+  currentMonth,
+  historyYear,
+  historyMonth,
+}: {
+  currentYear: number;
+  currentMonth: number;
+  historyYear?: number;
+  historyMonth?: number;
+}) {
   const past = await prisma.incentiveSheet.groupBy({
     by: ["year", "month"],
-    _sum: { finalAmount: true, adjustedRevenue: true },
+    _sum:   { finalAmount: true, adjustedRevenue: true },
     _count: { userId: true },
-    where: { NOT: { year, month } },
+    where:  { NOT: { year: currentYear, month: currentMonth } },
     orderBy: [{ year: "desc" }, { month: "desc" }],
     take: 12,
   });
 
-  // Get status for each period (show worst status = most advanced)
   const periodStatuses = await Promise.all(
     past.map(async (p) => {
       const statuses = await prisma.incentiveSheet.findMany({
-        where: { year: p.year, month: p.month },
+        where:  { year: p.year, month: p.month },
         select: { status: true },
       });
       const statusOrder = ["DRAFT", "LOCKED", "APPROVED", "PAID"];
@@ -470,50 +439,141 @@ async function HistoryView({ year, month }: { year: number; month: number }) {
         return statusOrder.indexOf(s.status) < statusOrder.indexOf(a) ? s.status : a;
       }, "PAID" as string);
       return { ...p, overallStatus: worst };
-    })
+    }),
   );
 
   if (past.length === 0) {
-    return <EmptyState emoji="📅" title="No history yet" description="Past months will appear here once locked and processed." />;
+    return (
+      <EmptyState
+        emoji="📅"
+        title="No history yet"
+        description="Past months will appear here once locked and processed."
+      />
+    );
   }
+
+  // Which month is selected for detail
+  const selYear  = historyYear  ?? past[0].year;
+  const selMonth = historyMonth ?? past[0].month;
+
+  // Fetch detail for selected month
+  const detailSheets = await prisma.incentiveSheet.findMany({
+    where:   { year: selYear, month: selMonth },
+    orderBy: { finalAmount: "desc" },
+    include: { user: { select: { id: true, name: true, image: true, department: { select: { name: true } } } } },
+  });
 
   return (
     <div className="space-y-5">
+      {/* Month cards grid */}
       <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-4">
         {periodStatuses.map((p) => {
-          const isPaid = p.overallStatus === "PAID";
+          const isPaid    = p.overallStatus === "PAID";
+          const isActive  = p.year === selYear && p.month === selMonth;
           return (
-            <div
+            <Link
               key={`${p.year}-${p.month}`}
-              className={`p-5 rounded-xl border bg-white transition-colors cursor-default ${isPaid ? "border-green-200" : "border-orange-200"}`}
+              href={`/incentives?tab=history&year=${currentYear}&month=${currentMonth}&historyYear=${p.year}&historyMonth=${p.month}`}
+              className={`p-5 rounded-xl border bg-white transition-all hover:shadow-md cursor-pointer ${
+                isActive
+                  ? "border-orange-400 bg-orange-50/30"
+                  : isPaid
+                  ? "border-green-200 hover:border-green-300"
+                  : "border-amber-200 hover:border-amber-300"
+              }`}
             >
               <div className="font-semibold text-ink-700">{MONTHS[p.month - 1]} {p.year}</div>
               <div className="text-xs text-ink-400 mt-0.5">{p._count.userId} counsellor{p._count.userId !== 1 ? "s" : ""}</div>
-              <div className="mt-3 text-2xl font-bold text-ink-700">
+              <div className="mt-3 text-2xl font-bold text-ink-700 tabular-nums">
                 ₹{(p._sum.finalAmount ?? 0).toLocaleString("en-IN")}
               </div>
-              <div className="text-xs text-ink-400">₹{(p._sum.adjustedRevenue ?? 0).toLocaleString("en-IN")} revenue</div>
-              <div className={`mt-3 inline-flex items-center gap-1.5 text-xs font-semibold ${isPaid ? "text-green-600" : "text-orange-600"}`}>
-                <span className={`size-1.5 rounded-full ${isPaid ? "bg-green-500" : "bg-orange-400"}`} />
-                {isPaid ? "Paid out" : p.overallStatus === "APPROVED" ? "Approved" : p.overallStatus === "LOCKED" ? "Locked" : "In progress"}
+              <div className="text-xs text-ink-400 tabular-nums">₹{(p._sum.adjustedRevenue ?? 0).toLocaleString("en-IN")} revenue</div>
+              <div className={`mt-3 inline-flex items-center gap-1.5 text-xs font-semibold ${isPaid ? "text-green-600" : "text-amber-600"}`}>
+                <span className={`size-1.5 rounded-full ${isPaid ? "bg-green-500" : "bg-amber-400"}`} />
+                {isPaid ? "✓ Paid Out" : p.overallStatus === "APPROVED" ? "Approved" : p.overallStatus === "LOCKED" ? "● Locked" : "● In Progress"}
               </div>
-            </div>
+            </Link>
           );
         })}
       </div>
+
+      {/* Detail for selected month */}
+      {detailSheets.length > 0 && (
+        <Card>
+          <div className="px-5 py-4 border-b border-ink-100 flex items-center justify-between gap-3">
+            <div>
+              <h2 className="font-semibold text-ink-700">{FULL_MONTHS[selMonth - 1]} {selYear} — Paid Breakdown</h2>
+              <p className="text-xs text-ink-400 mt-0.5">
+                {detailSheets.length} counsellor{detailSheets.length !== 1 ? "s" : ""}
+              </p>
+            </div>
+            <Badge tone="sky">{detailSheets[0]?.status}</Badge>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-ink-50 border-b border-ink-100 text-[10.5px] text-ink-400 uppercase tracking-wide font-semibold">
+                  <th className="text-left py-3 px-5">Counsellor</th>
+                  <th className="text-right py-3 px-5">Final Revenue</th>
+                  <th className="text-right py-3 px-5">Incentive Paid</th>
+                  <th className="text-left py-3 px-5">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-ink-50">
+                {detailSheets.map((s) => (
+                  <tr key={s.id} className="hover:bg-ink-50/50 transition-colors">
+                    <td className="py-3.5 px-5">
+                      <div className="flex items-center gap-3">
+                        <Avatar src={s.user.image} name={s.user.name} size="sm" />
+                        <div>
+                          <div className="font-medium text-ink-700">{s.user.name}</div>
+                          {s.user.department && <div className="text-xs text-ink-400">{s.user.department.name}</div>}
+                        </div>
+                      </div>
+                    </td>
+                    <td className="py-3.5 px-5 text-right tabular-nums text-ink-600">
+                      ₹{s.adjustedRevenue.toLocaleString("en-IN")}
+                    </td>
+                    <td className="py-3.5 px-5 text-right">
+                      <span className="font-bold text-ink-700 tabular-nums">₹{s.finalAmount.toLocaleString("en-IN")}</span>
+                      <span className="ml-1.5 text-[10px] font-bold text-green-600 bg-green-50 px-1.5 py-0.5 rounded">FINAL</span>
+                    </td>
+                    <td className="py-3.5 px-5">
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-green-50 text-green-700">
+                        <span className="size-1.5 rounded-full bg-green-500" /> {s.status}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
     </div>
   );
 }
 
 // ─── Small reusable parts ─────────────────────────────────────────────────────
 
-function SummaryCard({ emoji, label, value, sub }: { emoji: string; label: string; value: string; sub?: string }) {
+const accentMap = {
+  orange: "bg-orange-50",
+  blue:   "bg-blue-50",
+  green:  "bg-green-50",
+  gold:   "bg-amber-50",
+} as const;
+
+function SummaryCard({ emoji, label, value, sub, accent }: {
+  emoji: string; label: string; value: string; sub?: string; accent: keyof typeof accentMap;
+}) {
   return (
-    <Card className="p-5">
-      <div className="text-2xl mb-3">{emoji}</div>
-      <div className="text-xs text-ink-400 uppercase tracking-wide font-medium">{label}</div>
-      <div className="text-2xl font-bold text-ink-700 mt-1">{value}</div>
-      {sub && <div className="text-xs text-ink-400 mt-1">{sub}</div>}
+    <Card className="p-5 relative overflow-hidden">
+      <div className={`size-9 rounded-xl flex items-center justify-center text-base mb-3 ${accentMap[accent]}`}>
+        {emoji}
+      </div>
+      <div className="text-[10px] text-ink-400 uppercase tracking-widest font-medium mb-1">{label}</div>
+      <div className="text-[28px] font-bold text-ink-700 leading-none tabular-nums">{value}</div>
+      {sub && <div className="text-xs text-ink-400 mt-1.5">{sub}</div>}
     </Card>
   );
 }
@@ -521,9 +581,9 @@ function SummaryCard({ emoji, label, value, sub }: { emoji: string; label: strin
 function StatusPill({ status, sheetStatus }: { status: string; sheetStatus: string }) {
   if (sheetStatus !== "DRAFT") {
     const colors: Record<string, string> = {
-      LOCKED: "bg-orange-50 text-orange-600",
-      APPROVED: "bg-sun-50 text-sun-600",
-      PAID: "bg-green-50 text-green-600",
+      LOCKED:   "bg-orange-50 text-orange-600",
+      APPROVED: "bg-amber-50 text-amber-600",
+      PAID:     "bg-green-50 text-green-600",
     };
     return (
       <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${colors[sheetStatus] ?? "bg-ink-100 text-ink-500"}`}>
@@ -533,10 +593,10 @@ function StatusPill({ status, sheetStatus }: { status: string; sheetStatus: stri
     );
   }
   const map = {
-    "on-track":     { label: "On Track",      cls: "bg-green-50 text-green-700" },
-    "needs-push":   { label: "Needs Push",     cls: "bg-orange-50 text-orange-600" },
-    "below-target": { label: "Below Target",   cls: "bg-red-50 text-red-600" },
-    "neutral":      { label: "—",              cls: "bg-ink-50 text-ink-400" },
+    "on-track":     { label: "On Track",    cls: "bg-green-50 text-green-700" },
+    "needs-push":   { label: "Needs Push",  cls: "bg-amber-50 text-amber-600" },
+    "below-target": { label: "Below Target", cls: "bg-red-50 text-red-600" },
+    "neutral":      { label: "—",           cls: "bg-ink-50 text-ink-400" },
   } as const;
   const s = map[status as keyof typeof map] ?? map.neutral;
   return (
@@ -544,5 +604,30 @@ function StatusPill({ status, sheetStatus }: { status: string; sheetStatus: stri
       <span className="size-1.5 rounded-full bg-current" />
       {s.label}
     </span>
+  );
+}
+
+// ─── Export button (client) ───────────────────────────────────────────────────
+// Inline client component — small enough to keep in the same file via a
+// "use client" boundary, but Next.js doesn't allow mixed directives in one file,
+// so we keep it as a server component that renders a plain <button> with onclick.
+// For a real CSV export we use a simple anchor pointing to a generated route.
+
+function ExportButton({ sheets, year, month }: {
+  sheets: SheetWithUser[];
+  year: number;
+  month: number;
+}) {
+  void sheets; // data available if needed for a custom export route
+  return (
+    <a
+      href={`/incentives/export?year=${year}&month=${month}`}
+      className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg border border-ink-200 text-sm font-medium text-ink-600 hover:bg-ink-50 transition-colors"
+    >
+      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">
+        <path d="M8 2v9M4 7l4 4 4-4"/><path d="M2 13h12"/>
+      </svg>
+      Export
+    </a>
   );
 }

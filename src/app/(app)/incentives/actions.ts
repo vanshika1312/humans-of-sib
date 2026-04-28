@@ -167,6 +167,109 @@ export async function markPaid(sheetId: string) {
   revalidatePath("/incentives");
 }
 
+// ─── lock month in bulk (saves revenues + notes, then locks all drafts) ──────
+
+export type LockBulkState = { error?: string; success?: boolean };
+
+export async function lockMonthBulk(
+  _prev: LockBulkState,
+  formData: FormData,
+): Promise<LockBulkState> {
+  const me = await getMe();
+  try {
+    requireSalesHead(me.role);
+  } catch (e) {
+    return { error: (e as Error).message };
+  }
+
+  const year    = Number(formData.get("year"));
+  const month   = Number(formData.get("month"));
+  const userIds = formData.getAll("userId") as string[];
+  const revenues = formData.getAll("revenue") as string[];
+  const notes    = formData.getAll("note") as string[];
+
+  if (!userIds.length) return { error: "No counsellor data to save." };
+
+  // Upsert all revenues
+  await Promise.all(
+    userIds.map((userId, i) => {
+      const revenue = Number(revenues[i]) || 0;
+      return upsertSheetFromRevenue(userId, year, month, revenue);
+    }),
+  );
+
+  // Attach notes to DRAFT sheets
+  await Promise.all(
+    userIds.map(async (userId, i) => {
+      const note = (notes[i] ?? "").trim() || undefined;
+      if (!note) return;
+      await prisma.incentiveSheet.updateMany({
+        where: { userId, year, month, status: "DRAFT" },
+        data: { adjustmentNote: note },
+      });
+    }),
+  );
+
+  // Lock all remaining DRAFT sheets
+  const draftSheets = await prisma.incentiveSheet.findMany({
+    where: { year, month, status: "DRAFT" },
+  });
+
+  if (draftSheets.length > 0) {
+    const now = new Date();
+    await Promise.all(
+      draftSheets.map((s) =>
+        prisma.incentiveSheet.update({
+          where: { id: s.id },
+          data: {
+            status: "LOCKED",
+            finalAmount: s.incentiveAmount + (s.manualAdjustment ?? 0),
+            lockedById: me.id,
+            lockedAt: now,
+          },
+        }),
+      ),
+    );
+  }
+
+  revalidatePath("/incentives");
+  return { success: true };
+}
+
+// ─── bulk send to accounts (locks all DRAFT sheets for a month at once) ──────
+
+export async function sendMonthToAccounts(formData: FormData) {
+  const me = await getMe();
+  requireSalesHead(me.role);
+
+  const year  = Number(formData.get("year"));
+  const month = Number(formData.get("month"));
+
+  const draftSheets = await prisma.incentiveSheet.findMany({
+    where: { year, month, status: "DRAFT" },
+  });
+
+  if (draftSheets.length === 0) throw new Error("No draft sheets to lock for this month.");
+
+  // Lock each sheet individually so finalAmount (= incentiveAmount + adjustment) is set correctly
+  const now = new Date();
+  await Promise.all(
+    draftSheets.map((s) =>
+      prisma.incentiveSheet.update({
+        where: { id: s.id },
+        data: {
+          status: "LOCKED",
+          finalAmount: s.incentiveAmount + (s.manualAdjustment ?? 0),
+          lockedById: me.id,
+          lockedAt: now,
+        },
+      }),
+    ),
+  );
+
+  revalidatePath("/incentives");
+}
+
 // ─── bulk import (Sales Head: CSV with email + revenue) ───────────────────────
 
 export type BulkImportResult = {
@@ -223,7 +326,7 @@ export async function bulkImportRevenue(
     const rowNum = i + 2;
     const row = bulkRowSchema.safeParse(parsed.data[i]);
     if (!row.success) {
-      errors.push(`Row ${rowNum}: ${row.error.errors.map((e) => e.message).join(", ")}`);
+      errors.push(`Row ${rowNum}: ${row.error.issues.map((e: { message: string }) => e.message).join(", ")}`);
       skipped++;
       continue;
     }

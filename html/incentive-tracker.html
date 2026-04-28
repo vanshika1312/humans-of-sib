@@ -1,0 +1,958 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Incentive Tracker – Skillinabox</title>
+<link href="https://fonts.googleapis.com/css2?family=Clash+Display:wght@400;500;600;700&family=Instrument+Sans:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+<style>
+/* ============================================================
+   DESIGN TOKENS
+   ============================================================ */
+:root {
+  --bg:       #f7f4ef;
+  --surface:  #ffffff;
+  --border:   #e8e2d9;
+  --accent:   #e85d2f;
+  --accent2:  #1a6b5a;
+  --gold:     #c9922a;
+  --text:     #1a1714;
+  --muted:    #8a7f74;
+  --soft:     #b5aa9f;
+  --danger:   #c0392b;
+  --success:  #1a6b5a;
+}
+
+/* ============================================================
+   RESET & BASE
+   ============================================================ */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: var(--bg);
+  font-family: 'Instrument Sans', sans-serif;
+  color: var(--text);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+body::before {
+  content: '';
+  position: fixed; inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+  pointer-events: none; z-index: 0; opacity: 0.45;
+}
+
+/* ============================================================
+   SIDEBAR — only Incentive Tracker entry
+   ============================================================ */
+.sidebar {
+  position: fixed; left: 0; top: 0; bottom: 0; width: 220px;
+  background: var(--text);
+  padding: 28px 0;
+  display: flex; flex-direction: column;
+  z-index: 10;
+}
+.sidebar-logo {
+  padding: 0 24px 28px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+.sidebar-logo .brand {
+  font-family: 'Clash Display', sans-serif;
+  font-size: 20px; font-weight: 700;
+  color: #fff; letter-spacing: -0.5px;
+}
+.sidebar-logo .brand span { color: var(--accent); }
+.sidebar-logo .tagline {
+  font-size: 10px; color: rgba(255,255,255,0.28);
+  margin-top: 3px; letter-spacing: 1px; text-transform: uppercase;
+}
+.nav { flex: 1; padding: 24px 12px; }
+/* Single active nav item */
+.nav-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px; border-radius: 9px;
+  font-size: 13px; font-weight: 500;
+  color: #fff;
+  background: rgba(232,93,47,0.18);
+  border: 1px solid rgba(232,93,47,0.25);
+  cursor: default;
+}
+.nav-icon {
+  width: 28px; height: 28px; border-radius: 7px;
+  background: var(--accent);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; flex-shrink: 0;
+}
+.sidebar-user {
+  padding: 16px 24px;
+  border-top: 1px solid rgba(255,255,255,0.08);
+}
+.user-name { font-size: 13px; color: #fff; font-weight: 500; }
+.user-role  { font-size: 11px; color: rgba(255,255,255,0.3); margin-top: 2px; }
+
+/* ============================================================
+   MAIN CONTENT AREA
+   ============================================================ */
+.main {
+  margin-left: 220px;
+  min-height: 100vh;
+  position: relative; z-index: 1;
+}
+
+/* ---- TOP BAR ---- */
+.topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 20px 36px;
+  background: rgba(247,244,239,0.85);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border);
+  position: sticky; top: 0; z-index: 5;
+}
+.topbar-left h1 {
+  font-family: 'Clash Display', sans-serif;
+  font-size: 22px; font-weight: 700; letter-spacing: -0.5px;
+}
+.topbar-left p { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.topbar-right { display: flex; align-items: center; gap: 12px; }
+.month-selector {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 8px; padding: 8px 14px; font-size: 13px; cursor: pointer;
+}
+.month-selector svg { width: 14px; height: 14px; opacity: 0.4; }
+.notif-btn {
+  width: 36px; height: 36px; border-radius: 8px;
+  border: 1px solid var(--border); background: var(--surface);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; font-size: 16px; position: relative;
+}
+.notif-dot {
+  position: absolute; top: 6px; right: 6px;
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--accent); border: 1.5px solid var(--bg);
+}
+
+/* ---- PAGE BODY ---- */
+.page { padding: 28px 36px; }
+
+/* ---- TABS ---- */
+.tab-row {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 28px;
+}
+.tabs {
+  display: flex; background: var(--surface);
+  border: 1px solid var(--border); border-radius: 10px; padding: 4px;
+  width: fit-content;
+}
+.tab {
+  padding: 8px 22px; border-radius: 7px;
+  font-size: 13px; font-weight: 500; cursor: pointer;
+  color: var(--muted); transition: all 0.2s;
+  border: none; background: none;
+  font-family: 'Instrument Sans', sans-serif;
+}
+.tab.active { background: var(--text); color: #fff; }
+.tab-actions { display: flex; gap: 10px; }
+
+/* ---- SUMMARY CARDS ---- */
+.summary-grid {
+  display: grid; grid-template-columns: repeat(4,1fr);
+  gap: 16px; margin-bottom: 28px;
+}
+.scard {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 16px; padding: 22px 24px;
+  position: relative; overflow: hidden;
+  animation: fadeUp 0.4s ease both;
+}
+.scard:nth-child(1){animation-delay:0.05s}
+.scard:nth-child(2){animation-delay:0.10s}
+.scard:nth-child(3){animation-delay:0.15s}
+.scard:nth-child(4){animation-delay:0.20s}
+@keyframes fadeUp {
+  from { opacity:0; transform:translateY(12px) }
+  to   { opacity:1; transform:translateY(0) }
+}
+.scard-icon {
+  width: 36px; height: 36px; border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 16px; margin-bottom: 14px;
+}
+.scard-label {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 1px;
+  color: var(--muted); margin-bottom: 8px;
+}
+.scard-value {
+  font-family: 'Clash Display', sans-serif;
+  font-size: 30px; font-weight: 700; letter-spacing: -1px; line-height: 1;
+}
+.scard-sub { font-size: 12px; color: var(--muted); margin-top: 6px; }
+.scard-sub .up   { color: var(--success); font-weight: 600; }
+.scard-sub .down { color: var(--danger);  font-weight: 600; }
+.scard-accent {
+  position: absolute; bottom: -20px; right: -10px;
+  font-size: 64px; opacity: 0.04; pointer-events: none;
+}
+
+/* ---- BUTTONS ---- */
+.btn {
+  padding: 8px 16px; border-radius: 8px;
+  font-size: 13px; font-weight: 500; cursor: pointer;
+  border: none; transition: all 0.18s;
+  font-family: 'Instrument Sans', sans-serif;
+  display: flex; align-items: center; gap: 6px;
+}
+.btn-ghost   { background:transparent; color:var(--text); border:1px solid var(--border); }
+.btn-ghost:hover   { background:var(--bg); border-color:var(--soft); }
+.btn-primary { background:var(--accent); color:#fff; }
+.btn-primary:hover { background:#d04e23; }
+.btn-dark    { background:var(--text); color:#fff; }
+.btn-dark:hover    { opacity:0.85; }
+.btn-success { background:var(--accent2); color:#fff; }
+.btn-success:hover { opacity:0.85; }
+.btn-sm { padding:6px 12px; font-size:12px; }
+
+/* ---- TABLE SHARED ---- */
+.table-wrap {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 16px; overflow: hidden;
+  animation: fadeUp 0.4s 0.25s ease both;
+}
+.table-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 20px 24px; border-bottom: 1px solid var(--border);
+}
+.table-header-left h2 {
+  font-family: 'Clash Display', sans-serif; font-size: 17px; font-weight: 700;
+}
+.table-header-left p { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.table-actions { display: flex; gap: 8px; }
+
+table { width: 100%; border-collapse: collapse; }
+thead tr { background: var(--bg); }
+th {
+  padding: 11px 20px; font-size: 10.5px;
+  text-transform: uppercase; letter-spacing: 0.8px;
+  color: var(--muted); text-align: left; font-weight: 600;
+  border-bottom: 1px solid var(--border);
+}
+td { padding: 0; border-bottom: 1px solid rgba(232,226,217,0.5); }
+.td-inner { padding: 14px 20px; display: flex; align-items: center; }
+tr:last-child td { border-bottom: none; }
+tr { transition: background 0.15s; }
+tr:hover td .td-inner { background: rgba(232,93,47,0.02); }
+
+.counsellor-cell { display: flex; align-items: center; gap: 12px; }
+.avatar {
+  width: 36px; height: 36px; border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  font-family: 'Clash Display', sans-serif; font-size: 13px;
+  font-weight: 700; flex-shrink: 0;
+}
+.c-name { font-weight: 600; font-size: 14px; }
+.c-id   { font-size: 11px; color: var(--muted); }
+
+.progress-wrap { display: flex; align-items: center; gap: 10px; width: 100%; }
+.progress-bar  { flex:1; height:5px; background:var(--border); border-radius:3px; overflow:hidden; min-width:70px; }
+.progress-fill { height:100%; border-radius:3px; }
+.progress-pct  { font-size:12px; color:var(--muted); min-width:34px; text-align:right; }
+
+.incentive-amt { font-family:'Clash Display',sans-serif; font-weight:700; font-size:15px; }
+.est-tag   { font-size:10px; color:var(--accent);  background:rgba(232,93,47,0.08);  padding:2px 6px; border-radius:4px; margin-left:6px; font-weight:600; letter-spacing:0.5px; }
+.final-tag { font-size:10px; color:var(--success); background:rgba(26,107,90,0.08); padding:2px 6px; border-radius:4px; margin-left:6px; font-weight:600; }
+
+.tag { display:inline-flex; align-items:center; gap:4px; padding:4px 10px; border-radius:20px; font-size:11px; font-weight:600; }
+.tag-dot { width:5px; height:5px; border-radius:50%; }
+.tag-on   { background:rgba(26,107,90,0.1); color:var(--success); }
+.tag-on   .tag-dot { background:var(--success); }
+.tag-push { background:rgba(201,146,42,0.1); color:var(--gold); }
+.tag-push .tag-dot { background:var(--gold); }
+.tag-low  { background:rgba(192,57,43,0.08); color:var(--danger); }
+.tag-low  .tag-dot { background:var(--danger); }
+
+/* ---- BOTTOM BAR ---- */
+.bottom-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 24px; border-top: 1px solid var(--border); background: var(--bg);
+}
+.bottom-note { font-size: 12px; color: var(--muted); }
+.bottom-note strong { color: var(--accent); }
+
+/* ============================================================
+   MONTH-END REVIEW TAB
+   ============================================================ */
+.review-wrap { display: none; }
+.review-alert {
+  background: rgba(201,146,42,0.07); border: 1px solid rgba(201,146,42,0.25);
+  border-radius: 12px; padding: 14px 18px;
+  display: flex; align-items: flex-start; gap: 12px; margin-bottom: 22px;
+}
+.review-alert-icon { font-size: 18px; flex-shrink: 0; margin-top: 1px; }
+.review-alert-text h4 { font-size: 14px; font-weight: 600; color: var(--gold); }
+.review-alert-text p  { font-size: 12px; color: var(--muted); margin-top: 2px; line-height: 1.5; }
+
+.review-table-wrap {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 16px; overflow: hidden; margin-bottom: 20px;
+}
+.editable-field {
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: 6px; padding: 5px 10px;
+  font-size: 13px; font-family: 'Instrument Sans', sans-serif;
+  color: var(--text); width: 90px; text-align: right;
+}
+.editable-field:focus { outline:none; border-color:var(--accent); background:#fff; }
+.adj-note {
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: 6px; padding: 5px 10px;
+  font-size: 12px; font-family: 'Instrument Sans', sans-serif;
+  color: var(--text); width: 140px;
+}
+.adj-note:focus { outline:none; border-color:var(--accent); background:#fff; }
+.diff-pill { font-size:11px; font-weight:600; padding:2px 8px; border-radius:4px; }
+.diff-pos  { color:var(--success); background:rgba(26,107,90,0.08); }
+.diff-neg  { color:var(--danger);  background:rgba(192,57,43,0.08); }
+.diff-zero { color:var(--muted);   background:var(--bg); }
+
+.review-summary {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 16px; padding: 24px;
+  display: flex; gap: 32px; align-items: center;
+}
+.review-summary-item { text-align: center; }
+.review-summary-label {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 1px;
+  color: var(--muted); margin-bottom: 6px;
+}
+.review-summary-val {
+  font-family: 'Clash Display', sans-serif; font-size: 26px; font-weight: 700;
+}
+.review-divider { width:1px; height:48px; background:var(--border); }
+.review-actions { margin-left: auto; display: flex; gap: 10px; }
+
+/* ============================================================
+   HISTORY TAB
+   ============================================================ */
+.history-wrap { display: none; }
+.history-grid {
+  display: grid; grid-template-columns: repeat(3,1fr);
+  gap: 16px; margin-bottom: 24px;
+}
+.history-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 14px; padding: 20px 22px;
+  cursor: pointer; transition: all 0.2s;
+}
+.history-card:hover { border-color:var(--soft); box-shadow:0 4px 20px rgba(0,0,0,0.06); }
+.history-card.active-month { border-color:var(--accent); background:rgba(232,93,47,0.02); }
+.history-month  { font-family:'Clash Display',sans-serif; font-size:16px; font-weight:700; margin-bottom:4px; }
+.history-amount { font-family:'Clash Display',sans-serif; font-size:22px; font-weight:700; margin:10px 0 4px; }
+.history-meta   { font-size:11px; color:var(--muted); }
+.history-status { display:inline-flex; align-items:center; gap:4px; margin-top:8px; font-size:11px; font-weight:600; }
+.hs-paid    { color:var(--success); }
+.hs-pending { color:var(--gold); }
+.history-detail { background:var(--surface); border:1px solid var(--border); border-radius:16px; overflow:hidden; }
+
+/* ============================================================
+   LOCKED STATE BANNER
+   ============================================================ */
+.locked-banner {
+  background: rgba(26,107,90,0.06); border: 1px solid rgba(26,107,90,0.2);
+  border-radius: 10px; padding: 12px 18px;
+  display: flex; align-items: center; gap: 10px;
+  margin-bottom: 20px; font-size: 13px; color: var(--success); font-weight: 500;
+}
+
+/* ============================================================
+   SEND-TO-ACCOUNTS MODAL
+   ============================================================ */
+.modal-backdrop {
+  position: fixed; inset: 0;
+  background: rgba(26,23,20,0.5); backdrop-filter: blur(4px);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 100; opacity: 0; pointer-events: none; transition: opacity 0.25s;
+}
+.modal-backdrop.show { opacity:1; pointer-events:all; }
+.modal {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 20px; padding: 36px; width: 460px;
+  transform: translateY(16px); transition: transform 0.25s;
+}
+.modal-backdrop.show .modal { transform: translateY(0); }
+.modal-icon {
+  width:52px; height:52px; border-radius:14px;
+  background:rgba(26,107,90,0.1);
+  display:flex; align-items:center; justify-content:center;
+  font-size:24px; margin-bottom:18px;
+}
+.modal h3 { font-family:'Clash Display',sans-serif; font-size:22px; font-weight:700; margin-bottom:6px; }
+.modal p  { color:var(--muted); font-size:14px; margin-bottom:22px; line-height:1.6; }
+.modal-summary { background:var(--bg); border-radius:12px; padding:18px; margin-bottom:22px; }
+.modal-row { display:flex; justify-content:space-between; align-items:center; padding:6px 0; font-size:13px; }
+.modal-row:not(:last-child) { border-bottom:1px solid var(--border); }
+.modal-row .label { color:var(--muted); }
+.modal-row .val   { font-weight:600; }
+.modal-actions { display:flex; gap:10px; }
+.modal-actions .btn { flex:1; justify-content:center; padding:12px; }
+
+/* ============================================================
+   TOAST NOTIFICATION
+   ============================================================ */
+.toast {
+  position: fixed; bottom:28px; right:28px;
+  background: var(--text); color: #fff;
+  padding: 14px 20px; border-radius: 12px;
+  font-size: 13px; font-weight: 500; z-index: 200;
+  transform: translateY(60px); opacity: 0; transition: all 0.3s;
+  display: flex; align-items: center; gap: 10px;
+}
+.toast.show { transform:translateY(0); opacity:1; }
+.toast-icon {
+  width:20px; height:20px; border-radius:50%; background:var(--success);
+  display:flex; align-items:center; justify-content:center; font-size:11px;
+}
+
+/* ============================================================
+   UTILITY ANIMATIONS
+   ============================================================ */
+@keyframes slideIn { from{opacity:0;transform:translateX(-8px)} to{opacity:1;transform:translateX(0)} }
+.animate-in { animation: slideIn 0.3s ease both; }
+</style>
+</head>
+<body>
+
+<!-- ============================================================
+     SIDEBAR — Incentive Tracker only
+     ============================================================ -->
+<div class="sidebar">
+  <div class="sidebar-logo">
+    <div class="brand">Skilli<span>nabox</span></div>
+    <div class="tagline">Internal Tools</div>
+  </div>
+  <nav class="nav">
+    <div class="nav-item">
+      <div class="nav-icon">💰</div>
+      Incentive Tracker
+    </div>
+  </nav>
+  <div class="sidebar-user">
+    <div class="user-name">Rohit Malhotra</div>
+    <div class="user-role">Sales Head</div>
+  </div>
+</div>
+
+<!-- ============================================================
+     MAIN
+     ============================================================ -->
+<div class="main">
+
+  <!-- TOP BAR -->
+  <div class="topbar">
+    <div class="topbar-left">
+      <h1>Incentive Tracker</h1>
+      <p>Manage and approve monthly counsellor incentives</p>
+    </div>
+    <div class="topbar-right">
+      <div class="month-selector">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="2" width="14" height="13" rx="2"/><path d="M1 6h14M5 1v2M11 1v2"/></svg>
+        April 2026
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6l4 4 4-4"/></svg>
+      </div>
+      <div class="notif-btn">🔔<div class="notif-dot"></div></div>
+    </div>
+  </div>
+
+  <!-- PAGE BODY -->
+  <div class="page">
+
+    <!-- TABS + TOP-RIGHT ACTIONS -->
+    <div class="tab-row">
+      <div class="tabs">
+        <button class="tab active" onclick="switchTab('live',this)">Live View</button>
+        <button class="tab" onclick="switchTab('review',this)">Month-End Review</button>
+        <button class="tab" onclick="switchTab('history',this)">History</button>
+      </div>
+      <div class="tab-actions" id="tabActions">
+        <button class="btn btn-ghost" onclick="exportCSV()">
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 2v9M4 7l4 4 4-4"/><path d="M2 13h12"/></svg>
+          Export
+        </button>
+        <button class="btn btn-primary" onclick="showModal()">
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 8l5 5 7-7"/></svg>
+          Send to Accounts
+        </button>
+      </div>
+    </div>
+
+    <!-- ==================================================
+         TAB 1 — LIVE VIEW
+         ================================================== -->
+    <div id="liveView">
+
+      <!-- Summary Cards -->
+      <div class="summary-grid">
+        <div class="scard">
+          <div class="scard-icon" style="background:rgba(232,93,47,0.1)">💰</div>
+          <div class="scard-label">Total Incentives (Est.)</div>
+          <div class="scard-value">₹1,24,500</div>
+          <div class="scard-sub"><span class="up">↑ 18%</span> vs March 2026</div>
+          <div class="scard-accent">₹</div>
+        </div>
+        <div class="scard">
+          <div class="scard-icon" style="background:rgba(36,99,164,0.1)">📈</div>
+          <div class="scard-label">Revenue Collected</div>
+          <div class="scard-value">₹8.3L</div>
+          <div class="scard-sub">Across <strong>83</strong> enrollments</div>
+          <div class="scard-accent">📊</div>
+        </div>
+        <div class="scard">
+          <div class="scard-icon" style="background:rgba(26,107,90,0.1)">🎯</div>
+          <div class="scard-label">On Target</div>
+          <div class="scard-value">6 / 8</div>
+          <div class="scard-sub">≥80% monthly goal achieved</div>
+          <div class="scard-accent">✓</div>
+        </div>
+        <div class="scard">
+          <div class="scard-icon" style="background:rgba(201,146,42,0.1)">⚡</div>
+          <div class="scard-label">Avg. Incentive</div>
+          <div class="scard-value">₹15,563</div>
+          <div class="scard-sub"><span class="down">↓ 13%</span> of ₹18K target</div>
+          <div class="scard-accent">~</div>
+        </div>
+      </div>
+
+      <!-- Live Table -->
+      <div class="table-wrap">
+        <div class="table-header">
+          <div class="table-header-left">
+            <h2>Team Breakdown</h2>
+            <p>Live figures — updated as sales are logged</p>
+          </div>
+          <div class="table-actions">
+            <button class="btn btn-ghost btn-sm">🔍 Filter</button>
+            <button class="btn btn-ghost btn-sm">↕ Sort</button>
+          </div>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>Counsellor</th>
+              <th>Sales</th>
+              <th>Revenue</th>
+              <th>Target Progress</th>
+              <th>Incentive (Est.)</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="liveBody"></tbody>
+        </table>
+        <div class="bottom-bar">
+          <div class="bottom-note">
+            Figures tagged <strong>EST</strong> are estimates — finalise in Month-End Review before payout
+          </div>
+          <button class="btn btn-dark btn-sm"
+                  onclick="switchTab('review', document.querySelectorAll('.tab')[1])">
+            Go to Review →
+          </button>
+        </div>
+      </div>
+    </div><!-- /liveView -->
+
+    <!-- ==================================================
+         TAB 2 — MONTH-END REVIEW
+         ================================================== -->
+    <div id="reviewView" class="review-wrap">
+
+      <div class="review-alert" id="reviewAlert">
+        <div class="review-alert-icon">⚠️</div>
+        <div class="review-alert-text">
+          <h4>Review Before Locking</h4>
+          <p>
+            Adjust any figures that need correction (refunds, cancellations, data errors).
+            Add a note for each change. Once you lock, figures are frozen for payout.
+          </p>
+        </div>
+      </div>
+
+      <div class="review-table-wrap">
+        <div class="table-header">
+          <div class="table-header-left">
+            <h2>Final Adjustment Sheet</h2>
+            <p>April 2026 — Edit revenue figures as needed; incentive recalculates automatically</p>
+          </div>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>Counsellor</th>
+              <th>Est. Revenue</th>
+              <th>Final Revenue</th>
+              <th>Est. Incentive</th>
+              <th>Final Incentive</th>
+              <th>Difference</th>
+              <th>Reason / Note</th>
+            </tr>
+          </thead>
+          <tbody id="reviewBody"></tbody>
+        </table>
+      </div>
+
+      <!-- Review Totals + Lock -->
+      <div class="review-summary">
+        <div class="review-summary-item">
+          <div class="review-summary-label">Estimated Total</div>
+          <div class="review-summary-val" id="revEstTotal">₹1,24,500</div>
+        </div>
+        <div class="review-divider"></div>
+        <div class="review-summary-item">
+          <div class="review-summary-label">Final Total</div>
+          <div class="review-summary-val" id="revFinalTotal">₹1,24,500</div>
+        </div>
+        <div class="review-divider"></div>
+        <div class="review-summary-item">
+          <div class="review-summary-label">Net Adjustment</div>
+          <div class="review-summary-val" id="revDiff" style="color:var(--muted)">₹0</div>
+        </div>
+        <div class="review-actions">
+          <button class="btn btn-ghost" onclick="resetReview()">↺ Reset</button>
+          <button class="btn btn-success" onclick="lockAndFinalise()" id="lockBtn">
+            🔒 Lock &amp; Finalise
+          </button>
+        </div>
+      </div>
+    </div><!-- /reviewView -->
+
+    <!-- ==================================================
+         TAB 3 — HISTORY
+         ================================================== -->
+    <div id="historyView" class="history-wrap">
+
+      <div class="history-grid">
+        <div class="history-card active-month">
+          <div class="history-month">April 2026</div>
+          <div class="history-meta">83 enrollments · 8 counsellors</div>
+          <div class="history-amount">₹1,24,500</div>
+          <div class="history-status hs-pending">● In Progress</div>
+        </div>
+        <div class="history-card">
+          <div class="history-month">March 2026</div>
+          <div class="history-meta">71 enrollments · 8 counsellors</div>
+          <div class="history-amount">₹1,05,500</div>
+          <div class="history-status hs-paid">✓ Paid Out</div>
+        </div>
+        <div class="history-card">
+          <div class="history-month">February 2026</div>
+          <div class="history-meta">65 enrollments · 7 counsellors</div>
+          <div class="history-amount">₹96,200</div>
+          <div class="history-status hs-paid">✓ Paid Out</div>
+        </div>
+        <div class="history-card">
+          <div class="history-month">January 2026</div>
+          <div class="history-meta">58 enrollments · 7 counsellors</div>
+          <div class="history-amount">₹88,400</div>
+          <div class="history-status hs-paid">✓ Paid Out</div>
+        </div>
+        <div class="history-card">
+          <div class="history-month">December 2025</div>
+          <div class="history-meta">79 enrollments · 8 counsellors</div>
+          <div class="history-amount">₹1,18,500</div>
+          <div class="history-status hs-paid">✓ Paid Out</div>
+        </div>
+        <div class="history-card">
+          <div class="history-month">November 2025</div>
+          <div class="history-meta">62 enrollments · 8 counsellors</div>
+          <div class="history-amount">₹93,000</div>
+          <div class="history-status hs-paid">✓ Paid Out</div>
+        </div>
+      </div>
+
+      <div class="history-detail">
+        <div class="table-header">
+          <div class="table-header-left">
+            <h2>March 2026 — Paid Breakdown</h2>
+            <p>Finalised and sent to Accounts on 1 April 2026</p>
+          </div>
+          <button class="btn btn-ghost btn-sm">⬇ Download PDF</button>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>Counsellor</th>
+              <th>Final Sales</th>
+              <th>Final Revenue</th>
+              <th>Incentive Paid</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="historyBody"></tbody>
+        </table>
+      </div>
+    </div><!-- /historyView -->
+
+  </div><!-- /page -->
+</div><!-- /main -->
+
+<!-- ============================================================
+     SEND-TO-ACCOUNTS MODAL
+     ============================================================ -->
+<div class="modal-backdrop" id="modal">
+  <div class="modal">
+    <div class="modal-icon">📤</div>
+    <h3>Send to Accounts Manager</h3>
+    <p>
+      This will share the finalised incentive summary for April 2026.
+      Ensure all figures have been reviewed in Month-End Review before proceeding.
+    </p>
+    <div class="modal-summary">
+      <div class="modal-row"><span class="label">Month</span><span class="val">April 2026</span></div>
+      <div class="modal-row"><span class="label">Counsellors</span><span class="val">8 members</span></div>
+      <div class="modal-row"><span class="label">Total Revenue</span><span class="val">₹8,30,000</span></div>
+      <div class="modal-row"><span class="label">Total Incentive</span><span class="val" id="modalIncentiveAmt">₹1,24,500</span></div>
+      <div class="modal-row"><span class="label">Sent by</span><span class="val">Rohit Malhotra (Sales Head)</span></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-success" onclick="handleSend()">✓ Confirm &amp; Send</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================
+     TOAST
+     ============================================================ -->
+<div class="toast" id="toast">
+  <div class="toast-icon">✓</div>
+  <span id="toastMsg">Done</span>
+</div>
+
+<!-- ============================================================
+     JAVASCRIPT
+     ============================================================ -->
+<script>
+/* ---- DATA ---- */
+const counsellors = [
+  { name:"Priya Sharma",  id:"CS-001", sales:18, revenue:162000, target:90, incentive:24300, color:"#e85d2f", bg:"rgba(232,93,47,0.1)"   },
+  { name:"Rahul Verma",   id:"CS-002", sales:15, revenue:135000, target:75, incentive:20250, color:"#2463a4", bg:"rgba(36,99,164,0.1)"   },
+  { name:"Anita Joshi",   id:"CS-003", sales:14, revenue:126000, target:70, incentive:18900, color:"#7c3aed", bg:"rgba(124,58,237,0.1)"  },
+  { name:"Mohit Gupta",   id:"CS-004", sales:12, revenue:108000, target:60, incentive:16200, color:"#1a6b5a", bg:"rgba(26,107,90,0.1)"   },
+  { name:"Sneha Patil",   id:"CS-005", sales:11, revenue: 99000, target:55, incentive:14850, color:"#c9922a", bg:"rgba(201,146,42,0.1)"  },
+  { name:"Vikram Singh",  id:"CS-006", sales: 8, revenue: 72000, target:40, incentive:10800, color:"#db6b8c", bg:"rgba(219,107,140,0.1)" },
+  { name:"Kavita Rao",    id:"CS-007", sales: 4, revenue: 36000, target:20, incentive: 5400, color:"#8a7f74", bg:"rgba(138,127,116,0.1)" },
+  { name:"Deepak Mehra",  id:"CS-008", sales: 1, revenue:  9000, target: 5, incentive: 1350, color:"#b5aa9f", bg:"rgba(181,170,159,0.1)" },
+];
+
+const historyData = [
+  { name:"Priya Sharma", id:"CS-001", sales:16, revenue:144000, incentive:21600 },
+  { name:"Rahul Verma",  id:"CS-002", sales:13, revenue:117000, incentive:17550 },
+  { name:"Anita Joshi",  id:"CS-003", sales:12, revenue:108000, incentive:16200 },
+  { name:"Mohit Gupta",  id:"CS-004", sales:10, revenue: 90000, incentive:13500 },
+  { name:"Sneha Patil",  id:"CS-005", sales: 9, revenue: 81000, incentive:12150 },
+  { name:"Vikram Singh", id:"CS-006", sales: 6, revenue: 54000, incentive: 8100 },
+  { name:"Kavita Rao",   id:"CS-007", sales: 3, revenue: 27000, incentive: 4050 },
+  { name:"Deepak Mehra", id:"CS-008", sales: 2, revenue: 18000, incentive: 2700 },
+];
+
+/* ---- HELPERS ---- */
+const initials = n => n.split(" ").map(w => w[0]).join("");
+const fmt      = n => "₹" + Number(n).toLocaleString("en-IN");
+
+function statusTag(t) {
+  if (t >= 70) return `<span class="tag tag-on"><div class="tag-dot"></div>On Track</span>`;
+  if (t >= 40) return `<span class="tag tag-push"><div class="tag-dot"></div>Needs Push</span>`;
+  return `<span class="tag tag-low"><div class="tag-dot"></div>Below Target</span>`;
+}
+function progressColor(t) {
+  return t >= 70 ? "#1a6b5a" : t >= 40 ? "#c9922a" : "#c0392b";
+}
+
+/* ---- BUILD LIVE TABLE ---- */
+const liveBody = document.getElementById("liveBody");
+counsellors.forEach((c, i) => {
+  liveBody.innerHTML += `
+  <tr style="animation:fadeUp 0.35s ${0.05*i+0.3}s ease both;opacity:0">
+    <td><div class="td-inner">
+      <div class="counsellor-cell">
+        <div class="avatar" style="background:${c.bg};color:${c.color}">${initials(c.name)}</div>
+        <div><div class="c-name">${c.name}</div><div class="c-id">${c.id}</div></div>
+      </div>
+    </div></td>
+    <td><div class="td-inner">${c.sales} sales</div></td>
+    <td><div class="td-inner">${fmt(c.revenue)}</div></td>
+    <td><div class="td-inner">
+      <div class="progress-wrap">
+        <div class="progress-bar">
+          <div class="progress-fill" style="width:${c.target}%;background:${progressColor(c.target)}"></div>
+        </div>
+        <span class="progress-pct">${c.target}%</span>
+      </div>
+    </div></td>
+    <td><div class="td-inner">
+      <span class="incentive-amt">${fmt(c.incentive)}</span>
+      <span class="est-tag">EST</span>
+    </div></td>
+    <td><div class="td-inner">${statusTag(c.target)}</div></td>
+  </tr>`;
+});
+
+/* ---- BUILD REVIEW TABLE ---- */
+const reviewBody = document.getElementById("reviewBody");
+counsellors.forEach((c, i) => {
+  reviewBody.innerHTML += `
+  <tr id="rrow-${i}">
+    <td><div class="td-inner">
+      <div class="counsellor-cell">
+        <div class="avatar" style="background:${c.bg};color:${c.color}">${initials(c.name)}</div>
+        <div><div class="c-name">${c.name}</div><div class="c-id">${c.id}</div></div>
+      </div>
+    </div></td>
+    <td><div class="td-inner" style="color:var(--muted)">${fmt(c.revenue)}</div></td>
+    <td><div class="td-inner">
+      <input class="editable-field" id="frev-${i}" value="${c.revenue}" onchange="recalc(${i})" />
+    </div></td>
+    <td><div class="td-inner" style="color:var(--muted)">${fmt(c.incentive)}</div></td>
+    <td><div class="td-inner">
+      <span class="incentive-amt" id="finc-${i}">${fmt(c.incentive)}</span>
+    </div></td>
+    <td><div class="td-inner">
+      <span class="diff-pill diff-zero" id="fdiff-${i}">—</span>
+    </div></td>
+    <td><div class="td-inner">
+      <input class="adj-note" id="fnote-${i}" placeholder="Reason for change…" />
+    </div></td>
+  </tr>`;
+});
+
+/* ---- REVIEW LOGIC ---- */
+function recalc(i) {
+  const newRev  = parseInt(document.getElementById(`frev-${i}`).value) || 0;
+  const origRev = counsellors[i].revenue;
+  const origInc = counsellors[i].incentive;
+  const newInc  = Math.round((newRev / origRev) * origInc);
+  const diff    = newInc - origInc;
+
+  document.getElementById(`finc-${i}`).textContent = fmt(newInc);
+
+  const dp = document.getElementById(`fdiff-${i}`);
+  if      (diff > 0) { dp.textContent = "+" + fmt(diff); dp.className = "diff-pill diff-pos"; }
+  else if (diff < 0) { dp.textContent = fmt(diff);       dp.className = "diff-pill diff-neg"; }
+  else               { dp.textContent = "—";             dp.className = "diff-pill diff-zero"; }
+
+  updateReviewTotals();
+}
+
+function updateReviewTotals() {
+  let finalTotal = 0;
+  counsellors.forEach((c, i) => {
+    const newRev = parseInt(document.getElementById(`frev-${i}`).value) || 0;
+    finalTotal  += Math.round((newRev / c.revenue) * c.incentive);
+  });
+  const estTotal = 124500;
+  const diff     = finalTotal - estTotal;
+
+  document.getElementById("revFinalTotal").textContent = fmt(finalTotal);
+  const dEl = document.getElementById("revDiff");
+  dEl.textContent  = (diff >= 0 ? "+" : "") + fmt(diff);
+  dEl.style.color  = diff > 0 ? "var(--success)" : diff < 0 ? "var(--danger)" : "var(--muted)";
+  document.getElementById("modalIncentiveAmt").textContent = fmt(finalTotal);
+}
+
+function resetReview() {
+  counsellors.forEach((c, i) => {
+    document.getElementById(`frev-${i}`).value    = c.revenue;
+    document.getElementById(`finc-${i}`).textContent = fmt(c.incentive);
+    const dp = document.getElementById(`fdiff-${i}`);
+    dp.textContent = "—"; dp.className = "diff-pill diff-zero";
+    document.getElementById(`fnote-${i}`).value = "";
+  });
+  updateReviewTotals();
+}
+
+let isLocked = false;
+function lockAndFinalise() {
+  if (isLocked) return;
+  isLocked = true;
+
+  document.getElementById("reviewAlert").style.display = "none";
+
+  const banner = document.createElement("div");
+  banner.className = "locked-banner animate-in";
+  banner.innerHTML = "🔒 <strong>Sheet Locked for April 2026</strong> — Figures are finalised. Ready to send to Accounts.";
+  document.getElementById("reviewView").insertBefore(banner, document.getElementById("reviewView").firstChild);
+
+  const lockBtn = document.getElementById("lockBtn");
+  lockBtn.textContent = "✓ Locked";
+  lockBtn.disabled    = true;
+  lockBtn.style.opacity = "0.6";
+
+  document.querySelectorAll(".editable-field, .adj-note").forEach(el => {
+    el.disabled = true; el.style.opacity = "0.5";
+  });
+  showToast("Sheet locked successfully");
+}
+
+/* ---- BUILD HISTORY TABLE ---- */
+const historyBody = document.getElementById("historyBody");
+historyData.forEach(c => {
+  historyBody.innerHTML += `
+  <tr>
+    <td><div class="td-inner">
+      <div class="counsellor-cell">
+        <div class="avatar" style="background:rgba(26,107,90,0.1);color:#1a6b5a">${initials(c.name)}</div>
+        <div><div class="c-name">${c.name}</div><div class="c-id">${c.id}</div></div>
+      </div>
+    </div></td>
+    <td><div class="td-inner">${c.sales} sales</div></td>
+    <td><div class="td-inner">${fmt(c.revenue)}</div></td>
+    <td><div class="td-inner">
+      <span class="incentive-amt">${fmt(c.incentive)}</span>
+      <span class="final-tag">FINAL</span>
+    </div></td>
+    <td><div class="td-inner">
+      <span class="tag tag-on"><div class="tag-dot"></div>Paid</span>
+    </div></td>
+  </tr>`;
+});
+
+/* ---- TAB SWITCHING ---- */
+function switchTab(tab, el) {
+  document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+  el.classList.add("active");
+
+  document.getElementById("liveView").style.display    = "none";
+  document.getElementById("reviewView").style.display  = "none";
+  document.getElementById("historyView").style.display = "none";
+
+  const actions = document.getElementById("tabActions");
+  if (tab === "live") {
+    document.getElementById("liveView").style.display = "block";
+    actions.style.display = "flex";
+  } else if (tab === "review") {
+    document.getElementById("reviewView").style.display = "block";
+    actions.style.display = "none";
+  } else {
+    document.getElementById("historyView").style.display = "block";
+    actions.style.display = "none";
+  }
+}
+
+/* ---- MODAL ---- */
+function showModal()  { document.getElementById("modal").classList.add("show"); }
+function closeModal() { document.getElementById("modal").classList.remove("show"); }
+function handleSend() {
+  closeModal();
+  showToast("Incentive sheet sent to Accounts Manager ✓");
+}
+
+/* ---- TOAST ---- */
+function showToast(msg) {
+  const t = document.getElementById("toast");
+  document.getElementById("toastMsg").textContent = msg;
+  t.classList.add("show");
+  setTimeout(() => t.classList.remove("show"), 3500);
+}
+
+/* ---- EXPORT (stub) ---- */
+function exportCSV() { showToast("CSV exported successfully"); }
+</script>
+</body>
+</html>
