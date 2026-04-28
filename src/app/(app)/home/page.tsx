@@ -60,7 +60,7 @@ export default async function HomePage() {
               {greeting()}, {me.name?.split(" ")[0] || "human"} 👋
             </h1>
             <p className="mt-2 text-sm md:text-base text-white/90 max-w-lg">
-              You&apos;ve had {myEventsCount} moment{myEventsCount === 1 ? "" : "s"} in your SIB journey so far. Make today one to remember.
+              You&apos;ve had {myEventsCount} moment{myEventsCount === 1 ? "" : "s"} in your SIB journey so far. Make today one to RISHAV remember.
             </p>
           </div>
           <Avatar src={me.image} name={me.name} size="lg" className="ring-4" />
