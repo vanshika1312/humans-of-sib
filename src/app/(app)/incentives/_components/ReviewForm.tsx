@@ -57,7 +57,11 @@ export function ReviewForm({
   const [locked, setLocked] = useState(allLocked);
   const [state, formAction, isPending] = useActionState(lockMonthBulk, initState);
 
-  if (state?.success && !locked) setLocked(true);
+  // Transition to locked state after successful server action
+  if (state?.success && !locked) {
+    // Safe to call outside useEffect in React 19 during render if it's idempotent
+    setTimeout(() => setLocked(true), 0);
+  }
 
   const estTotal = initialRows.reduce((a, r) => a + r.estIncentive, 0);
   const finalTotal = initialRows.reduce((a, r) => {
