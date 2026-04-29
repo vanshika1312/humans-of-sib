@@ -22,7 +22,7 @@ export function BulkImportForm({ action, templateHref, year, month, forTeam }: P
   return (
     <div className="space-y-4">
       {/* Instructions */}
-      <div className="p-4 rounded-lg bg-ink-50 border border-ink-100 text-sm text-ink-600 space-y-1.5">
+      <div className="p-4 rounded-lg bg-ink-50 border border-ink-100 text-sm text-ink-600 space-y-2">
         <p className="font-medium text-ink-700">How it works</p>
         <ol className="list-decimal list-inside space-y-1 text-ink-500">
           <li>
@@ -30,13 +30,19 @@ export function BulkImportForm({ action, templateHref, year, month, forTeam }: P
               Download the CSV template
             </a>
           </li>
-          <li>Fill in one row per counsellor: email + revenue</li>
-          <li>Upload the file — incentives are calculated automatically</li>
+          <li>Fill in one row per counsellor and upload — incentives are calculated automatically</li>
         </ol>
-        <p className="text-xs text-ink-400 pt-1">
-          Required columns: <code className="bg-ink-100 px-1 rounded">counsellor_email</code>,{" "}
-          <code className="bg-ink-100 px-1 rounded">revenue</code>
-        </p>
+        <div className="pt-1 space-y-1.5">
+          <p className="text-xs font-semibold text-ink-600">Columns</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-1 text-xs text-ink-500">
+            <div><code className="bg-ink-100 px-1 rounded text-ink-700">counsellor_email</code> <span className="text-red-500">*</span> — login email</div>
+            <div><code className="bg-ink-100 px-1 rounded text-ink-700">revenue</code> <span className="text-red-500">*</span> — total monthly revenue (₹)</div>
+            <div><code className="bg-ink-100 px-1 rounded text-ink-700">monthly_target</code> — revenue target (₹)</div>
+            <div><code className="bg-ink-100 px-1 rounded text-ink-700">adjustment</code> — flat ₹ adj. (negative = deduction)</div>
+            <div><code className="bg-ink-100 px-1 rounded text-ink-700">adjustment_note</code> — reason for adjustment</div>
+            <div><code className="bg-ink-100 px-1 rounded text-ink-700">team</code> / <code className="bg-ink-100 px-1 rounded text-ink-700">cluster</code> — info only, not imported</div>
+          </div>
+        </div>
       </div>
 
       {/* Upload form */}

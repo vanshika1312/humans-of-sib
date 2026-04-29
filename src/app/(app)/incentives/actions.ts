@@ -37,21 +37,41 @@ async function resolveSlabRate(revenue: number) {
 }
 
 /** Upsert an IncentiveSheet from a revenue figure (used when Sales Head sets/edits revenue). */
-async function upsertSheetFromRevenue(userId: string, year: number, month: number, revenue: number) {
+async function upsertSheetFromRevenue(
+  userId: string,
+  year: number,
+  month: number,
+  revenue: number,
+  opts: { monthlyTarget?: number; adjustment?: number; adjustmentNote?: string } = {},
+) {
   const existing = await prisma.incentiveSheet.findUnique({
     where: { userId_year_month: { userId, year, month } },
   });
   if (existing && existing.status !== "DRAFT") return existing; // locked — don't overwrite
 
-  const { rate } = await resolveSlabRate(revenue);
+  const { rate }        = await resolveSlabRate(revenue);
   const incentiveAmount = Math.round((revenue * rate) / 100);
-  const manualAdj = existing?.manualAdjustment ?? 0;
-  const finalAmount = incentiveAmount + manualAdj;
+  const manualAdj       = opts.adjustment ?? existing?.manualAdjustment ?? 0;
+  const finalAmount     = incentiveAmount + manualAdj;
 
   return prisma.incentiveSheet.upsert({
-    where: { userId_year_month: { userId, year, month } },
-    create: { userId, year, month, grossRevenue: revenue, adjustedRevenue: revenue, slabRate: rate, incentiveAmount, manualAdjustment: 0, finalAmount },
-    update: { grossRevenue: revenue, adjustedRevenue: revenue, slabRate: rate, incentiveAmount, finalAmount },
+    where:  { userId_year_month: { userId, year, month } },
+    create: {
+      userId, year, month,
+      grossRevenue: revenue, adjustedRevenue: revenue,
+      slabRate: rate, incentiveAmount,
+      manualAdjustment: manualAdj,
+      adjustmentNote:   opts.adjustmentNote ?? null,
+      finalAmount,
+      monthlyTarget:    opts.monthlyTarget ?? 0,
+    },
+    update: {
+      grossRevenue: revenue, adjustedRevenue: revenue,
+      slabRate: rate, incentiveAmount, finalAmount,
+      manualAdjustment: manualAdj,
+      ...(opts.adjustmentNote !== undefined && { adjustmentNote: opts.adjustmentNote }),
+      ...(opts.monthlyTarget  !== undefined && { monthlyTarget:  opts.monthlyTarget  }),
+    },
   });
 }
 
@@ -165,6 +185,11 @@ export async function markPaid(sheetId: string) {
   });
 
   revalidatePath("/incentives");
+}
+
+export async function markPaidAction(formData: FormData) {
+  const sheetId = formData.get("sheetId") as string;
+  return markPaid(sheetId);
 }
 
 // ─── delete / unlock individual sheet ─────────────────────────────────────────
@@ -399,7 +424,13 @@ export type BulkImportResult = {
 
 const bulkRowSchema = z.object({
   counsellor_email: z.string().email("counsellor_email must be a valid email"),
-  revenue: z.coerce.number().int().nonnegative("revenue must be a non-negative integer"),
+  revenue:          z.coerce.number().int().nonnegative("revenue must be a non-negative integer"),
+  monthly_target:   z.coerce.number().int().nonnegative().optional().default(0),
+  adjustment:       z.coerce.number().int().optional().default(0),
+  adjustment_note:  z.string().optional().default(""),
+  // team and cluster are informational only — silently ignored
+  team:    z.string().optional(),
+  cluster: z.string().optional(),
 });
 
 export async function bulkImportRevenue(
@@ -466,10 +497,113 @@ export async function bulkImportRevenue(
       continue;
     }
 
-    await upsertSheetFromRevenue(userId, year, month, row.data.revenue);
+    await upsertSheetFromRevenue(userId, year, month, row.data.revenue, {
+      monthlyTarget:  row.data.monthly_target,
+      adjustment:     row.data.adjustment,
+      adjustmentNote: row.data.adjustment_note || undefined,
+    });
     imported++;
   }
 
   revalidatePath("/incentives");
   return { imported, skipped, errors };
+}
+
+// ─── Google Sheets sync ───────────────────────────────────────────────────────
+
+/**
+ * Pull revenue data from the Google Sheet stored in IncentivePeriod.sheetUrl
+ * for the given month and upsert IncentiveSheet records.
+ *
+ * Can be called as a server action (from the UI) or directly (from the cron).
+ * Returns the same BulkImportResult shape as bulkImportRevenue.
+ */
+export async function syncRevenueFromSheet(
+  year: number,
+  month: number,
+): Promise<BulkImportResult> {
+  const me = await getMe();
+  requireSalesHead(me.role);
+
+  const period = await prisma.incentivePeriod.findUnique({
+    where: { year_month: { year, month } },
+    select: { sheetUrl: true },
+  });
+
+  if (!period?.sheetUrl) {
+    return {
+      imported: 0,
+      skipped:  0,
+      errors:   ["No Google Sheet URL is set for this month. Add one in the Month-End Review tab."],
+    };
+  }
+
+  let rows: Record<string, string>[];
+  try {
+    const { fetchSheetRows } = await import("@/lib/google-sheets");
+    rows = await fetchSheetRows(period.sheetUrl);
+  } catch (err) {
+    return { imported: 0, skipped: 0, errors: [`Failed to read sheet: ${String(err)}`] };
+  }
+
+  if (rows.length === 0) {
+    return { imported: 0, skipped: 0, errors: ["Sheet is empty or has no data rows."] };
+  }
+
+  const userCache = new Map<string, string>();
+  async function resolveUserId(email: string) {
+    if (userCache.has(email)) return userCache.get(email)!;
+    const u = await prisma.user.findUnique({ where: { email }, select: { id: true } });
+    if (u) userCache.set(email, u.id);
+    return u?.id ?? null;
+  }
+
+  const errors: string[] = [];
+  let imported = 0;
+  let skipped  = 0;
+
+  for (let i = 0; i < rows.length; i++) {
+    const rowNum = i + 2;
+    const row = bulkRowSchema.safeParse(rows[i]);
+    if (!row.success) {
+      errors.push(`Row ${rowNum}: ${row.error.issues.map((e) => e.message).join(", ")}`);
+      skipped++;
+      continue;
+    }
+
+    const userId = await resolveUserId(row.data.counsellor_email);
+    if (!userId) {
+      errors.push(`Row ${rowNum}: No user found for "${row.data.counsellor_email}".`);
+      skipped++;
+      continue;
+    }
+
+    const existing = await prisma.incentiveSheet.findUnique({
+      where: { userId_year_month: { userId, year, month } },
+    });
+    if (existing && existing.status !== "DRAFT") {
+      errors.push(`Row ${rowNum}: Sheet for ${row.data.counsellor_email} is already locked.`);
+      skipped++;
+      continue;
+    }
+
+    await upsertSheetFromRevenue(userId, year, month, row.data.revenue, {
+      monthlyTarget:  row.data.monthly_target,
+      adjustment:     row.data.adjustment,
+      adjustmentNote: row.data.adjustment_note || undefined,
+    });
+    imported++;
+  }
+
+  revalidatePath("/incentives");
+  return { imported, skipped, errors };
+}
+
+/**
+ * FormData wrapper so syncRevenueFromSheet can be used directly as a form action.
+ */
+export async function syncRevenueFromSheetAction(formData: FormData): Promise<BulkImportResult> {
+  const year  = Number(formData.get("year"));
+  const month = Number(formData.get("month"));
+  return syncRevenueFromSheet(year, month);
 }

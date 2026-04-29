@@ -15,10 +15,12 @@ import { DeleteButton } from "./DeleteButton";
 import { EligibilitySelect, type EligibilityOption } from "./EligibilitySelect";
 import { ClusterFilter } from "./ClusterFilter";
 import { EligibilityOptionManager } from "./EligibilityOptionManager";
+import { SyncButton } from "./SyncButton";
 import {
   setPeriodSheetUrl, bulkImportRevenue, lockMonthBulk, sendMonthToAccounts,
   deleteSheet, unlockSheet, saveTargets,
   setEligibility, upsertEligibilityOption, deleteEligibilityOption,
+  markPaidAction, syncRevenueFromSheetAction,
 } from "../actions";
 import { Input, Label } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -48,6 +50,7 @@ async function fetchMonthData(year: number, month: number) {
           },
         },
         lockedBy:          { select: { name: true } },
+        approvedBy:        { select: { name: true } },
         eligibilityOption: { select: { id: true, label: true, color: true } },
       },
     }),
@@ -120,6 +123,7 @@ export async function SalesHeadView({
     { id: "live",    label: "Live View" },
     { id: "review",  label: "Month-End Review" },
     { id: "history", label: "History" },
+    { id: "payment", label: "Payment Status" },
   ];
 
   const sendSummary: SendSummary = {
@@ -153,6 +157,12 @@ export async function SalesHeadView({
                 <ExternalLink className="size-3.5" /> Sales Sheet
               </a>
             )}
+            <SyncButton
+              year={year}
+              month={month}
+              hasSheetUrl={!!period?.sheetUrl}
+              syncAction={syncRevenueFromSheetAction}
+            />
             <ExportButton sheets={sheets} year={year} month={month} />
             {!allLocked ? (
               <Link
@@ -174,6 +184,7 @@ export async function SalesHeadView({
       {tab === "live"    && <LiveView sheets={sheets} noRevenueYet={noRevenueYet} slabs={slabs} year={year} month={month} period={period} totalRevenue={totalRevenue} totalPayout={totalPayout} avgIncentive={avgIncentive} eligibleCount={eligibleCount} allLocked={allLocked} eligibilityOptions={eligibilityOptions} cluster={cluster} allClusters={allClusters} team={team} allTeams={allTeams} />}
       {tab === "review"  && <ReviewTab sheets={sheets} allSalesUsers={allSalesUsers} noRevenueYet={noRevenueYet} slabs={slabs} year={year} month={month} period={period} allLocked={allLocked} />}
       {tab === "history" && <HistoryView currentYear={year} currentMonth={month} historyYear={historyYear} historyMonth={historyMonth} />}
+      {tab === "payment" && <PaymentStatusView sheets={sheets} year={year} month={month} cluster={cluster} allClusters={allClusters} team={team} allTeams={allTeams} />}
     </div>
   );
 }
@@ -260,20 +271,15 @@ function LiveView({ sheets, noRevenueYet, slabs, year, month, period, totalReven
               {period?.note && ` · ${period.note}`}
             </p>
           </div>
-          <div className="flex items-center gap-3 flex-wrap">
-            {/* Cluster filter pills */}
-            {allClusters.length > 1 && (
-              <div className="flex items-center gap-2">
-                <span className="text-[10px] font-semibold text-ink-400 uppercase tracking-wide">Cluster</span>
-                <ClusterFilter clusters={allClusters} paramKey="cluster" />
-              </div>
-            )}
-            {allTeams.length > 1 && (
-              <div className="flex items-center gap-2">
-                <span className="text-[10px] font-semibold text-ink-400 uppercase tracking-wide">Team</span>
-                <ClusterFilter clusters={allTeams} paramKey="team" />
-              </div>
-            )}
+          <div className="flex items-center gap-4 flex-wrap">
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-semibold text-ink-400 uppercase tracking-wide">Cluster</span>
+              <ClusterFilter clusters={allClusters} paramKey="cluster" />
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-semibold text-ink-400 uppercase tracking-wide">Team</span>
+              <ClusterFilter clusters={allTeams} paramKey="team" />
+            </div>
             <Link
               href={`/incentives?tab=review&year=${year}&month=${month}`}
               className="text-xs font-medium text-sky-600 hover:underline"
@@ -718,5 +724,159 @@ function ExportButton({ sheets, year, month }: {
       </svg>
       Export
     </a>
+  );
+}
+
+// ─── Payment Status View ──────────────────────────────────────────────────────
+
+const STATUS_META: Record<string, { label: string; color: string; dot: string }> = {
+  DRAFT:    { label: "Draft",    color: "text-ink-400 bg-ink-50 border-ink-200",       dot: "bg-ink-300"    },
+  LOCKED:   { label: "Locked",   color: "text-amber-700 bg-amber-50 border-amber-200", dot: "bg-amber-400"  },
+  APPROVED: { label: "Approved", color: "text-sky-700 bg-sky-50 border-sky-200",       dot: "bg-sky-500"    },
+  PAID:     { label: "Paid",     color: "text-green-700 bg-green-50 border-green-200", dot: "bg-green-500"  },
+};
+
+function PaymentStatusView({
+  sheets, year, month, cluster, allClusters, team, allTeams,
+}: {
+  sheets: SheetWithUser[];
+  year: number; month: number;
+  cluster: string; allClusters: string[];
+  team: string;    allTeams: string[];
+}) {
+  const filtered = sheets.filter((s) => {
+    if (cluster && (s.user.department?.name ?? "Unassigned") !== cluster) return false;
+    if (team    && (s.user.city?.name ?? "") !== team)                      return false;
+    return true;
+  });
+
+  const counts = { DRAFT: 0, LOCKED: 0, APPROVED: 0, PAID: 0 };
+  for (const s of filtered) counts[s.status as keyof typeof counts] = (counts[s.status as keyof typeof counts] ?? 0) + 1;
+
+  return (
+    <div className="space-y-4">
+      {/* Summary cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {(["DRAFT", "LOCKED", "APPROVED", "PAID"] as const).map((st) => {
+          const meta = STATUS_META[st];
+          return (
+            <div key={st} className="bg-white rounded-xl border border-ink-100 p-4 flex items-center gap-3">
+              <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${meta.dot}`} />
+              <div>
+                <p className="text-[10.5px] text-ink-400 uppercase tracking-wide font-semibold">{meta.label}</p>
+                <p className="text-xl font-bold text-ink-800">{counts[st]}</p>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="bg-white rounded-xl border border-ink-100 overflow-hidden">
+        {/* Filters */}
+        <div className="px-5 py-3 border-b border-ink-100 flex items-center gap-4 flex-wrap">
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-semibold text-ink-400 uppercase tracking-wide">Cluster</span>
+            <ClusterFilter clusters={allClusters} paramKey="cluster" />
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-semibold text-ink-400 uppercase tracking-wide">Team</span>
+            <ClusterFilter clusters={allTeams} paramKey="team" />
+          </div>
+        </div>
+
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="bg-ink-50 border-b border-ink-100 text-[10.5px] text-ink-400 uppercase tracking-wide font-semibold">
+              <th className="text-left py-3 px-5">Counsellor</th>
+              <th className="text-left py-3 px-5">Team</th>
+              <th className="text-left py-3 px-5">Cluster</th>
+              <th className="text-right py-3 px-5">Incentive</th>
+              <th className="text-left py-3 px-5">Status</th>
+              <th className="text-left py-3 px-5">Locked By</th>
+              <th className="text-left py-3 px-5">Approved By</th>
+              <th className="text-left py-3 px-5">Paid On</th>
+              <th className="py-3 px-5">Action</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-ink-50">
+            {filtered.length === 0 ? (
+              <tr>
+                <td colSpan={9} className="py-12 text-center text-ink-400 text-sm">
+                  No data for {FULL_MONTHS[month - 1]} {year}
+                </td>
+              </tr>
+            ) : (
+              filtered.map((s) => {
+                const meta = STATUS_META[s.status] ?? STATUS_META.DRAFT;
+                return (
+                  <tr key={s.id} className="hover:bg-ink-50/50 transition-colors">
+                    <td className="py-3.5 px-5">
+                      <div className="flex items-center gap-3">
+                        <Avatar src={s.user.image} name={s.user.name} size="sm" />
+                        <span className="font-medium text-ink-700">{s.user.name}</span>
+                      </div>
+                    </td>
+                    <td className="py-3.5 px-5 text-xs text-ink-500">
+                      {s.user.city?.name ?? <span className="text-ink-300">—</span>}
+                    </td>
+                    <td className="py-3.5 px-5 text-xs text-ink-500">
+                      {s.user.department?.name ?? <span className="text-ink-300">—</span>}
+                    </td>
+                    <td className="py-3.5 px-5 text-right font-bold text-ink-700 tabular-nums">
+                      ₹{s.finalAmount.toLocaleString("en-IN")}
+                    </td>
+                    <td className="py-3.5 px-5">
+                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border ${meta.color}`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} />
+                        {meta.label}
+                      </span>
+                    </td>
+                    <td className="py-3.5 px-5 text-xs text-ink-500">
+                      {s.lockedAt
+                        ? <span>{s.lockedBy?.name ?? "—"}<br /><span className="text-ink-400">{new Date(s.lockedAt).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}</span></span>
+                        : <span className="text-ink-300">—</span>
+                      }
+                    </td>
+                    <td className="py-3.5 px-5 text-xs text-ink-500">
+                      {s.approvedAt
+                        ? <span>{(s as any).approvedBy?.name ?? "—"}<br /><span className="text-ink-400">{new Date(s.approvedAt).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}</span></span>
+                        : <span className="text-ink-300">—</span>
+                      }
+                    </td>
+                    <td className="py-3.5 px-5 text-xs text-ink-500">
+                      {s.paidAt
+                        ? new Date(s.paidAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })
+                        : <span className="text-ink-300">—</span>
+                      }
+                    </td>
+                    <td className="py-3.5 px-5">
+                      {s.status === "APPROVED" && (
+                        <form action={markPaidAction}>
+                          <input type="hidden" name="sheetId" value={s.id} />
+                          <button
+                            type="submit"
+                            className="h-7 px-3 rounded-md bg-green-600 text-white text-xs font-semibold hover:bg-green-700 transition-colors"
+                          >
+                            Mark Paid
+                          </button>
+                        </form>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+
+        {filtered.length > 0 && (
+          <div className="px-5 py-3 border-t border-ink-100 bg-ink-50/50">
+            <p className="text-xs text-ink-400">
+              {filtered.filter((s) => s.status === "PAID").length} of {filtered.length} counsellors paid for {FULL_MONTHS[month - 1]} {year}
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }

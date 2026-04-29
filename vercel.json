@@ -1,0 +1,12 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/incentive-reminder",
+      "schedule": "0 3 16 * *"
+    },
+    {
+      "path": "/api/cron/sync-revenue",
+      "schedule": "0 2 * * *"
+    }
+  ]
+}
