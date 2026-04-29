@@ -1,3 +1,4 @@
+import React from "react";
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { Card, CardContent } from "@/components/ui/card";
@@ -11,7 +12,14 @@ import { MonthSelector } from "./MonthSelector";
 import { ReviewForm, type ReviewRow, type LockBulkState } from "./ReviewForm";
 import { SendModal, type SendSummary } from "./SendModal";
 import { DeleteButton } from "./DeleteButton";
-import { setPeriodSheetUrl, bulkImportRevenue, lockMonthBulk, sendMonthToAccounts, deleteSheet, unlockSheet } from "../actions";
+import { EligibilitySelect, type EligibilityOption } from "./EligibilitySelect";
+import { ClusterFilter } from "./ClusterFilter";
+import { EligibilityOptionManager } from "./EligibilityOptionManager";
+import {
+  setPeriodSheetUrl, bulkImportRevenue, lockMonthBulk, sendMonthToAccounts,
+  deleteSheet, unlockSheet, saveTargets,
+  setEligibility, upsertEligibilityOption, deleteEligibilityOption,
+} from "../actions";
 import { Input, Label } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 
@@ -26,14 +34,15 @@ type Slab = { id: string; minRev: number; maxRev: number | null; rate: number; l
 // ─── Data helpers ─────────────────────────────────────────────────────────────
 
 async function fetchMonthData(year: number, month: number) {
-  const [period, sheets, allSalesUsers, slabs] = await Promise.all([
+  const [period, sheets, allSalesUsers, slabs, eligibilityOptions] = await Promise.all([
     prisma.incentivePeriod.findUnique({ where: { year_month: { year, month } } }),
     prisma.incentiveSheet.findMany({
       where: { year, month },
       orderBy: { adjustedRevenue: "desc" },
       include: {
-        user:     { select: { id: true, name: true, image: true, department: { select: { name: true } } } },
-        lockedBy: { select: { name: true } },
+        user:              { select: { id: true, name: true, image: true, department: { select: { name: true } } } },
+        lockedBy:          { select: { name: true } },
+        eligibilityOption: { select: { id: true, label: true, color: true } },
       },
     }),
     prisma.user.findMany({
@@ -42,21 +51,31 @@ async function fetchMonthData(year: number, month: number) {
       orderBy: { name: "asc" },
     }),
     prisma.incentiveSlab.findMany({ orderBy: { order: "asc" } }),
+    prisma.incentiveEligibilityOption.findMany({ orderBy: { order: "asc" } }),
   ]);
-  return { period, sheets, allSalesUsers, slabs };
+  return { period, sheets, allSalesUsers, slabs, eligibilityOptions };
 }
 
 function topSlabMinRev(slabs: Slab[]) {
   return slabs.reduce((max, s) => Math.max(max, s.minRev), 0);
 }
 
-function getStatus(revenue: number, slabs: Slab[]) {
+/** Progress towards the top slab's minimum revenue (for the progress bar). */
+function getSlabProgress(revenue: number, slabs: Slab[]) {
   const top = topSlabMinRev(slabs);
-  if (top === 0) return "neutral";
-  const pct = revenue / top;
-  if (pct >= 0.7) return "on-track";
-  if (pct >= 0.4) return "needs-push";
-  return "below-target";
+  if (top === 0) return 0;
+  return Math.min(100, Math.round((revenue / top) * 100));
+}
+
+/** Group sheets by their counsellor's department name. */
+function groupByCluster(sheets: SheetWithUser[]): Record<string, SheetWithUser[]> {
+  const groups: Record<string, SheetWithUser[]> = {};
+  for (const s of sheets) {
+    const key = s.user.department?.name ?? "Unassigned";
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(s);
+  }
+  return groups;
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
@@ -68,6 +87,7 @@ export async function SalesHeadView({
   historyYear,
   historyMonth,
   userName,
+  cluster,
 }: {
   year: number;
   month: number;
@@ -75,8 +95,9 @@ export async function SalesHeadView({
   historyYear?: number;
   historyMonth?: number;
   userName: string;
+  cluster: string;
 }) {
-  const { period, sheets, allSalesUsers, slabs } = await fetchMonthData(year, month);
+  const { period, sheets, allSalesUsers, slabs, eligibilityOptions } = await fetchMonthData(year, month);
 
   const sheetUserIds = new Set(sheets.map((s) => s.user.id));
   const noRevenueYet = allSalesUsers.filter((u) => !sheetUserIds.has(u.id));
@@ -84,8 +105,13 @@ export async function SalesHeadView({
   const totalRevenue  = sheets.reduce((a, s) => a + s.adjustedRevenue, 0);
   const totalPayout   = sheets.reduce((a, s) => a + s.finalAmount, 0);
   const avgIncentive  = sheets.length ? Math.round(totalPayout / sheets.length) : 0;
-  const onTrackCount  = sheets.filter((s) => getStatus(s.adjustedRevenue, slabs) === "on-track").length;
+  const eligibleCount = sheets.filter((s) => s.eligibilityOption !== null).length;
   const allLocked     = sheets.length > 0 && sheets.every((s) => s.status !== "DRAFT");
+
+  // All unique clusters (departments) across all active users
+  const allClusters = Array.from(
+    new Set(allSalesUsers.map((u) => u.department?.name ?? "Unassigned").filter(Boolean))
+  ).sort();
 
   const TABS = [
     { id: "live",    label: "Live View" },
@@ -142,7 +168,7 @@ export async function SalesHeadView({
         )}
       </div>
 
-      {tab === "live"    && <LiveView sheets={sheets} noRevenueYet={noRevenueYet} slabs={slabs} year={year} month={month} period={period} totalRevenue={totalRevenue} totalPayout={totalPayout} avgIncentive={avgIncentive} onTrackCount={onTrackCount} allLocked={allLocked} />}
+      {tab === "live"    && <LiveView sheets={sheets} noRevenueYet={noRevenueYet} slabs={slabs} year={year} month={month} period={period} totalRevenue={totalRevenue} totalPayout={totalPayout} avgIncentive={avgIncentive} eligibleCount={eligibleCount} allLocked={allLocked} eligibilityOptions={eligibilityOptions} cluster={cluster} allClusters={allClusters} />}
       {tab === "review"  && <ReviewTab sheets={sheets} allSalesUsers={allSalesUsers} noRevenueYet={noRevenueYet} slabs={slabs} year={year} month={month} period={period} allLocked={allLocked} />}
       {tab === "history" && <HistoryView currentYear={year} currentMonth={month} historyYear={historyYear} historyMonth={historyMonth} />}
     </div>
@@ -151,15 +177,29 @@ export async function SalesHeadView({
 
 // ─── Live View ────────────────────────────────────────────────────────────────
 
-function LiveView({ sheets, noRevenueYet, slabs, year, month, period, totalRevenue, totalPayout, avgIncentive, onTrackCount, allLocked }: {
+function LiveView({ sheets, noRevenueYet, slabs, year, month, period, totalRevenue, totalPayout, avgIncentive, eligibleCount, allLocked, eligibilityOptions, cluster, allClusters }: {
   sheets: SheetWithUser[];
   noRevenueYet: { id: string; name: string | null; image: string | null; department: { name: string } | null }[];
   slabs: Slab[];
   year: number; month: number;
   period: { sheetUrl: string | null; note: string | null } | null;
-  totalRevenue: number; totalPayout: number; avgIncentive: number; onTrackCount: number;
+  totalRevenue: number; totalPayout: number; avgIncentive: number; eligibleCount: number;
   allLocked: boolean;
+  eligibilityOptions: EligibilityOption[];
+  cluster: string;
+  allClusters: string[];
 }) {
+  // Filter by selected cluster
+  const filteredSheets = cluster
+    ? sheets.filter((s) => (s.user.department?.name ?? "Unassigned") === cluster)
+    : sheets;
+  const filteredNoRevenue = cluster
+    ? noRevenueYet.filter((u) => (u.department?.name ?? "Unassigned") === cluster)
+    : noRevenueYet;
+
+  // Group filtered sheets by cluster (department)
+  const grouped = groupByCluster(filteredSheets);
+
   return (
     <div className="space-y-6">
       {/* Summary cards */}
@@ -178,10 +218,10 @@ function LiveView({ sheets, noRevenueYet, slabs, year, month, period, totalReven
           accent="blue"
         />
         <SummaryCard
-          emoji="🎯"
-          label="On Target"
-          value={`${onTrackCount} / ${sheets.length + noRevenueYet.length}`}
-          sub="≥ 70% of top slab"
+          emoji="✅"
+          label="Eligibility Set"
+          value={`${eligibleCount} / ${sheets.length}`}
+          sub="counsellors with status"
           accent="green"
         />
         <SummaryCard
@@ -208,7 +248,7 @@ function LiveView({ sheets, noRevenueYet, slabs, year, month, period, totalReven
 
       {/* Team breakdown table */}
       <Card>
-        <div className="px-5 py-4 border-b border-ink-100 flex items-center justify-between gap-3">
+        <div className="px-5 py-4 border-b border-ink-100 flex items-center justify-between gap-3 flex-wrap">
           <div>
             <h2 className="font-semibold text-ink-700">Team Breakdown</h2>
             <p className="text-xs text-ink-400 mt-0.5">
@@ -216,7 +256,9 @@ function LiveView({ sheets, noRevenueYet, slabs, year, month, period, totalReven
               {period?.note && ` · ${period.note}`}
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3 flex-wrap">
+            {/* Cluster filter pills */}
+            {allClusters.length > 1 && <ClusterFilter clusters={allClusters} />}
             <Link
               href={`/incentives?tab=review&year=${year}&month=${month}`}
               className="text-xs font-medium text-sky-600 hover:underline"
@@ -226,7 +268,7 @@ function LiveView({ sheets, noRevenueYet, slabs, year, month, period, totalReven
           </div>
         </div>
 
-        {sheets.length === 0 ? (
+        {filteredSheets.length === 0 ? (
           <div className="p-6">
             <EmptyState emoji="📋" title="No revenue entered yet" description="Switch to Month-End Review to enter revenue figures for the team." />
           </div>
@@ -236,83 +278,96 @@ function LiveView({ sheets, noRevenueYet, slabs, year, month, period, totalReven
               <thead>
                 <tr className="bg-ink-50 border-b border-ink-100 text-[10.5px] text-ink-400 uppercase tracking-wide font-semibold">
                   <th className="text-left py-3 px-5">Counsellor</th>
-                  <th className="text-right py-3 px-5">Sales</th>
+                  <th className="text-right py-3 px-5">Target</th>
                   <th className="text-right py-3 px-5">Revenue</th>
-                  <th className="text-left py-3 px-5">Target Progress</th>
+                  <th className="text-left py-3 px-5">Slab Progress</th>
                   <th className="text-right py-3 px-5">Incentive (Est.)</th>
-                  <th className="text-left py-3 px-5">Status</th>
+                  <th className="text-left py-3 px-5">Eligibility</th>
                   <th className="py-3 px-5">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-ink-50">
-                {sheets.map((s) => {
-                  const st     = getStatus(s.adjustedRevenue, slabs);
-                  const topMin = topSlabMinRev(slabs);
-                  const pct    = topMin > 0 ? Math.min(100, Math.round((s.adjustedRevenue / topMin) * 100)) : 0;
-                  return (
-                    <tr key={s.id} className="hover:bg-ink-50/50 transition-colors">
-                      <td className="py-3.5 px-5">
-                        <div className="flex items-center gap-3">
-                          <Avatar src={s.user.image} name={s.user.name} size="sm" />
-                          <div>
-                            <div className="font-medium text-ink-700">{s.user.name}</div>
-                            {s.user.department && <div className="text-xs text-ink-400">{s.user.department.name}</div>}
-                          </div>
-                        </div>
-                      </td>
-                      <td className="py-3.5 px-5 text-right text-ink-500 tabular-nums">—</td>
-                      <td className="py-3.5 px-5 text-right font-medium text-ink-700 tabular-nums">
-                        ₹{s.adjustedRevenue.toLocaleString("en-IN")}
-                      </td>
-                      <td className="py-3.5 px-5">
-                        <div className="flex items-center gap-2 min-w-[120px]">
-                          <div className="flex-1 h-[5px] rounded-full bg-ink-100 overflow-hidden">
-                            <div
-                              className={`h-full rounded-full transition-all ${st === "on-track" ? "bg-green-500" : st === "needs-push" ? "bg-amber-400" : "bg-red-400"}`}
-                              style={{ width: `${pct}%` }}
-                            />
-                          </div>
-                          <span className="text-xs text-ink-400 w-8 text-right tabular-nums">{pct}%</span>
-                        </div>
-                      </td>
-                      <td className="py-3.5 px-5 text-right">
-                        <span className="font-bold text-ink-700 tabular-nums">₹{s.finalAmount.toLocaleString("en-IN")}</span>
-                        {s.status === "DRAFT"
-                          ? <span className="ml-1.5 text-[10px] font-bold text-orange-500 bg-orange-50 px-1.5 py-0.5 rounded">EST</span>
-                          : <span className="ml-1.5 text-[10px] font-bold text-green-600 bg-green-50 px-1.5 py-0.5 rounded">FINAL</span>
-                        }
-                      </td>
-                      <td className="py-3.5 px-5">
-                        <StatusPill status={st} sheetStatus={s.status} />
-                      </td>
-                      <td className="py-3.5 px-5">
-                        <div className="flex items-center gap-1.5">
-                          {/* Edit — go to review tab pre-scrolled to this user */}
-                          <Link
-                            href={`/incentives?tab=review&year=${year}&month=${month}`}
-                            className="h-7 px-2.5 rounded-md border border-ink-200 text-xs font-medium text-ink-600 hover:bg-ink-50 transition-colors inline-flex items-center"
-                          >
-                            Edit
-                          </Link>
-                          {/* Unlock (only for LOCKED sheets) */}
-                          {s.status === "LOCKED" && (
-                            <form action={unlockSheet}>
-                              <input type="hidden" name="sheetId" value={s.id} />
-                              <button
-                                type="submit"
-                                className="h-7 px-2.5 rounded-md border border-amber-200 text-xs font-medium text-amber-600 hover:bg-amber-50 transition-colors"
-                              >
-                                Unlock
-                              </button>
-                            </form>
-                          )}
-                          {/* Remove */}
-                          <DeleteButton sheetId={s.id} userName={s.user.name ?? ""} deleteAction={deleteSheet} />
-                        </div>
+                {Object.entries(grouped).map(([clusterName, clusterSheets]) => (
+                  <React.Fragment key={`cluster-${clusterName}`}>
+                    {/* Cluster / department header row */}
+                    <tr className="bg-orange-50/20 border-y border-ink-100">
+                      <td colSpan={7} className="px-5 py-2 text-[10.5px] font-bold text-ink-500 uppercase tracking-widest">
+                        {clusterName}
+                        <span className="ml-2 font-normal text-ink-400">({clusterSheets.length})</span>
                       </td>
                     </tr>
-                  );
-                })}
+
+                    {clusterSheets.map((s) => {
+                      const pct = getSlabProgress(s.adjustedRevenue, slabs);
+                      const barColor = pct >= 70 ? "bg-green-500" : pct >= 40 ? "bg-amber-400" : "bg-red-400";
+                      return (
+                        <tr key={s.id} className="hover:bg-ink-50/50 transition-colors">
+                          <td className="py-3.5 px-5">
+                            <div className="flex items-center gap-3">
+                              <Avatar src={s.user.image} name={s.user.name} size="sm" />
+                              <div className="font-medium text-ink-700">{s.user.name}</div>
+                            </div>
+                          </td>
+                          <td className="py-3.5 px-5 text-right tabular-nums">
+                            {s.monthlyTarget > 0 ? (
+                              <span className="text-ink-600 font-medium">₹{s.monthlyTarget.toLocaleString("en-IN")}</span>
+                            ) : (
+                              <span className="text-ink-300 text-xs">Not set</span>
+                            )}
+                          </td>
+                          <td className="py-3.5 px-5 text-right font-medium text-ink-700 tabular-nums">
+                            ₹{s.adjustedRevenue.toLocaleString("en-IN")}
+                          </td>
+                          <td className="py-3.5 px-5">
+                            <div className="flex items-center gap-2 min-w-[120px]">
+                              <div className="flex-1 h-[5px] rounded-full bg-ink-100 overflow-hidden">
+                                <div className={`h-full rounded-full transition-all ${barColor}`} style={{ width: `${pct}%` }} />
+                              </div>
+                              <span className="text-xs text-ink-400 w-8 text-right tabular-nums">{pct}%</span>
+                            </div>
+                          </td>
+                          <td className="py-3.5 px-5 text-right">
+                            <span className="font-bold text-ink-700 tabular-nums">₹{s.finalAmount.toLocaleString("en-IN")}</span>
+                            {s.status === "DRAFT"
+                              ? <span className="ml-1.5 text-[10px] font-bold text-orange-500 bg-orange-50 px-1.5 py-0.5 rounded">EST</span>
+                              : <span className="ml-1.5 text-[10px] font-bold text-green-600 bg-green-50 px-1.5 py-0.5 rounded">FINAL</span>
+                            }
+                          </td>
+                          <td className="py-3.5 px-5">
+                            <EligibilitySelect
+                              sheetId={s.id}
+                              currentOptionId={s.eligibilityOption?.id ?? null}
+                              options={eligibilityOptions}
+                              setEligibilityAction={setEligibility}
+                            />
+                          </td>
+                          <td className="py-3.5 px-5">
+                            <div className="flex items-center gap-1.5">
+                              <Link
+                                href={`/incentives?tab=review&year=${year}&month=${month}`}
+                                className="h-7 px-2.5 rounded-md border border-ink-200 text-xs font-medium text-ink-600 hover:bg-ink-50 transition-colors inline-flex items-center"
+                              >
+                                Edit
+                              </Link>
+                              {s.status === "LOCKED" && (
+                                <form action={unlockSheet}>
+                                  <input type="hidden" name="sheetId" value={s.id} />
+                                  <button
+                                    type="submit"
+                                    className="h-7 px-2.5 rounded-md border border-amber-200 text-xs font-medium text-amber-600 hover:bg-amber-50 transition-colors"
+                                  >
+                                    Unlock
+                                  </button>
+                                </form>
+                              )}
+                              <DeleteButton sheetId={s.id} userName={s.user.name ?? ""} deleteAction={deleteSheet} />
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </React.Fragment>
+                ))}
               </tbody>
             </table>
             <div className="px-5 py-3 border-t border-ink-100 bg-ink-50/50 flex items-center justify-between gap-3">
@@ -330,16 +385,28 @@ function LiveView({ sheets, noRevenueYet, slabs, year, month, period, totalReven
         )}
       </Card>
 
+      {/* Eligibility options manager */}
+      <Card>
+        <CardContent className="pt-5">
+          <EligibilityOptionManager
+            options={eligibilityOptions}
+            upsertAction={upsertEligibilityOption}
+            deleteAction={deleteEligibilityOption}
+          />
+        </CardContent>
+      </Card>
+
       {/* Counsellors with no revenue */}
-      {noRevenueYet.length > 0 && (
+      {filteredNoRevenue.length > 0 && (
         <Card>
           <CardContent className="pt-5">
-            <h3 className="text-sm font-semibold text-ink-600 mb-3">No revenue entered yet ({noRevenueYet.length})</h3>
+            <h3 className="text-sm font-semibold text-ink-600 mb-3">No revenue entered yet ({filteredNoRevenue.length})</h3>
             <div className="flex flex-wrap gap-2">
-              {noRevenueYet.map((u) => (
+              {filteredNoRevenue.map((u) => (
                 <div key={u.id} className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-ink-100 text-sm text-ink-500 bg-white">
                   <Avatar src={u.image} name={u.name} size="sm" />
                   {u.name}
+                  {u.department && <span className="text-xs text-ink-400">· {u.department.name}</span>}
                 </div>
               ))}
             </div>
@@ -380,6 +447,7 @@ function ReviewTab({ sheets, allSalesUsers, noRevenueYet, slabs, year, month, pe
       estIncentive:   sheet?.incentiveAmount ?? 0,
       isLocked:       sheet ? sheet.status !== "DRAFT" : false,
       adjustmentNote: sheet?.adjustmentNote ?? null,
+      monthlyTarget:  sheet?.monthlyTarget ?? 0,
     };
   });
 
@@ -420,6 +488,7 @@ function ReviewTab({ sheets, allSalesUsers, noRevenueYet, slabs, year, month, pe
         periodNote={period?.note ?? null}
         allLocked={allLocked}
         lockAction={lockMonthBulk}
+        saveTargetsAction={saveTargets}
       />
 
       {/* Bulk import (secondary) */}
@@ -603,35 +672,6 @@ function SummaryCard({ emoji, label, value, sub, accent }: {
       <div className="text-[28px] font-bold text-ink-700 leading-none tabular-nums">{value}</div>
       {sub && <div className="text-xs text-ink-400 mt-1.5">{sub}</div>}
     </Card>
-  );
-}
-
-function StatusPill({ status, sheetStatus }: { status: string; sheetStatus: string }) {
-  if (sheetStatus !== "DRAFT") {
-    const colors: Record<string, string> = {
-      LOCKED:   "bg-orange-50 text-orange-600",
-      APPROVED: "bg-amber-50 text-amber-600",
-      PAID:     "bg-green-50 text-green-600",
-    };
-    return (
-      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${colors[sheetStatus] ?? "bg-ink-100 text-ink-500"}`}>
-        <span className="size-1.5 rounded-full bg-current" />
-        {sheetStatus}
-      </span>
-    );
-  }
-  const map = {
-    "on-track":     { label: "On Track",    cls: "bg-green-50 text-green-700" },
-    "needs-push":   { label: "Needs Push",  cls: "bg-amber-50 text-amber-600" },
-    "below-target": { label: "Below Target", cls: "bg-red-50 text-red-600" },
-    "neutral":      { label: "—",           cls: "bg-ink-50 text-ink-400" },
-  } as const;
-  const s = map[status as keyof typeof map] ?? map.neutral;
-  return (
-    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${s.cls}`}>
-      <span className="size-1.5 rounded-full bg-current" />
-      {s.label}
-    </span>
   );
 }
 

@@ -630,6 +630,18 @@ model Compensation {
 // Incentives (Sales / Counselling team)
 // ──────────────────────────────────────────────────────────────────────────────
 
+// Admin-configurable eligibility statuses (e.g. "Eligible", "Not Eligible").
+model IncentiveEligibilityOption {
+  id        String           @id @default(cuid())
+  label     String           @unique
+  color     String           @default("gray")  // "green" | "red" | "amber" | "blue" | "gray"
+  order     Int              @default(0)
+  sheets    IncentiveSheet[]
+  createdAt DateTime         @default(now())
+
+  @@index([order])
+}
+
 // Month-level metadata: one record per month shared across the whole team.
 // Stores the Google Sheet URL and any global notes for that month.
 model IncentivePeriod {
@@ -706,11 +718,14 @@ model IncentiveSheet {
 
   grossRevenue     Int                  @default(0)  // sum of all ACTIVE sales
   adjustedRevenue  Int                  @default(0)  // after REFUNDED/CANCELLED are excluded
+  monthlyTarget    Int                  @default(0)  // revenue target set by Sales Head for this counsellor
   slabRate         Float                @default(0)  // % rate applied at lock time
   incentiveAmount  Int                  @default(0)  // adjustedRevenue × slabRate / 100
   manualAdjustment Int                  @default(0)  // +/- applied by Sales Head
   finalAmount      Int                  @default(0)  // incentiveAmount + manualAdjustment
   adjustmentNote   String?
+  eligibilityOptionId String?
+  eligibilityOption   IncentiveEligibilityOption? @relation(fields: [eligibilityOptionId], references: [id], onDelete: SetNull)
 
   status           IncentiveSheetStatus @default(DRAFT)
   lockedById       String?

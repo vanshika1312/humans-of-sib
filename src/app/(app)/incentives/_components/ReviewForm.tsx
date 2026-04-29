@@ -18,6 +18,7 @@ export type ReviewRow = {
   estIncentive: number;
   isLocked: boolean;
   adjustmentNote: string | null;
+  monthlyTarget: number;
 };
 
 function computeIncentive(revenue: number, slabs: Slab[]): number {
@@ -41,6 +42,7 @@ export function ReviewForm({
   periodNote,
   allLocked,
   lockAction,
+  saveTargetsAction,
 }: {
   rows: ReviewRow[];
   slabs: Slab[];
@@ -50,9 +52,13 @@ export function ReviewForm({
   periodNote: string | null;
   allLocked: boolean;
   lockAction: (state: LockBulkState, formData: FormData) => Promise<LockBulkState>;
+  saveTargetsAction: (formData: FormData) => Promise<void>;
 }) {
   const [revenues, setRevenues] = useState<Record<string, number>>(
     Object.fromEntries(initialRows.map((r) => [r.userId, r.estRevenue])),
+  );
+  const [targets, setTargets] = useState<Record<string, number>>(
+    Object.fromEntries(initialRows.map((r) => [r.userId, r.monthlyTarget])),
   );
   const [notes, setNotes] = useState<Record<string, string>>(
     Object.fromEntries(initialRows.map((r) => [r.userId, r.adjustmentNote ?? ""])),
@@ -73,6 +79,7 @@ export function ReviewForm({
 
   function reset() {
     setRevenues(Object.fromEntries(initialRows.map((r) => [r.userId, r.estRevenue])));
+    setTargets(Object.fromEntries(initialRows.map((r) => [r.userId, r.monthlyTarget])));
     setNotes(Object.fromEntries(initialRows.map((r) => [r.userId, r.adjustmentNote ?? ""])));
   }
 
@@ -120,6 +127,7 @@ export function ReviewForm({
             <thead>
               <tr className="bg-ink-50 border-b border-ink-100 text-[10.5px] text-ink-400 uppercase tracking-wide font-semibold">
                 <th className="text-left py-3 px-5">Counsellor</th>
+                <th className="text-right py-3 px-5">Monthly Target</th>
                 <th className="text-right py-3 px-5">Est. Revenue</th>
                 <th className="text-right py-3 px-5">Final Revenue</th>
                 <th className="text-right py-3 px-5">Est. Incentive</th>
@@ -147,6 +155,19 @@ export function ReviewForm({
                           {row.department && <div className="text-xs text-ink-400">{row.department}</div>}
                         </div>
                       </div>
+                    </td>
+
+                    {/* Monthly Target (editable) */}
+                    <td className="py-3 px-5 text-right">
+                      <input
+                        name="target"
+                        type="number"
+                        min={0}
+                        value={targets[row.userId] ?? 0}
+                        onChange={(e) => setTargets((t) => ({ ...t, [row.userId]: Number(e.target.value) || 0 }))}
+                        disabled={rowLocked}
+                        className="w-28 h-8 text-right border border-sky-200 rounded-md px-2 text-sm bg-sky-50 focus:outline-none focus:border-sky-400 focus:bg-white transition-colors disabled:opacity-40 disabled:bg-ink-50"
+                      />
                     </td>
 
                     {/* Est. Revenue */}
@@ -240,6 +261,13 @@ export function ReviewForm({
                 className="h-9 px-4 rounded-lg border border-ink-200 text-sm font-medium text-ink-600 hover:bg-ink-50 transition-colors"
               >
                 ↺ Reset
+              </button>
+              <button
+                type="submit"
+                formAction={saveTargetsAction}
+                className="h-9 px-4 rounded-lg border border-sky-200 text-sky-700 text-sm font-medium hover:bg-sky-50 transition-colors"
+              >
+                💾 Save Targets
               </button>
               <button
                 type="submit"

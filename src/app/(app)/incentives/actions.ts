@@ -206,7 +206,82 @@ export async function unlockSheet(formData: FormData) {
   revalidatePath("/incentives");
 }
 
-// ─── lock month in bulk (saves revenues + notes, then locks all drafts) ──────
+// ─── eligibility options (admin-configurable) ────────────────────────────────
+
+export async function setEligibility(formData: FormData) {
+  const me = await getMe();
+  requireSalesHead(me.role);
+
+  const sheetId           = formData.get("sheetId") as string;
+  const eligibilityOptionId = (formData.get("eligibilityOptionId") as string) || null;
+
+  await prisma.incentiveSheet.update({
+    where: { id: sheetId },
+    data:  { eligibilityOptionId },
+  });
+  revalidatePath("/incentives");
+}
+
+export async function upsertEligibilityOption(formData: FormData) {
+  const me = await getMe();
+  requireSalesHead(me.role);
+
+  const id    = (formData.get("id") as string | null) || undefined;
+  const label = ((formData.get("label") as string) ?? "").trim();
+  const color = (formData.get("color") as string) || "gray";
+  const order = Number(formData.get("order")) || 0;
+
+  if (!label) throw new Error("Label is required.");
+
+  if (id) {
+    await prisma.incentiveEligibilityOption.update({ where: { id }, data: { label, color, order } });
+  } else {
+    await prisma.incentiveEligibilityOption.create({ data: { label, color, order } });
+  }
+  revalidatePath("/incentives");
+}
+
+export async function deleteEligibilityOption(formData: FormData) {
+  const me = await getMe();
+  requireSalesHead(me.role);
+
+  const id = formData.get("id") as string;
+  await prisma.incentiveSheet.updateMany({ where: { eligibilityOptionId: id }, data: { eligibilityOptionId: null } });
+  await prisma.incentiveEligibilityOption.delete({ where: { id } });
+  revalidatePath("/incentives");
+}
+
+// ─── save targets per counsellor (without locking) ───────────────────────────
+
+export async function saveTargets(formData: FormData) {
+  const me = await getMe();
+  requireSalesHead(me.role);
+
+  const year    = Number(formData.get("year"));
+  const month   = Number(formData.get("month"));
+  const userIds = formData.getAll("userId") as string[];
+  const targets = formData.getAll("target") as string[];
+
+  await Promise.all(
+    userIds.map((userId, i) => {
+      const target = Number(targets[i]) || 0;
+      return prisma.incentiveSheet.upsert({
+        where: { userId_year_month: { userId, year, month } },
+        create: {
+          userId, year, month,
+          grossRevenue: 0, adjustedRevenue: 0, slabRate: 0,
+          incentiveAmount: 0, manualAdjustment: 0, finalAmount: 0,
+          monthlyTarget: target,
+        },
+        update: { monthlyTarget: target },
+      });
+    }),
+  );
+
+  revalidatePath("/incentives");
+}
+
+// ─── lock month in bulk (saves revenues + targets + notes, then locks all drafts) ─
 
 type LockBulkState = { error?: string; success?: boolean };
 
@@ -226,6 +301,7 @@ export async function lockMonthBulk(
   const userIds = formData.getAll("userId") as string[];
   const revenues = formData.getAll("revenue") as string[];
   const notes    = formData.getAll("note") as string[];
+  const targets  = formData.getAll("target") as string[];
 
   if (!userIds.length) return { error: "No counsellor data to save." };
 
@@ -237,14 +313,18 @@ export async function lockMonthBulk(
     }),
   );
 
-  // Attach notes to DRAFT sheets
+  // Save targets and notes to DRAFT sheets
   await Promise.all(
     userIds.map(async (userId, i) => {
-      const note = (notes[i] ?? "").trim() || undefined;
-      if (!note) return;
+      const note   = (notes[i]   ?? "").trim() || undefined;
+      const target = Number(targets[i]) || 0;
+      const data: Record<string, unknown> = {};
+      if (note)       data.adjustmentNote = note;
+      if (target > 0) data.monthlyTarget  = target;
+      if (Object.keys(data).length === 0) return;
       await prisma.incentiveSheet.updateMany({
         where: { userId, year, month, status: "DRAFT" },
-        data: { adjustmentNote: note },
+        data,
       });
     }),
   );
