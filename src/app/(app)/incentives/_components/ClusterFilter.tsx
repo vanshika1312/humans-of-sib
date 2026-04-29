@@ -2,15 +2,21 @@
 
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 
-export function ClusterFilter({ clusters }: { clusters: string[] }) {
+export function ClusterFilter({
+  clusters,
+  paramKey = "cluster",
+}: {
+  clusters: string[];
+  paramKey?: string;
+}) {
   const router       = useRouter();
   const pathname     = usePathname();
   const searchParams = useSearchParams();
-  const current      = searchParams.get("cluster") ?? "";
+  const current      = searchParams.get(paramKey) ?? "";
 
   function select(val: string) {
     const p = new URLSearchParams(searchParams.toString());
-    val ? p.set("cluster", val) : p.delete("cluster");
+    val ? p.set(paramKey, val) : p.delete(paramKey);
     router.push(`${pathname}?${p.toString()}`);
   }
 

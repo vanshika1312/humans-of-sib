@@ -13,6 +13,7 @@ type SearchParams = Promise<{
   historyYear?: string;
   historyMonth?: string;
   cluster?: string;
+  team?: string;
 }>;
 
 export default async function IncentivesPage({ searchParams }: { searchParams: SearchParams }) {
@@ -23,7 +24,7 @@ export default async function IncentivesPage({ searchParams }: { searchParams: S
   });
   if (!me) return null;
 
-  const { tab = "live", year: yearStr, month: monthStr, historyYear: hyStr, historyMonth: hmStr, cluster = "" } = await searchParams;
+  const { tab = "live", year: yearStr, month: monthStr, historyYear: hyStr, historyMonth: hmStr, cluster = "", team = "" } = await searchParams;
 
   const now = new Date();
   const year  = yearStr  ? parseInt(yearStr)  : now.getFullYear();
@@ -54,7 +55,7 @@ export default async function IncentivesPage({ searchParams }: { searchParams: S
         </Suspense>
       ) : isSalesHead ? (
         <Suspense fallback={<Skeleton />}>
-          <SalesHeadView year={year} month={month} tab={tab} historyYear={historyYear} historyMonth={historyMonth} userName={me.name ?? "Sales Head"} cluster={cluster} />
+          <SalesHeadView year={year} month={month} tab={tab} historyYear={historyYear} historyMonth={historyMonth} userName={me.name ?? "Sales Head"} cluster={cluster} team={team} />
         </Suspense>
       ) : (
         <Suspense fallback={<Skeleton />}>

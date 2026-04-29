@@ -40,14 +40,24 @@ async function fetchMonthData(year: number, month: number) {
       where: { year, month },
       orderBy: { adjustedRevenue: "desc" },
       include: {
-        user:              { select: { id: true, name: true, image: true, department: { select: { name: true } } } },
+        user: {
+          select: {
+            id: true, name: true, image: true,
+            department: { select: { name: true } },
+            city:       { select: { name: true } },
+          },
+        },
         lockedBy:          { select: { name: true } },
         eligibilityOption: { select: { id: true, label: true, color: true } },
       },
     }),
     prisma.user.findMany({
       where: { status: "ACTIVE" },
-      select: { id: true, name: true, image: true, department: { select: { name: true } } },
+      select: {
+        id: true, name: true, image: true,
+        department: { select: { name: true } },
+        city:       { select: { name: true } },
+      },
       orderBy: { name: "asc" },
     }),
     prisma.incentiveSlab.findMany({ orderBy: { order: "asc" } }),
@@ -81,21 +91,11 @@ function groupByCluster(sheets: SheetWithUser[]): Record<string, SheetWithUser[]
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export async function SalesHeadView({
-  year,
-  month,
-  tab,
-  historyYear,
-  historyMonth,
-  userName,
-  cluster,
+  year, month, tab, historyYear, historyMonth, userName, cluster, team,
 }: {
-  year: number;
-  month: number;
-  tab: string;
-  historyYear?: number;
-  historyMonth?: number;
-  userName: string;
-  cluster: string;
+  year: number; month: number; tab: string;
+  historyYear?: number; historyMonth?: number;
+  userName: string; cluster: string; team: string;
 }) {
   const { period, sheets, allSalesUsers, slabs, eligibilityOptions } = await fetchMonthData(year, month);
 
@@ -108,9 +108,12 @@ export async function SalesHeadView({
   const eligibleCount = sheets.filter((s) => s.eligibilityOption !== null).length;
   const allLocked     = sheets.length > 0 && sheets.every((s) => s.status !== "DRAFT");
 
-  // All unique clusters (departments) across all active users
   const allClusters = Array.from(
     new Set(allSalesUsers.map((u) => u.department?.name ?? "Unassigned").filter(Boolean))
+  ).sort();
+
+  const allTeams = Array.from(
+    new Set(allSalesUsers.map((u) => u.city?.name).filter((c): c is string => !!c))
   ).sort();
 
   const TABS = [
@@ -168,7 +171,7 @@ export async function SalesHeadView({
         )}
       </div>
 
-      {tab === "live"    && <LiveView sheets={sheets} noRevenueYet={noRevenueYet} slabs={slabs} year={year} month={month} period={period} totalRevenue={totalRevenue} totalPayout={totalPayout} avgIncentive={avgIncentive} eligibleCount={eligibleCount} allLocked={allLocked} eligibilityOptions={eligibilityOptions} cluster={cluster} allClusters={allClusters} />}
+      {tab === "live"    && <LiveView sheets={sheets} noRevenueYet={noRevenueYet} slabs={slabs} year={year} month={month} period={period} totalRevenue={totalRevenue} totalPayout={totalPayout} avgIncentive={avgIncentive} eligibleCount={eligibleCount} allLocked={allLocked} eligibilityOptions={eligibilityOptions} cluster={cluster} allClusters={allClusters} team={team} allTeams={allTeams} />}
       {tab === "review"  && <ReviewTab sheets={sheets} allSalesUsers={allSalesUsers} noRevenueYet={noRevenueYet} slabs={slabs} year={year} month={month} period={period} allLocked={allLocked} />}
       {tab === "history" && <HistoryView currentYear={year} currentMonth={month} historyYear={historyYear} historyMonth={historyMonth} />}
     </div>
@@ -177,27 +180,28 @@ export async function SalesHeadView({
 
 // ─── Live View ────────────────────────────────────────────────────────────────
 
-function LiveView({ sheets, noRevenueYet, slabs, year, month, period, totalRevenue, totalPayout, avgIncentive, eligibleCount, allLocked, eligibilityOptions, cluster, allClusters }: {
+function LiveView({ sheets, noRevenueYet, slabs, year, month, period, totalRevenue, totalPayout, avgIncentive, eligibleCount, allLocked, eligibilityOptions, cluster, allClusters, team, allTeams }: {
   sheets: SheetWithUser[];
-  noRevenueYet: { id: string; name: string | null; image: string | null; department: { name: string } | null }[];
+  noRevenueYet: { id: string; name: string | null; image: string | null; department: { name: string } | null; city: { name: string } | null }[];
   slabs: Slab[];
   year: number; month: number;
   period: { sheetUrl: string | null; note: string | null } | null;
   totalRevenue: number; totalPayout: number; avgIncentive: number; eligibleCount: number;
   allLocked: boolean;
   eligibilityOptions: EligibilityOption[];
-  cluster: string;
-  allClusters: string[];
+  cluster: string; allClusters: string[];
+  team: string;    allTeams: string[];
 }) {
-  // Filter by selected cluster
-  const filteredSheets = cluster
-    ? sheets.filter((s) => (s.user.department?.name ?? "Unassigned") === cluster)
-    : sheets;
-  const filteredNoRevenue = cluster
-    ? noRevenueYet.filter((u) => (u.department?.name ?? "Unassigned") === cluster)
-    : noRevenueYet;
-
-  // Group filtered sheets by cluster (department)
+  const filteredSheets = sheets.filter((s) => {
+    if (cluster && (s.user.department?.name ?? "Unassigned") !== cluster) return false;
+    if (team    && (s.user.city?.name ?? "") !== team)                      return false;
+    return true;
+  });
+  const filteredNoRevenue = noRevenueYet.filter((u) => {
+    if (cluster && (u.department?.name ?? "Unassigned") !== cluster) return false;
+    if (team    && (u.city?.name ?? "") !== team)                    return false;
+    return true;
+  });
   const grouped = groupByCluster(filteredSheets);
 
   return (
@@ -258,7 +262,18 @@ function LiveView({ sheets, noRevenueYet, slabs, year, month, period, totalReven
           </div>
           <div className="flex items-center gap-3 flex-wrap">
             {/* Cluster filter pills */}
-            {allClusters.length > 1 && <ClusterFilter clusters={allClusters} />}
+            {allClusters.length > 1 && (
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-semibold text-ink-400 uppercase tracking-wide">Cluster</span>
+                <ClusterFilter clusters={allClusters} paramKey="cluster" />
+              </div>
+            )}
+            {allTeams.length > 1 && (
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-semibold text-ink-400 uppercase tracking-wide">Team</span>
+                <ClusterFilter clusters={allTeams} paramKey="team" />
+              </div>
+            )}
             <Link
               href={`/incentives?tab=review&year=${year}&month=${month}`}
               className="text-xs font-medium text-sky-600 hover:underline"
@@ -278,6 +293,7 @@ function LiveView({ sheets, noRevenueYet, slabs, year, month, period, totalReven
               <thead>
                 <tr className="bg-ink-50 border-b border-ink-100 text-[10.5px] text-ink-400 uppercase tracking-wide font-semibold">
                   <th className="text-left py-3 px-5">Counsellor</th>
+                  <th className="text-left py-3 px-5">Team</th>
                   <th className="text-right py-3 px-5">Target</th>
                   <th className="text-right py-3 px-5">Revenue</th>
                   <th className="text-left py-3 px-5">Slab Progress</th>
@@ -291,7 +307,7 @@ function LiveView({ sheets, noRevenueYet, slabs, year, month, period, totalReven
                   <React.Fragment key={`cluster-${clusterName}`}>
                     {/* Cluster / department header row */}
                     <tr className="bg-orange-50/20 border-y border-ink-100">
-                      <td colSpan={7} className="px-5 py-2 text-[10.5px] font-bold text-ink-500 uppercase tracking-widest">
+                      <td colSpan={8} className="px-5 py-2 text-[10.5px] font-bold text-ink-500 uppercase tracking-widest">
                         {clusterName}
                         <span className="ml-2 font-normal text-ink-400">({clusterSheets.length})</span>
                       </td>
@@ -307,6 +323,11 @@ function LiveView({ sheets, noRevenueYet, slabs, year, month, period, totalReven
                               <Avatar src={s.user.image} name={s.user.name} size="sm" />
                               <div className="font-medium text-ink-700">{s.user.name}</div>
                             </div>
+                          </td>
+                          <td className="py-3.5 px-5">
+                            <span className="text-xs text-ink-500">
+                              {s.user.city?.name ?? <span className="text-ink-300">—</span>}
+                            </span>
                           </td>
                           <td className="py-3.5 px-5 text-right tabular-nums">
                             {s.monthlyTarget > 0 ? (
