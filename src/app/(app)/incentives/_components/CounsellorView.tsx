@@ -1,10 +1,12 @@
 import { prisma } from "@/lib/prisma";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Avatar } from "@/components/ui/avatar";
 import { EmptyState } from "@/components/ui/page-header";
 import { ExternalLink } from "lucide-react";
 
 const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const FULL_MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 
 const SHEET_STATUS: Record<string, { label: string; tone: "sky"|"orange"|"sun"|"ink" }> = {
   DRAFT:    { label: "Estimate",  tone: "sky"    },
@@ -18,7 +20,7 @@ export async function CounsellorView({ userId }: { userId: string }) {
   const currentYear  = now.getFullYear();
   const currentMonth = now.getMonth() + 1;
 
-  const [currentSheet, period, slabs, pastSheets] = await Promise.all([
+  const [currentSheet, period, slabs, pastSheets, teamSheets] = await Promise.all([
     prisma.incentiveSheet.findUnique({
       where: { userId_year_month: { userId, year: currentYear, month: currentMonth } },
       include: { lockedBy: { select: { name: true } } },
@@ -31,6 +33,22 @@ export async function CounsellorView({ userId }: { userId: string }) {
       where: { userId, NOT: { year: currentYear, month: currentMonth } },
       orderBy: [{ year: "desc" }, { month: "desc" }],
       take: 6,
+    }),
+    prisma.incentiveSheet.findMany({
+      where: { year: currentYear, month: currentMonth },
+      orderBy: { adjustedRevenue: "desc" },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            image: true,
+            department: { select: { name: true } },
+            city: { select: { name: true } },
+          },
+        },
+        eligibilityOption: { select: { label: true, color: true } },
+      },
     }),
   ]);
 
@@ -180,6 +198,90 @@ export async function CounsellorView({ userId }: { userId: string }) {
                 ))}
               </ul>
             </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Team breakdown — read-only */}
+      {teamSheets.length > 0 && (
+        <div>
+          <h2 className="text-sm font-semibold text-ink-600 mb-3">
+            Team — {FULL_MONTHS[currentMonth - 1]} {currentYear}
+          </h2>
+          <Card>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-ink-50 border-b border-ink-100 text-[10.5px] text-ink-400 uppercase tracking-wide font-semibold">
+                    <th className="text-left py-3 px-5">Counsellor</th>
+                    <th className="text-left py-3 px-5">Cluster</th>
+                    <th className="text-right py-3 px-5">Revenue</th>
+                    <th className="text-right py-3 px-5">Incentive</th>
+                    <th className="text-left py-3 px-5">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-ink-50">
+                  {teamSheets.map((s) => {
+                    const isMe = s.user.id === userId;
+                    return (
+                      <tr
+                        key={s.id}
+                        className={`transition-colors ${isMe ? "bg-sky-50/60" : "hover:bg-ink-50/50"}`}
+                      >
+                        <td className="py-3.5 px-5">
+                          <div className="flex items-center gap-3">
+                            <Avatar src={s.user.image} name={s.user.name} size="sm" />
+                            <div>
+                              <span className="font-medium text-ink-700">{s.user.name}</span>
+                              {isMe && (
+                                <span className="ml-2 text-[10px] font-semibold text-sky-600 bg-sky-100 px-1.5 py-0.5 rounded">
+                                  You
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </td>
+                        <td className="py-3.5 px-5 text-xs text-ink-500">
+                          {s.user.department?.name ?? <span className="text-ink-300">—</span>}
+                        </td>
+                        <td className="py-3.5 px-5 text-right font-medium text-ink-700 tabular-nums">
+                          ₹{s.adjustedRevenue.toLocaleString("en-IN")}
+                        </td>
+                        <td className="py-3.5 px-5 text-right">
+                          <span className="font-bold text-ink-700 tabular-nums">
+                            ₹{s.finalAmount.toLocaleString("en-IN")}
+                          </span>
+                          {s.status === "DRAFT" && (
+                            <span className="ml-1.5 text-[10px] font-bold text-orange-500 bg-orange-50 px-1.5 py-0.5 rounded">
+                              EST
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-3.5 px-5">
+                          <Badge tone={SHEET_STATUS[s.status]?.tone ?? "ink"}>
+                            {SHEET_STATUS[s.status]?.label ?? s.status}
+                          </Badge>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                <tfoot>
+                  <tr className="border-t border-ink-100 bg-ink-50/50">
+                    <td colSpan={2} className="py-3 px-5 text-xs font-semibold text-ink-500">
+                      Team total · {teamSheets.length} counsellor{teamSheets.length !== 1 ? "s" : ""}
+                    </td>
+                    <td className="py-3 px-5 text-right text-xs font-semibold text-ink-600 tabular-nums">
+                      ₹{teamSheets.reduce((a, s) => a + s.adjustedRevenue, 0).toLocaleString("en-IN")}
+                    </td>
+                    <td className="py-3 px-5 text-right text-xs font-bold text-ink-700 tabular-nums">
+                      ₹{teamSheets.reduce((a, s) => a + s.finalAmount, 0).toLocaleString("en-IN")}
+                    </td>
+                    <td />
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
           </Card>
         </div>
       )}
