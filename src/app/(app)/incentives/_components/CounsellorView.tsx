@@ -8,6 +8,18 @@ import { ExternalLink } from "lucide-react";
 const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const FULL_MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 
+function getChaChing(revenue: number, slabs: { minRev: number; maxRev: number | null; rate: number; label: string }[]): string {
+  if (slabs.length === 0) return "No tiers configured";
+  const current = [...slabs].reverse().find(
+    (s) => revenue >= s.minRev && (s.maxRev === null || revenue <= s.maxRev),
+  );
+  const next = slabs.find((s) => revenue < s.minRev);
+  if (!next) return current ? `🎉 Top tier! (${current.label} · ${current.rate}%)` : "Keep going!";
+  const gap = next.minRev - revenue;
+  const pct = Math.round((revenue / next.minRev) * 100);
+  return `${pct}% · ₹${gap.toLocaleString("en-IN")} away from ${next.label} (${next.rate}%)`;
+}
+
 const SHEET_STATUS: Record<string, { label: string; tone: "sky"|"orange"|"sun"|"ink" }> = {
   DRAFT:    { label: "Estimate",  tone: "sky"    },
   LOCKED:   { label: "Locked",    tone: "orange" },
@@ -255,7 +267,7 @@ export async function CounsellorView({ userId }: { userId: string }) {
                       <th className="text-left py-3 px-5">Team</th>
                       <th className="text-right py-3 px-5">Target</th>
                       <th className="text-right py-3 px-5">Revenue</th>
-                      <th className="text-left py-3 px-5">Slab Progress</th>
+                      <th className="text-left py-3 px-5">Cha-Ching Meter 🎰</th>
                       <th className="text-right py-3 px-5">Incentive (Est.)</th>
                       <th className="text-left py-3 px-5">Eligibility</th>
                     </tr>
@@ -292,11 +304,16 @@ export async function CounsellorView({ userId }: { userId: string }) {
                             ₹{s.adjustedRevenue.toLocaleString("en-IN")}
                           </td>
                           <td className="py-3.5 px-5">
-                            <div className="flex items-center gap-2 min-w-[120px]">
-                              <div className="flex-1 h-[5px] rounded-full bg-ink-100 overflow-hidden">
-                                <div className={`h-full rounded-full transition-all ${barColor}`} style={{ width: `${pct}%` }} />
+                            <div className="group min-w-[160px] space-y-1">
+                              <div className="flex items-center gap-2">
+                                <div className="flex-1 h-[5px] rounded-full bg-ink-100 overflow-hidden">
+                                  <div className={`h-full rounded-full transition-all ${barColor}`} style={{ width: `${pct}%` }} />
+                                </div>
+                                <span className="text-xs text-ink-400 w-8 text-right tabular-nums">{pct}%</span>
                               </div>
-                              <span className="text-xs text-ink-400 w-8 text-right tabular-nums">{pct}%</span>
+                              <div className="text-[10px] text-ink-400 opacity-0 group-hover:opacity-100 transition-opacity duration-150 truncate max-w-[160px]">
+                                {getChaChing(s.adjustedRevenue, slabs)}
+                              </div>
                             </div>
                           </td>
                           <td className="py-3.5 px-5 text-right">

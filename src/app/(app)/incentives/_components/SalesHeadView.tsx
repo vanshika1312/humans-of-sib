@@ -80,6 +80,21 @@ function getSlabProgress(revenue: number, slabs: Slab[]) {
   return Math.min(100, Math.round((revenue / top) * 100));
 }
 
+/** Tooltip text shown on hover over the Cha-Ching Meter. */
+function getChaChing(revenue: number, slabs: Slab[]): string {
+  if (slabs.length === 0) return "No tiers configured";
+  // Current slab (highest qualifying)
+  const current = [...slabs].reverse().find(
+    (s) => revenue >= s.minRev && (s.maxRev === null || revenue <= s.maxRev),
+  );
+  // Next slab above current revenue
+  const next = slabs.find((s) => revenue < s.minRev);
+  if (!next) return current ? `🎉 Top tier! (${current.label} · ${current.rate}%)` : "Keep going!";
+  const gap = next.minRev - revenue;
+  const pct = Math.round((revenue / next.minRev) * 100);
+  return `${pct}% · ₹${gap.toLocaleString("en-IN")} away from ${next.label} (${next.rate}%)`;
+}
+
 /** Group sheets by their counsellor's department name. */
 function groupByCluster(sheets: SheetWithUser[]): Record<string, SheetWithUser[]> {
   const groups: Record<string, SheetWithUser[]> = {};
@@ -302,7 +317,7 @@ function LiveView({ sheets, noRevenueYet, slabs, year, month, period, totalReven
                   <th className="text-left py-3 px-5">Team</th>
                   <th className="text-right py-3 px-5">Target</th>
                   <th className="text-right py-3 px-5">Revenue</th>
-                  <th className="text-left py-3 px-5">Slab Progress</th>
+                  <th className="text-left py-3 px-5">Cha-Ching Meter 🎰</th>
                   <th className="text-right py-3 px-5">Incentive (Est.)</th>
                   <th className="text-left py-3 px-5">Eligibility</th>
                   <th className="py-3 px-5">Actions</th>
@@ -346,11 +361,16 @@ function LiveView({ sheets, noRevenueYet, slabs, year, month, period, totalReven
                             ₹{s.adjustedRevenue.toLocaleString("en-IN")}
                           </td>
                           <td className="py-3.5 px-5">
-                            <div className="flex items-center gap-2 min-w-[120px]">
-                              <div className="flex-1 h-[5px] rounded-full bg-ink-100 overflow-hidden">
-                                <div className={`h-full rounded-full transition-all ${barColor}`} style={{ width: `${pct}%` }} />
+                            <div className="group min-w-[160px] space-y-1">
+                              <div className="flex items-center gap-2">
+                                <div className="flex-1 h-[5px] rounded-full bg-ink-100 overflow-hidden">
+                                  <div className={`h-full rounded-full transition-all ${barColor}`} style={{ width: `${pct}%` }} />
+                                </div>
+                                <span className="text-xs text-ink-400 w-8 text-right tabular-nums">{pct}%</span>
                               </div>
-                              <span className="text-xs text-ink-400 w-8 text-right tabular-nums">{pct}%</span>
+                              <div className="text-[10px] text-ink-400 opacity-0 group-hover:opacity-100 transition-opacity duration-150 truncate max-w-[160px]">
+                                {getChaChing(s.adjustedRevenue, slabs)}
+                              </div>
                             </div>
                           </td>
                           <td className="py-3.5 px-5 text-right">
