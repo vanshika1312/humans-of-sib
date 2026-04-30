@@ -73,26 +73,22 @@ function topSlabMinRev(slabs: Slab[]) {
   return slabs.reduce((max, s) => Math.max(max, s.minRev), 0);
 }
 
-/** Progress towards the top slab's minimum revenue (for the progress bar). */
-function getSlabProgress(revenue: number, slabs: Slab[]) {
-  const top = topSlabMinRev(slabs);
-  if (top === 0) return 0;
-  return Math.min(100, Math.round((revenue / top) * 100));
+/** Progress towards the monthly target: (revenue / target) * 100 */
+function getSlabProgress(revenue: number, target: number) {
+  if (target === 0) return 0;
+  return Math.min(100, Math.round((revenue / target) * 100));
 }
 
 /** Tooltip text shown on hover over the Cha-Ching Meter. */
-function getChaChing(revenue: number, slabs: Slab[]): string {
-  if (slabs.length === 0) return "No tiers configured";
-  // Current slab (highest qualifying)
-  const current = [...slabs].reverse().find(
-    (s) => revenue >= s.minRev && (s.maxRev === null || revenue <= s.maxRev),
-  );
-  // Next slab above current revenue
-  const next = slabs.find((s) => revenue < s.minRev);
-  if (!next) return current ? `🎉 Top tier! (${current.label} · ${current.rate}%)` : "Keep going!";
-  const gap = next.minRev - revenue;
-  const pct = Math.round((revenue / next.minRev) * 100);
-  return `${pct}% · ₹${gap.toLocaleString("en-IN")} away from ${next.label} (${next.rate}%)`;
+function getChaChing(revenue: number, target: number): string {
+  if (target === 0) return "No target set for this month";
+  const pct = Math.round((revenue / target) * 100);
+  if (revenue >= target) {
+    const over = revenue - target;
+    return `🎯 Target hit! ${over > 0 ? `+₹${over.toLocaleString("en-IN")} above target` : "exactly on target"}`;
+  }
+  const gap = target - revenue;
+  return `${pct}% of target · ₹${gap.toLocaleString("en-IN")} to go`;
 }
 
 /** Group sheets by their counsellor's department name. */
@@ -335,8 +331,8 @@ function LiveView({ sheets, noRevenueYet, slabs, year, month, period, totalReven
                     </tr>
 
                     {clusterSheets.map((s) => {
-                      const pct = getSlabProgress(s.adjustedRevenue, slabs);
-                      const barColor = pct >= 70 ? "bg-green-500" : pct >= 40 ? "bg-amber-400" : "bg-red-400";
+                      const pct = getSlabProgress(s.adjustedRevenue, s.monthlyTarget);
+                      const barColor = s.monthlyTarget === 0 ? "bg-ink-200" : pct >= 100 ? "bg-green-500" : pct >= 70 ? "bg-amber-400" : "bg-red-400";
                       return (
                         <tr key={s.id} className="hover:bg-ink-50/50 transition-colors">
                           <td className="py-3.5 px-5">
@@ -369,7 +365,7 @@ function LiveView({ sheets, noRevenueYet, slabs, year, month, period, totalReven
                                 <span className="text-xs text-ink-400 w-8 text-right tabular-nums">{pct}%</span>
                               </div>
                               <div className="text-[10px] text-ink-400 opacity-0 group-hover:opacity-100 transition-opacity duration-150 truncate max-w-[160px]">
-                                {getChaChing(s.adjustedRevenue, slabs)}
+                                {getChaChing(s.adjustedRevenue, s.monthlyTarget)}
                               </div>
                             </div>
                           </td>
