@@ -202,90 +202,172 @@ export async function CounsellorView({ userId }: { userId: string }) {
         </div>
       )}
 
-      {/* Team breakdown — read-only */}
-      {teamSheets.length > 0 && (
-        <div>
-          <h2 className="text-sm font-semibold text-ink-600 mb-3">
-            Team — {FULL_MONTHS[currentMonth - 1]} {currentYear}
-          </h2>
-          <Card>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="bg-ink-50 border-b border-ink-100 text-[10.5px] text-ink-400 uppercase tracking-wide font-semibold">
-                    <th className="text-left py-3 px-5">Counsellor</th>
-                    <th className="text-left py-3 px-5">Cluster</th>
-                    <th className="text-right py-3 px-5">Revenue</th>
-                    <th className="text-right py-3 px-5">Incentive</th>
-                    <th className="text-left py-3 px-5">Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-ink-50">
-                  {teamSheets.map((s) => {
-                    const isMe = s.user.id === userId;
-                    return (
-                      <tr
-                        key={s.id}
-                        className={`transition-colors ${isMe ? "bg-sky-50/60" : "hover:bg-ink-50/50"}`}
-                      >
-                        <td className="py-3.5 px-5">
-                          <div className="flex items-center gap-3">
-                            <Avatar src={s.user.image} name={s.user.name} size="sm" />
-                            <div>
-                              <span className="font-medium text-ink-700">{s.user.name}</span>
-                              {isMe && (
-                                <span className="ml-2 text-[10px] font-semibold text-sky-600 bg-sky-100 px-1.5 py-0.5 rounded">
-                                  You
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        </td>
-                        <td className="py-3.5 px-5 text-xs text-ink-500">
-                          {s.user.department?.name ?? <span className="text-ink-300">—</span>}
-                        </td>
-                        <td className="py-3.5 px-5 text-right font-medium text-ink-700 tabular-nums">
-                          ₹{s.adjustedRevenue.toLocaleString("en-IN")}
-                        </td>
-                        <td className="py-3.5 px-5 text-right">
-                          <span className="font-bold text-ink-700 tabular-nums">
-                            ₹{s.finalAmount.toLocaleString("en-IN")}
-                          </span>
-                          {s.status === "DRAFT" && (
-                            <span className="ml-1.5 text-[10px] font-bold text-orange-500 bg-orange-50 px-1.5 py-0.5 rounded">
-                              EST
-                            </span>
-                          )}
-                        </td>
-                        <td className="py-3.5 px-5">
-                          <Badge tone={SHEET_STATUS[s.status]?.tone ?? "ink"}>
-                            {SHEET_STATUS[s.status]?.label ?? s.status}
-                          </Badge>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-                <tfoot>
-                  <tr className="border-t border-ink-100 bg-ink-50/50">
-                    <td colSpan={2} className="py-3 px-5 text-xs font-semibold text-ink-500">
-                      Team total · {teamSheets.length} counsellor{teamSheets.length !== 1 ? "s" : ""}
-                    </td>
-                    <td className="py-3 px-5 text-right text-xs font-semibold text-ink-600 tabular-nums">
-                      ₹{teamSheets.reduce((a, s) => a + s.adjustedRevenue, 0).toLocaleString("en-IN")}
-                    </td>
-                    <td className="py-3 px-5 text-right text-xs font-bold text-ink-700 tabular-nums">
-                      ₹{teamSheets.reduce((a, s) => a + s.finalAmount, 0).toLocaleString("en-IN")}
-                    </td>
-                    <td />
-                  </tr>
-                </tfoot>
-              </table>
+      {/* Team dashboard — read-only */}
+      {teamSheets.length > 0 && (() => {
+        const totalRevenue   = teamSheets.reduce((a, s) => a + s.adjustedRevenue, 0);
+        const totalPayout    = teamSheets.reduce((a, s) => a + s.finalAmount, 0);
+        const avgIncentive   = Math.round(totalPayout / teamSheets.length);
+        const eligibleCount  = teamSheets.filter((s) => s.eligibilityOption !== null).length;
+        const topSlabMinRev  = slabs.reduce((m, s) => Math.max(m, s.minRev), 0);
+
+        return (
+          <div className="space-y-4">
+            <h2 className="text-sm font-semibold text-ink-600">
+              Team — {FULL_MONTHS[currentMonth - 1]} {currentYear}
+            </h2>
+
+            {/* Summary cards */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <SummaryCard emoji="💰" label="Total Incentives (Est.)" value={`₹${totalPayout.toLocaleString("en-IN")}`} accent="orange" />
+              <SummaryCard emoji="📈" label="Revenue Collected" value={`₹${(totalRevenue / 100000).toFixed(1)}L`} sub={`${teamSheets.length} counsellor${teamSheets.length !== 1 ? "s" : ""}`} accent="blue" />
+              <SummaryCard emoji="✅" label="Eligibility Set" value={`${eligibleCount} / ${teamSheets.length}`} sub="counsellors with status" accent="green" />
+              <SummaryCard emoji="⚡" label="Avg. Incentive" value={`₹${avgIncentive.toLocaleString("en-IN")}`} accent="gold" />
             </div>
-          </Card>
-        </div>
-      )}
+
+            {/* Slab reference chips */}
+            {slabs.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {slabs.map((s) => (
+                  <div key={s.id} className="px-3 py-1.5 rounded-lg text-xs font-medium bg-white border border-ink-100 text-ink-500">
+                    {s.label} · {s.rate}%
+                    {s.maxRev
+                      ? ` (₹${(s.minRev / 1000).toFixed(0)}k–₹${(s.maxRev / 1000).toFixed(0)}k)`
+                      : ` (₹${(s.minRev / 1000).toFixed(0)}k+)`}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Team breakdown table */}
+            <Card>
+              <div className="px-5 py-4 border-b border-ink-100">
+                <h3 className="font-semibold text-ink-700">Team Breakdown</h3>
+                <p className="text-xs text-ink-400 mt-0.5">
+                  {FULL_MONTHS[currentMonth - 1]} {currentYear} · figures from the sales sheet
+                  {period?.note && ` · ${period.note}`}
+                </p>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-ink-50 border-b border-ink-100 text-[10.5px] text-ink-400 uppercase tracking-wide font-semibold">
+                      <th className="text-left py-3 px-5">Counsellor</th>
+                      <th className="text-left py-3 px-5">Team</th>
+                      <th className="text-right py-3 px-5">Target</th>
+                      <th className="text-right py-3 px-5">Revenue</th>
+                      <th className="text-left py-3 px-5">Slab Progress</th>
+                      <th className="text-right py-3 px-5">Incentive (Est.)</th>
+                      <th className="text-left py-3 px-5">Eligibility</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-ink-50">
+                    {teamSheets.map((s) => {
+                      const isMe = s.user.id === userId;
+                      const pct  = topSlabMinRev > 0
+                        ? Math.min(100, Math.round((s.adjustedRevenue / topSlabMinRev) * 100))
+                        : 0;
+                      const barColor = pct >= 70 ? "bg-green-500" : pct >= 40 ? "bg-amber-400" : "bg-red-400";
+                      return (
+                        <tr key={s.id} className={`transition-colors ${isMe ? "bg-sky-50/60" : "hover:bg-ink-50/50"}`}>
+                          <td className="py-3.5 px-5">
+                            <div className="flex items-center gap-3">
+                              <Avatar src={s.user.image} name={s.user.name} size="sm" />
+                              <div>
+                                <span className="font-medium text-ink-700">{s.user.name}</span>
+                                {isMe && (
+                                  <span className="ml-2 text-[10px] font-semibold text-sky-600 bg-sky-100 px-1.5 py-0.5 rounded">You</span>
+                                )}
+                              </div>
+                            </div>
+                          </td>
+                          <td className="py-3.5 px-5 text-xs text-ink-500">
+                            {s.user.city?.name ?? <span className="text-ink-300">—</span>}
+                          </td>
+                          <td className="py-3.5 px-5 text-right tabular-nums">
+                            {s.monthlyTarget > 0
+                              ? <span className="text-ink-600 font-medium">₹{s.monthlyTarget.toLocaleString("en-IN")}</span>
+                              : <span className="text-ink-300 text-xs">Not set</span>}
+                          </td>
+                          <td className="py-3.5 px-5 text-right font-medium text-ink-700 tabular-nums">
+                            ₹{s.adjustedRevenue.toLocaleString("en-IN")}
+                          </td>
+                          <td className="py-3.5 px-5">
+                            <div className="flex items-center gap-2 min-w-[120px]">
+                              <div className="flex-1 h-[5px] rounded-full bg-ink-100 overflow-hidden">
+                                <div className={`h-full rounded-full transition-all ${barColor}`} style={{ width: `${pct}%` }} />
+                              </div>
+                              <span className="text-xs text-ink-400 w-8 text-right tabular-nums">{pct}%</span>
+                            </div>
+                          </td>
+                          <td className="py-3.5 px-5 text-right">
+                            <span className="font-bold text-ink-700 tabular-nums">₹{s.finalAmount.toLocaleString("en-IN")}</span>
+                            {s.status === "DRAFT"
+                              ? <span className="ml-1.5 text-[10px] font-bold text-orange-500 bg-orange-50 px-1.5 py-0.5 rounded">EST</span>
+                              : <span className="ml-1.5 text-[10px] font-bold text-green-600 bg-green-50 px-1.5 py-0.5 rounded">FINAL</span>
+                            }
+                          </td>
+                          <td className="py-3.5 px-5">
+                            {s.eligibilityOption ? (
+                              <span className="text-xs font-medium text-ink-600 bg-ink-100 px-2 py-1 rounded">
+                                {s.eligibilityOption.label}
+                              </span>
+                            ) : (
+                              <span className="text-xs text-ink-300">—</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot>
+                    <tr className="border-t border-ink-100 bg-ink-50/50">
+                      <td colSpan={3} className="py-3 px-5 text-xs font-semibold text-ink-500">
+                        Team total · {teamSheets.length} counsellor{teamSheets.length !== 1 ? "s" : ""}
+                      </td>
+                      <td className="py-3 px-5 text-right text-xs font-semibold text-ink-600 tabular-nums">
+                        ₹{totalRevenue.toLocaleString("en-IN")}
+                      </td>
+                      <td />
+                      <td className="py-3 px-5 text-right text-xs font-bold text-ink-700 tabular-nums">
+                        ₹{totalPayout.toLocaleString("en-IN")}
+                      </td>
+                      <td />
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+              <div className="px-5 py-3 border-t border-ink-100 bg-ink-50/50">
+                <p className="text-xs text-ink-400">
+                  Figures tagged <span className="font-bold text-orange-500">EST</span> are estimates — pending Sales Head review
+                </p>
+              </div>
+            </Card>
+          </div>
+        );
+      })()}
     </div>
+  );
+}
+
+const accentMap = {
+  orange: "bg-orange-50",
+  blue:   "bg-blue-50",
+  green:  "bg-green-50",
+  gold:   "bg-amber-50",
+} as const;
+
+function SummaryCard({ emoji, label, value, sub, accent }: {
+  emoji: string; label: string; value: string; sub?: string; accent: keyof typeof accentMap;
+}) {
+  return (
+    <Card className="p-5 relative overflow-hidden">
+      <div className={`size-9 rounded-xl flex items-center justify-center text-base mb-3 ${accentMap[accent]}`}>
+        {emoji}
+      </div>
+      <div className="text-[10px] text-ink-400 uppercase tracking-widest font-medium mb-1">{label}</div>
+      <div className="text-[28px] font-bold text-ink-700 leading-none tabular-nums">{value}</div>
+      {sub && <div className="text-xs text-ink-400 mt-1.5">{sub}</div>}
+    </Card>
   );
 }
 

@@ -36,6 +36,38 @@ async function resolveSlabRate(revenue: number) {
   return { rate, label };
 }
 
+/**
+ * Update a user's city and department from the sheet's `team` and `cluster` columns.
+ * Only writes if the value is non-empty and a matching City / Department exists.
+ */
+async function syncUserOrgFields(
+  userId: string,
+  team: string | undefined,
+  cluster: string | undefined,
+) {
+  const updates: { cityId?: string; departmentId?: string } = {};
+
+  if (team?.trim()) {
+    const city = await prisma.city.findFirst({
+      where: { name: { equals: team.trim(), mode: "insensitive" } },
+      select: { id: true },
+    });
+    if (city) updates.cityId = city.id;
+  }
+
+  if (cluster?.trim()) {
+    const dept = await prisma.department.findFirst({
+      where: { name: { equals: cluster.trim(), mode: "insensitive" } },
+      select: { id: true },
+    });
+    if (dept) updates.departmentId = dept.id;
+  }
+
+  if (Object.keys(updates).length > 0) {
+    await prisma.user.update({ where: { id: userId }, data: updates });
+  }
+}
+
 /** Upsert an IncentiveSheet from a revenue figure (used when Sales Head sets/edits revenue). */
 async function upsertSheetFromRevenue(
   userId: string,
@@ -502,6 +534,7 @@ export async function bulkImportRevenue(
       adjustment:     row.data.adjustment,
       adjustmentNote: row.data.adjustment_note || undefined,
     });
+    await syncUserOrgFields(userId, row.data.team, row.data.cluster);
     imported++;
   }
 
@@ -592,6 +625,7 @@ export async function syncRevenueFromSheet(
       adjustment:     row.data.adjustment,
       adjustmentNote: row.data.adjustment_note || undefined,
     });
+    await syncUserOrgFields(userId, row.data.team, row.data.cluster);
     imported++;
   }
 
