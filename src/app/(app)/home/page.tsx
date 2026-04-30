@@ -3,11 +3,13 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { HeroGreeting } from "./_components/HeroGreeting";
 import { QuickStats } from "./_components/QuickStats";
+import { OrgMetrics } from "./_components/OrgMetrics";
 import { WinsWall } from "./_components/WinsWall";
 import { DirectToCEO } from "./_components/DirectToCEO";
 import { UpcomingCelebrations } from "./_components/UpcomingCelebrations";
 import { CeoInbox } from "./_components/CeoInbox";
 import { QuickActions } from "./_components/QuickActions";
+import { TeamSpotlight } from "./_components/TeamSpotlight";
 
 export default async function HomePage() {
   const session = await auth();
@@ -27,6 +29,10 @@ export default async function HomePage() {
         <QuickStats userId={me.id} />
       </Suspense>
 
+      <Suspense fallback={<div className="grid grid-cols-2 md:grid-cols-4 gap-3">{Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-24 rounded-xl bg-ink-100 animate-pulse" />)}</div>}>
+        <OrgMetrics />
+      </Suspense>
+
       <div className="grid md:grid-cols-3 gap-5">
         <div className="md:col-span-2 space-y-5">
           <Suspense fallback={<div className="h-64 rounded-xl bg-ink-100 animate-pulse" />}>
@@ -38,6 +44,10 @@ export default async function HomePage() {
         <div className="space-y-5">
           <Suspense fallback={<div className="h-48 rounded-xl bg-ink-100 animate-pulse" />}>
             <UpcomingCelebrations />
+          </Suspense>
+
+          <Suspense fallback={<div className="h-48 rounded-xl bg-ink-100 animate-pulse" />}>
+            <TeamSpotlight />
           </Suspense>
 
           {me.role === "CEO" && (
