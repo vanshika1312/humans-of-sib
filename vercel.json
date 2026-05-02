@@ -7,6 +7,10 @@
     {
       "path": "/api/cron/sync-revenue",
       "schedule": "0 2 * * *"
+    },
+    {
+      "path": "/api/cron/weekly-performance",
+      "schedule": "30 3 * * 1"
     }
   ]
 }
