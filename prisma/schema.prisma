@@ -66,6 +66,9 @@ model User {
   role          Role            @default(EMPLOYEE)
   status        EmployeeStatus  @default(ACTIVE)
   joinedAt      DateTime        @default(now())
+  /// Last day of probation (inclusive). Paid casual/sick accrue only after this date passes. Null = not tracking probation (legacy employees treated as confirmed).
+  probationEndsAt DateTime?
+
   birthday      DateTime?
   emailVerified DateTime?
   lastSignInAt  DateTime?
@@ -93,8 +96,11 @@ model User {
   enrollments         TrainingEnrollment[]
   certificates        Certificate[]
   attendance          Attendance[]
+  leaveBalances       LeaveBalance[]
   leaveRequests       LeaveRequest[]         @relation("LeaveRequester")
   leaveApprovals      LeaveRequest[]         @relation("LeaveApprover")
+  regularisationRequests RegularisationRequest[] @relation("RegRequester")
+  regularisationReviews  RegularisationRequest[] @relation("RegReviewer")
   ceoFeedback         CEOFeedback[]
   ceoFeedbackReplies  CEOFeedback[]          @relation("CEOReplies")
   deptFeedback        DeptFeedback[]         @relation("FeedbackAuthor")
@@ -274,20 +280,76 @@ enum AttendanceMode {
   FIELD
 }
 
+/// How this attendance row was created or last updated.
+enum AttendanceSource {
+  MANUAL
+  BIOMETRIC
+  REGULARISED
+}
+
 model Attendance {
-  id        String          @id @default(cuid())
+  id        String           @id @default(cuid())
   userId    String
-  date      DateTime        @db.Date
+  date      DateTime         @db.Date
   checkIn   DateTime?
   checkOut  DateTime?
-  mode      AttendanceMode  @default(OFFICE)
+  mode      AttendanceMode   @default(OFFICE)
   location  String?
   note      String?
+  source    AttendanceSource @default(MANUAL)
+  /// Idempotency key from biometric vendor (nullable).
+  externalRef String?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, date])
   @@index([date])
+  @@index([externalRef])
+}
+
+/// Paid-leave usage per policy half-year: half 1 = Jan–Jun, half 2 = Jul–Dec. Unused casual entitlement rolls within the half; resets each Jul 1 & Jan 1.
+model LeaveBalance {
+  id         String @id @default(cuid())
+  userId     String
+  periodYear Int
+  half       Int     // 1 = Jan–Jun, 2 = Jul–Dec (same calendar periodYear)
+  casualUsed Int     @default(0)
+  sickUsed   Int     @default(0)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, periodYear, half])
+  @@index([periodYear, half])
+}
+
+enum RegularisationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+/// Request to correct attendance (missed punch, wrong mode, etc.).
+model RegularisationRequest {
+  id              String               @id @default(cuid())
+  userId          String
+  /// Calendar day being corrected.
+  date            DateTime             @db.Date
+  reason          String               @db.Text
+  requestCheckIn  DateTime?
+  requestCheckOut DateTime?
+  requestMode     AttendanceMode?
+  status          RegularisationStatus @default(PENDING)
+  reviewedById    String?
+  reviewedAt      DateTime?
+  reviewNote      String?
+
+  user       User @relation("RegRequester", fields: [userId], references: [id], onDelete: Cascade)
+  reviewedBy User? @relation("RegReviewer", fields: [reviewedById], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([status])
 }
 
 enum LeaveType {

@@ -11,9 +11,25 @@ function makePrisma() {
   });
 }
 
-export const prisma = global._prisma ?? makePrisma();
+/**
+ * Reuse one client per runtime, but replace it after `prisma generate` adds models.
+ * Otherwise `global._prisma` can hold an old PrismaClient without e.g. `leaveBalance`,
+ * and `prisma.leaveBalance` is undefined until the dev server fully restarts.
+ */
+function getPrisma(): PrismaClient {
+  const cached = global._prisma;
+  const isStale = Boolean(cached) && !("leaveBalance" in (cached as object));
 
-if (process.env.NODE_ENV !== "production") {
-  global._prisma = undefined; // clear on hot-reload so new models are always picked up
-  global._prisma = prisma;
+  if (cached && !isStale) return cached;
+
+  if (cached && isStale) {
+    void cached.$disconnect().catch(() => {});
+    global._prisma = undefined;
+  }
+
+  const client = makePrisma();
+  global._prisma = client;
+  return client;
 }
+
+export const prisma = getPrisma();

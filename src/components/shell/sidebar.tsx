@@ -37,7 +37,7 @@ const nav = [
     { href: "/feedback/dept", label: "Dept Feedback", icon: Building2, comingSoon: true },
   ]},
   { group: "Work", items: [
-    { href: "/attendance", label: "Attendance", icon: CalendarClock, comingSoon: true },
+    { href: "/attendance", label: "Attendance", icon: CalendarClock },
     { href: "/pulse", label: "Pulse", icon: HeartPulse, comingSoon: true },
     { href: "/okrs", label: "OKRs", icon: Target, comingSoon: true },
     { href: "/one-on-one", label: "1-on-1s", icon: Users, comingSoon: true },

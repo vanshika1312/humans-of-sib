@@ -63,6 +63,7 @@ export async function updateMember(userId: string, fd: FormData) {
   const departmentId = fd.get("departmentId") as string;
   const cityId = fd.get("cityId") as string;
   const joinedAt = fd.get("joinedAt") as string;
+  const probationEndsAtRaw = fd.get("probationEndsAt") as string | null;
   const phone = fd.get("phone") as string;
   const salary = fd.get("salary") as string;
   const salaryNote = fd.get("salaryNote") as string;
@@ -77,6 +78,9 @@ export async function updateMember(userId: string, fd: FormData) {
       departmentId: departmentId || null,
       cityId: cityId || null,
       joinedAt: joinedAt ? new Date(joinedAt) : undefined,
+      probationEndsAt: probationEndsAtRaw?.trim()
+        ? new Date(probationEndsAtRaw)
+        : null,
       phone: phone?.trim() || null,
       updatedAt: new Date(),
     },

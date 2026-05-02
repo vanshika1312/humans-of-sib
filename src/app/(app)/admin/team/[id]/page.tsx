@@ -117,6 +117,19 @@ export default async function EditMemberPage({ params }: { params: Promise<{ id:
               />
             </div>
 
+            <div>
+              <Label htmlFor="probationEndsAt">Probation ends (last day, inclusive)</Label>
+              <Input
+                id="probationEndsAt"
+                name="probationEndsAt"
+                type="date"
+                defaultValue={member.probationEndsAt ? new Date(member.probationEndsAt).toISOString().split("T")[0] : ""}
+              />
+              <p className="text-xs text-ink-400 mt-1">
+                Leave blank once probation is cleared — paid casual/sick only apply after this date.
+              </p>
+            </div>
+
             {isCeoOrAdmin && (
               <div className="border-t border-ink-100 pt-5">
                 <div className="flex items-center gap-2 mb-3">
