@@ -79,16 +79,14 @@ function getSlabProgress(revenue: number, target: number) {
   return Math.min(100, Math.round((revenue / target) * 100));
 }
 
-/** Tooltip text shown on hover over the Cha-Ching Meter. */
 function getChaChing(revenue: number, target: number): string {
   if (target === 0) return "No target set for this month";
   const pct = Math.round((revenue / target) * 100);
-  if (revenue >= target) {
-    const over = revenue - target;
-    return `🎯 Target hit! ${over > 0 ? `+₹${over.toLocaleString("en-IN")} above target` : "exactly on target"}`;
-  }
-  const gap = target - revenue;
-  return `${pct}% of target · ₹${gap.toLocaleString("en-IN")} to go`;
+  if (revenue >= target) return "Yayyy....Target achieved — now maximize your earnings";
+  if (pct >= 90) return "You're one step away from incentives 💥";
+  if (pct >= 70) return "You're close — don't slow down now 🔥";
+  if (pct >= 40) return "Momentum is building — keep pushing";
+  return `Only ${pct}% completed — pick up the pace`;
 }
 
 /** Group sheets by their counsellor's department name. */
@@ -377,12 +375,19 @@ function LiveView({ sheets, noRevenueYet, slabs, year, month, period, totalReven
                             }
                           </td>
                           <td className="py-3.5 px-5">
-                            <EligibilitySelect
-                              sheetId={s.id}
-                              currentOptionId={s.eligibilityOption?.id ?? null}
-                              options={eligibilityOptions}
-                              setEligibilityAction={setEligibility}
-                            />
+                            <div className="space-y-1.5">
+                              <EligibilitySelect
+                                sheetId={s.id}
+                                currentOptionId={s.eligibilityOption?.id ?? null}
+                                options={eligibilityOptions}
+                                setEligibilityAction={setEligibility}
+                              />
+                              {s.monthlyTarget > 0 && (
+                                <p className="text-[10px] text-ink-400 leading-snug max-w-[200px]">
+                                  {getChaChing(s.adjustedRevenue, s.monthlyTarget)}
+                                </p>
+                              )}
+                            </div>
                           </td>
                           <td className="py-3.5 px-5">
                             <div className="flex items-center gap-1.5">

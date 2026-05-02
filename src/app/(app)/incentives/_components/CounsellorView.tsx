@@ -11,12 +11,11 @@ const FULL_MONTHS = ["January","February","March","April","May","June","July","A
 function getChaChing(revenue: number, target: number): string {
   if (target === 0) return "No target set for this month";
   const pct = Math.round((revenue / target) * 100);
-  if (revenue >= target) {
-    const over = revenue - target;
-    return `🎯 Target hit! ${over > 0 ? `+₹${over.toLocaleString("en-IN")} above target` : "exactly on target"}`;
-  }
-  const gap = target - revenue;
-  return `${pct}% of target · ₹${gap.toLocaleString("en-IN")} to go`;
+  if (revenue >= target) return "Yayyy....Target achieved — now maximize your earnings";
+  if (pct >= 90) return "You're one step away from incentives 💥";
+  if (pct >= 70) return "You're close — don't slow down now 🔥";
+  if (pct >= 40) return "Momentum is building — keep pushing";
+  return `Only ${pct}% completed — pick up the pace`;
 }
 
 const SHEET_STATUS: Record<string, { label: string; tone: "sky"|"orange"|"sun"|"ink" }> = {
@@ -303,14 +302,14 @@ export async function CounsellorView({ userId }: { userId: string }) {
                             ₹{s.adjustedRevenue.toLocaleString("en-IN")}
                           </td>
                           <td className="py-3.5 px-5">
-                            <div className="group min-w-[160px] space-y-1">
+                            <div className="min-w-[180px] space-y-1.5">
                               <div className="flex items-center gap-2">
                                 <div className="flex-1 h-[5px] rounded-full bg-ink-100 overflow-hidden">
                                   <div className={`h-full rounded-full transition-all ${barColor}`} style={{ width: `${pct}%` }} />
                                 </div>
                                 <span className="text-xs text-ink-400 w-8 text-right tabular-nums">{pct}%</span>
                               </div>
-                              <div className="text-[10px] text-ink-400 opacity-0 group-hover:opacity-100 transition-opacity duration-150 truncate max-w-[160px]">
+                              <div className="text-[10px] text-ink-400 leading-snug">
                                 {getChaChing(s.adjustedRevenue, s.monthlyTarget)}
                               </div>
                             </div>

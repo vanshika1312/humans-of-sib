@@ -33,7 +33,7 @@ export function EligibilitySelect({
   }
 
   if (options.length === 0) {
-    return <span className="text-xs text-ink-300 italic">No options</span>;
+    return null;
   }
 
   return (
