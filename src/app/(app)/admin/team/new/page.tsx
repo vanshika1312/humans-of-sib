@@ -7,10 +7,16 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input, Select, Label } from "@/components/ui/input";
 import { createMember } from "../../actions";
+import { AdminNoticeBanner } from "@/components/admin/admin-notice-banner";
 
 const ADMIN_ROLES = ["CEO", "ADMIN", "HR"];
 
-export default async function NewMemberPage() {
+export default async function NewMemberPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ notice?: string }>;
+}) {
+  const { notice } = await searchParams;
   const session = await auth();
   const me = await prisma.user.findUnique({ where: { email: session!.user!.email! } });
   if (!me || !ADMIN_ROLES.includes(me.role)) redirect("/home");
@@ -24,6 +30,8 @@ export default async function NewMemberPage() {
 
   return (
     <div className="max-w-2xl mx-auto">
+      <AdminNoticeBanner code={notice} />
+
       <PageHeader title="Add Team Member" emoji="👤" subtitle="Add a new person to Humans of SIB. They can sign in once added." />
 
       <Card>

@@ -129,6 +129,20 @@ model User {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
+// Recruitment — interview funnel (manual counts until ATS syncs)
+// ──────────────────────────────────────────────────────────────────────────────
+
+model InterviewPipelineStage {
+  id        String   @id @default(cuid())
+  sortOrder Int      @unique
+  slug      String   @unique
+  label     String
+  count     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
 // NextAuth tables (PrismaAdapter v2)
 // ──────────────────────────────────────────────────────────────────────────────
 

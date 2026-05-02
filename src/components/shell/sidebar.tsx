@@ -22,6 +22,7 @@ import {
   Gem,
   Megaphone,
   Shield,
+  Briefcase,
 } from "lucide-react";
 
 const nav = [
@@ -129,10 +130,30 @@ export function Sidebar({ onNavigate, role }: { onNavigate?: () => void; role?: 
                 <Link
                   href="/admin"
                   onClick={onNavigate}
-                  className="flex items-center gap-2.5 px-3 py-2 rounded-md text-sm font-medium transition-colors text-ink-500 hover:text-ink-700 hover:bg-ink-50"
+                  className={cn(
+                    "flex items-center gap-2.5 px-3 py-2 rounded-md text-sm font-medium transition-colors",
+                    pathname === "/admin" || pathname.startsWith("/admin/")
+                      ? "bg-sky-50 text-sky-700"
+                      : "text-ink-500 hover:text-ink-700 hover:bg-ink-50",
+                  )}
                 >
                   <Shield className="size-4" />
                   Manage Team
+                </Link>
+              </li>
+              <li>
+                <Link
+                  href="/recruitment"
+                  onClick={onNavigate}
+                  className={cn(
+                    "flex items-center gap-2.5 px-3 py-2 rounded-md text-sm font-medium transition-colors",
+                    pathname === "/recruitment" || pathname.startsWith("/recruitment/")
+                      ? "bg-sky-50 text-sky-700"
+                      : "text-ink-500 hover:text-ink-700 hover:bg-ink-50",
+                  )}
+                >
+                  <Briefcase className="size-4" />
+                  Recruitment
                 </Link>
               </li>
             </ul>

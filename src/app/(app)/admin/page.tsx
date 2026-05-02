@@ -9,10 +9,16 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatDate } from "@/lib/utils";
 import { Users, Building2, MapPin, IndianRupee, UserPlus } from "lucide-react";
+import { AdminNoticeBanner } from "@/components/admin/admin-notice-banner";
 
 const ADMIN_ROLES = ["CEO", "ADMIN", "HR"];
 
-export default async function AdminPage() {
+export default async function AdminPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ notice?: string }>;
+}) {
+  const { notice } = await searchParams;
   const session = await auth();
   const me = await prisma.user.findUnique({ where: { email: session!.user!.email! } });
   if (!me || !ADMIN_ROLES.includes(me.role)) redirect("/home");
@@ -35,6 +41,8 @@ export default async function AdminPage() {
 
   return (
     <div>
+      <AdminNoticeBanner code={notice} />
+
       <PageHeader
         title="Admin Panel"
         emoji="🔐"
