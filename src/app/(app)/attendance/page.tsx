@@ -9,6 +9,7 @@ import {
   isOnProbation,
   sickEntitledPerHalf,
   sickRemaining,
+  workingDaysByHalfYear,
 } from "@/lib/leave-policy";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardContent } from "@/components/ui/card";
@@ -17,6 +18,12 @@ import { Badge } from "@/components/ui/badge";
 import { Avatar } from "@/components/ui/avatar";
 import { Input, Select, Label, Textarea } from "@/components/ui/input";
 import { formatDate, formatTime } from "@/lib/utils";
+import { formatCalendarDate } from "@/lib/calendar-date";
+import { sickLeaveMedicalProofRequired } from "@/lib/sick-leave-medical-proof";
+import {
+  leaveRequestsAllowInsufficientPaidBalance,
+  paidLeaveApproverBalancePreview,
+} from "@/lib/leave-balance-guard";
 import {
   submitCheckInForm,
   submitCheckOut,
@@ -25,6 +32,7 @@ import {
   reviewRegularisationForm,
   submitLeaveRequestForm,
   reviewLeaveForm,
+  attachSickLeaveMedicalProofForm,
 } from "./actions";
 
 const FULL_MONTHS = [
@@ -58,8 +66,20 @@ function isoLocal(d: Date) {
   return `${y}-${m}-${da}`;
 }
 
-export default async function AttendancePage() {
+function leaveApprovalsBalanceLabel(type: string): "sick" | "casual paid" {
+  return type === "SICK" ? "sick" : "casual paid";
+}
+
+export default async function AttendancePage({
+  searchParams,
+}: {
+  searchParams: Promise<{
+    leaveApplyError?: string;
+    leaveApprovalError?: string;
+  }>;
+}) {
   const session = await auth();
+  const qs = await searchParams;
   const me = await prisma.user.findUnique({
     where: { email: session!.user!.email! },
     select: {
@@ -154,6 +174,47 @@ export default async function AttendancePage() {
     canApproveForEmployee(viewerCtx, r.user),
   );
   const pendingLeaves = pendingLeavesAll.filter((r) => canApproveForEmployee(viewerCtx, r.user));
+
+  const myLeaveRows = await Promise.all(
+    myLeaveRequests.map(async (r) => {
+      if (r.type !== "SICK" || r.status !== "PENDING") {
+        return { ...r, sickProofRequired: false, sickProofIncomplete: false as boolean };
+      }
+      const sickProofRequired = await sickLeaveMedicalProofRequired(me.id, r.startDate, r.endDate);
+      const hasProof = Boolean(r.medicalProofUrl?.trim());
+      return { ...r, sickProofRequired, sickProofIncomplete: sickProofRequired && !hasProof };
+    }),
+  );
+
+  const pendingLeaveRows = await Promise.all(
+    pendingLeaves.map(async (r) => {
+      const ledgerDebitDaysDefault =
+        r.type === "UNPAID"
+          ? null
+          : [...workingDaysByHalfYear(r.startDate, r.endDate).values()].reduce((a, b) => a + b, 0);
+
+      const balancePreview = await paidLeaveApproverBalancePreview({
+        userId: r.userId,
+        type: r.type,
+        startDate: r.startDate,
+        endDate: r.endDate,
+      });
+      const insufficientPaidBalanceForDefault =
+        balancePreview.ledgerKind !== null && !balancePreview.sufficientForFullDefaultDebit;
+
+      if (r.type !== "SICK") {
+        return {
+          ...r,
+          incompleteMedical: false,
+          ledgerDebitDaysDefault,
+          insufficientPaidBalanceForDefault,
+        };
+      }
+      const need = await sickLeaveMedicalProofRequired(r.userId, r.startDate, r.endDate);
+      const incompleteMedical = need && !r.medicalProofUrl?.trim();
+      return { ...r, incompleteMedical, ledgerDebitDaysDefault, insufficientPaidBalanceForDefault };
+    }),
+  );
 
   const workingDaysMonthToDate = workingDaysInclusive(monthStart, today);
 
@@ -280,6 +341,45 @@ export default async function AttendancePage() {
         subtitle="Check in, biometric sync, leave bank, regularisation — all in one place."
       />
 
+      {(qs.leaveApplyError === "insufficient_balance" ||
+        qs.leaveApplyError === "medical_proof") && (
+        <Card className="border-orange-300 bg-orange-50/90">
+          <CardContent className="pt-4 pb-4 text-sm text-orange-950">
+            {qs.leaveApplyError === "insufficient_balance" ? (
+              <p>
+                <span className="font-semibold">Request not submitted.</span> Policy mode requires enough remaining
+                paid leave for the weekdays in your selected range (or choose Unpaid). Shorten the range or ask HR about
+                your balance.
+              </p>
+            ) : (
+              <p>
+                <span className="font-semibold">Request not submitted.</span> Sick policy requires a medical document
+                link when this booking needs proof.
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {(qs.leaveApprovalError === "insufficient_balance" || qs.leaveApprovalError === "medical_proof") && (
+        <Card className="border-orange-300 bg-orange-50/90">
+          <CardContent className="pt-4 pb-4 text-sm text-orange-950">
+            {qs.leaveApprovalError === "insufficient_balance" ? (
+              <p>
+                <span className="font-semibold">Approval did not complete.</span> The ledger charge is larger than what
+                this person has left. Try a smaller &quot;Days to charge&quot; or reject — or employee resubmits with a
+                different type.
+              </p>
+            ) : (
+              <p>
+                <span className="font-semibold">Approval did not complete.</span> Sick policy still requires proof for
+                this request.
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       {/* ── Today ───────────────────────────────────────────────────────────── */}
       <Card className="overflow-hidden">
         <div className="p-5 md:p-6 brand-gradient text-white">
@@ -401,6 +501,17 @@ export default async function AttendancePage() {
         <Card>
           <CardContent className="pt-5">
             <h2 className="font-semibold text-ink-700 mb-4">Apply for leave</h2>
+            {leaveRequestsAllowInsufficientPaidBalance() ? (
+              <p className="text-xs text-ink-500 mb-3">
+                Casual and sick bookings can still be submitted if you look short on days — your manager will see a balance
+                warning before approving or can charge fewer weekdays.
+              </p>
+            ) : (
+              <p className="text-xs text-ink-500 mb-3">
+                Casual and sick: you must have enough remaining balance for weekdays in your date range or the submission
+                is blocked — use Unpaid or shorter dates otherwise.
+              </p>
+            )}
             <form action={submitLeaveRequestForm} className="space-y-3">
               <div>
                 <Label htmlFor="leaveType">Type</Label>
@@ -426,6 +537,21 @@ export default async function AttendancePage() {
               <div>
                 <Label htmlFor="leaveReason">Reason</Label>
                 <Textarea id="leaveReason" name="leaveReason" placeholder="Optional context for your manager" />
+              </div>
+              <div>
+                <Label htmlFor="medicalProofUrl">Medical document link (sick leave)</Label>
+                <Input
+                  id="medicalProofUrl"
+                  name="medicalProofUrl"
+                  type="url"
+                  inputMode="url"
+                  placeholder="https://… (Drive / Dropbox share link)"
+                />
+                <p className="text-xs text-ink-400 mt-1">
+                  Required when sick leave spans <strong className="font-medium text-ink-500">2 or more working days</strong> in one
+                  request, or when this request starts on the working day immediately after another{" "}
+                  <strong className="font-medium text-ink-500">approved</strong> sick spell.
+                </p>
               </div>
               <Button type="submit" variant="accent">Submit request</Button>
             </form>
@@ -499,18 +625,48 @@ export default async function AttendancePage() {
               </div>
               <div className="border-t border-ink-100 pt-4">
                 <h3 className="text-xs font-bold text-ink-400 uppercase tracking-wider mb-2">Leave</h3>
-                {myLeaveRequests.length === 0 ? (
+                {myLeaveRows.length === 0 ? (
                   <p className="text-sm text-ink-400">None yet.</p>
                 ) : (
-                  <ul className="space-y-2">
-                    {myLeaveRequests.map((r) => (
-                      <li key={r.id} className="text-sm flex items-start justify-between gap-2 flex-wrap">
-                        <span className="text-ink-600">
-                          {r.type} · {formatDate(r.startDate)} → {formatDate(r.endDate)}
-                        </span>
-                        <Badge tone={r.status === "APPROVED" ? "green" : r.status === "REJECTED" ? "orange" : "sun"}>
-                          {r.status}
-                        </Badge>
+                  <ul className="space-y-3">
+                    {myLeaveRows.map((r) => (
+                      <li key={r.id} className="text-sm rounded-lg border border-ink-100 p-3 space-y-2">
+                        <div className="flex items-start justify-between gap-2 flex-wrap">
+                          <span className="text-ink-600">
+                            {r.type} · {formatCalendarDate(r.startDate)} → {formatCalendarDate(r.endDate)}
+                          </span>
+                          <Badge tone={r.status === "APPROVED" ? "green" : r.status === "REJECTED" ? "orange" : "sun"}>
+                            {r.status}
+                          </Badge>
+                        </div>
+                        {r.sickProofIncomplete && (
+                          <>
+                            <p className="text-xs text-orange-700">Medical document link required by policy.</p>
+                            <form action={attachSickLeaveMedicalProofForm} className="flex flex-wrap gap-2 items-end">
+                              <input type="hidden" name="leaveId" value={r.id} />
+                              <Input name="medicalProofUrl" type="url" inputMode="url" placeholder="Proof URL" className="h-9 flex-1 min-w-[12rem]" required />
+                              <Button type="submit" size="sm" variant="outline">Attach</Button>
+                            </form>
+                          </>
+                        )}
+                        {r.medicalProofUrl?.trim() && (
+                          <p className="text-xs text-ink-500">
+                            Proof:{" "}
+                            <a href={r.medicalProofUrl.trim()} target="_blank" rel="noopener noreferrer" className="text-sky-700 underline underline-offset-2">
+                              Open link
+                            </a>
+                          </p>
+                        )}
+                        {r.status === "APPROVED" &&
+                          r.type !== "UNPAID" &&
+                          r.appliedLedgerDebitDays !== null &&
+                          r.appliedLedgerDebitDays !== undefined && (
+                            <p className="text-xs text-ink-500">
+                              Deducted from {leaveApprovalsBalanceLabel(r.type)} balance:{" "}
+                              <span className="font-medium text-ink-700">{r.appliedLedgerDebitDays}</span>
+                              weekday{r.appliedLedgerDebitDays === 1 ? "" : "s"}
+                            </p>
+                          )}
                       </li>
                     ))}
                   </ul>
@@ -575,30 +731,88 @@ export default async function AttendancePage() {
             </Card>
           )}
 
-          {pendingLeaves.length > 0 && (
+          {pendingLeaveRows.length > 0 && (
             <Card>
               <div className="px-5 py-3 border-b border-ink-100">
                 <span className="text-xs font-bold text-ink-500 uppercase tracking-wider">
-                  Leave ({pendingLeaves.length})
+                  Leave ({pendingLeaveRows.length})
                 </span>
               </div>
               <CardContent className="pt-4 space-y-4">
-                {pendingLeaves.map((r) => (
+                {pendingLeaveRows.map((r) => (
                   <div key={r.id} className="rounded-lg border border-ink-100 p-4 space-y-3">
                     <div className="flex items-center gap-3 flex-wrap">
                       <Avatar src={r.user.image} name={r.user.name} size="sm" />
                       <span className="font-medium text-ink-700">{r.user.name}</span>
                       <Badge tone="sky">{r.type}</Badge>
+                      {r.incompleteMedical && (
+                        <Badge tone="orange">Medical proof missing</Badge>
+                      )}
                     </div>
                     <p className="text-sm text-ink-600">
-                      {formatDate(r.startDate)} → {formatDate(r.endDate)}
+                      {formatCalendarDate(r.startDate)} → {formatCalendarDate(r.endDate)}
                     </p>
                     {r.reason && <p className="text-sm text-ink-500 italic">&quot;{r.reason}&quot;</p>}
-                    <div className="flex flex-wrap gap-2 items-end">
-                      <form action={reviewLeaveForm} className="flex gap-2 items-end flex-wrap">
+                    {r.medicalProofUrl?.trim() && (
+                      <p className="text-xs text-ink-500">
+                        Medical proof:{" "}
+                        <a href={r.medicalProofUrl.trim()} target="_blank" rel="noopener noreferrer" className="text-sky-700 underline underline-offset-2">
+                          Open link
+                        </a>
+                      </p>
+                    )}
+                    {r.incompleteMedical && (
+                      <p className="text-xs text-ink-500">
+                        Approve is blocked until they attach a certificate link under Attendance → My recent requests.
+                      </p>
+                    )}
+                    {r.insufficientPaidBalanceForDefault ? (
+                      <div className="rounded-md border border-orange-300 bg-orange-50/90 px-3 py-2 text-[11px] text-orange-950">
+                        <span className="font-semibold">Balance warning:</span> the default weekday charge is more than this
+                        person&apos;s remaining {leaveApprovalsBalanceLabel(r.type)} days. Approve anyway by lowering{" "}
+                        &quot;Days to charge&quot; below (or reject the request).
+                      </div>
+                    ) : null}
+                    {r.ledgerDebitDaysDefault !== null && (
+                      <div className="rounded-md bg-ink-50 px-3 py-2 space-y-1">
+                        <p className="text-[11px] text-ink-600">
+                          Default ledger charge ·{" "}
+                          <span className="font-medium text-ink-800">
+                            {r.ledgerDebitDaysDefault}{" "}
+                            {leaveApprovalsBalanceLabel(r.type)} weekday
+                            {r.ledgerDebitDaysDefault === 1 ? "" : "s"}
+                          </span>
+                        </p>
+                        <p className="text-[10px] text-ink-400">
+                          Approve uses this total unless you enter a smaller number below (allocated across policy halves proportionally).
+                        </p>
+                      </div>
+                    )}
+                    <div className="flex flex-wrap gap-3 items-end">
+                      <form action={reviewLeaveForm} className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-end">
+                        {r.ledgerDebitDaysDefault !== null ? (
+                          <div className="flex flex-col gap-1">
+                            <Label htmlFor={`leaveDebit-${r.id}`} className="text-xs">
+                              Days to charge (optional)
+                            </Label>
+                            <Input
+                              id={`leaveDebit-${r.id}`}
+                              name="leaveBalanceDebitOverride"
+                              type="number"
+                              min={0}
+                              max={r.ledgerDebitDaysDefault}
+                              step={1}
+                              placeholder={String(r.ledgerDebitDaysDefault)}
+                              disabled={r.incompleteMedical}
+                              className="h-9 w-28"
+                            />
+                          </div>
+                        ) : null}
                         <input type="hidden" name="leaveId" value={r.id} />
                         <input type="hidden" name="leaveReviewAction" value="approve" />
-                        <Button type="submit" size="sm" variant="accent">Approve</Button>
+                        <Button type="submit" size="sm" variant="accent" disabled={r.incompleteMedical}>
+                          Approve
+                        </Button>
                       </form>
                       <form action={reviewLeaveForm} className="flex gap-2 items-end flex-wrap">
                         <input type="hidden" name="leaveId" value={r.id} />

@@ -5,7 +5,8 @@ import { prisma } from "@/lib/prisma";
 import type { Role } from "@/generated/prisma";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { ensureInterviewPipelineStages } from "@/lib/interview-pipeline";
+import { ensureRecruitmentFunnelStages } from "@/lib/recruitment-funnel";
+import { isWorkspacePowerUser } from "@/lib/admin-mutations";
 
 const RECRUITER_GATE = ["CEO", "ADMIN", "HR"];
 
@@ -118,27 +119,37 @@ export async function updateWorkspaceAdminRole(targetUserId: string, formData: F
   redirect("/recruitment/access?saved=1");
 }
 
-export async function updateInterviewPipelineCounts(formData: FormData) {
-  await requireRecruiter();
-  await ensureInterviewPipelineStages();
+export async function updateRecruitmentFunnelCounts(formData: FormData) {
+  const me = await requireRecruiter();
+  if (!isWorkspacePowerUser(me.role)) redirect("/recruitment?metricsForbidden=1");
 
-  const rows = await prisma.interviewPipelineStage.findMany({
-    orderBy: { sortOrder: "asc" },
-    select: { id: true },
+  await ensureRecruitmentFunnelStages();
+
+  const rows = await prisma.recruitmentFunnelStage.findMany({
+    orderBy: [{ sortOrder: "asc" }, { slug: "asc" }],
+    select: { id: true, slug: true },
   });
 
-  await prisma.$transaction(
-    rows.map((row) => {
-      const raw = formData.get(`c_${row.id}`);
-      let n = typeof raw === "string" ? parseInt(raw, 10) : NaN;
-      if (!Number.isFinite(n) || n < 0) n = 0;
-      return prisma.interviewPipelineStage.update({
+  const updates = [];
+  for (const row of rows) {
+    const key = `c_${row.id}`;
+    if (!formData.has(key)) continue;
+
+    const raw = formData.get(key);
+    let n = typeof raw === "string" ? parseInt(raw, 10) : NaN;
+    if (!Number.isFinite(n) || n < 0) n = 0;
+    if (row.slug === "offer_rate_pct") n = Math.min(100, Math.max(0, n));
+
+    updates.push(
+      prisma.recruitmentFunnelStage.update({
         where: { id: row.id },
         data: { count: n },
-      });
-    }),
-  );
+      }),
+    );
+  }
+
+  if (updates.length > 0) await prisma.$transaction(updates);
 
   revalidatePath("/recruitment");
-  redirect("/recruitment?pipelineSaved=1");
+  redirect("/recruitment?funnelSaved=1");
 }

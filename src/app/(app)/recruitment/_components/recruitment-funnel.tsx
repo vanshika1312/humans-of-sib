@@ -1,13 +1,13 @@
 import { Check } from "lucide-react";
-import type { InterviewPipelineStage } from "@/generated/prisma";
+import type { RecruitmentFunnelStage } from "@/generated/prisma";
 import {
-  PIPELINE_STAGE_BAR_HEX,
-  footerOverallToneClass,
-  pipelineFooterCells,
-} from "@/lib/interview-pipeline";
+  FUNNEL_STAGE_HEX,
+  funnelFooterCells,
+  funnelOverallToneClass,
+} from "@/lib/recruitment-funnel";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { updateInterviewPipelineCounts } from "../actions";
+import { updateRecruitmentFunnelCounts } from "../actions";
 
 function stageBarPercent(count: number, screeningTotal: number): number {
   const denom = Math.max(screeningTotal, 1);
@@ -15,18 +15,23 @@ function stageBarPercent(count: number, screeningTotal: number): number {
   return Math.min(100, Math.max(12, raw));
 }
 
-export function InterviewPipelineFunnel({
-  stages,
+/** Bar funnel (screening → joined) — counts come from Workspace Admin–editable headline data */
+export function RecruitmentFunnel({
+  barStages,
+  headlineTotalCount,
   canEdit,
 }: {
-  stages: InterviewPipelineStage[];
+  /** screening → joined in order */
+  barStages: RecruitmentFunnelStage[];
+  headlineTotalCount: number;
   canEdit: boolean;
 }) {
-  const screeningTotal = stages[0]?.count ?? 0;
-  const { cells, overallPct, columnCount } = pipelineFooterCells(
-    stages.map((s) => ({ count: s.count })),
-  );
-  const totalLine = `${screeningTotal.toLocaleString("en-IN")} total candidates in pipeline`;
+  const screeningTotal = barStages.find((s) => s.slug === "screening")?.count ?? 0;
+  const { cells, overallPct, columnCount } = funnelFooterCells(barStages.map((s) => ({ count: s.count })));
+  const totalLine =
+    headlineTotalCount > 0
+      ? `${headlineTotalCount.toLocaleString("en-IN")} TOTAL (headline) · ${screeningTotal.toLocaleString("en-IN")} SCREENING cohort`
+      : `${screeningTotal.toLocaleString("en-IN")} at screening`;
 
   const inner = (
     <>
@@ -35,25 +40,28 @@ export function InterviewPipelineFunnel({
           <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-orange-500 shadow-md shadow-orange-900/40 text-white">
             <Check className="size-4" strokeWidth={3} aria-hidden />
           </span>
-          <h3 className="text-[13px] sm:text-sm font-semibold uppercase tracking-[0.16em] text-white/92">
-            Interview pipeline funnel
-          </h3>
+          <div>
+            <h3 className="text-[13px] sm:text-sm font-semibold uppercase tracking-[0.16em] text-white/92">
+              Hiring funnel
+            </h3>
+            <p className="text-[10px] sm:text-[11px] text-white/45 mt-0.5 tracking-wide">Recruitment · internal view</p>
+          </div>
         </div>
-        <p className="text-xs sm:text-sm text-white/65 text-right max-w-[16rem]" title={totalLine}>
+        <p className="text-xs sm:text-sm text-white/65 text-right max-w-[20rem]" title={totalLine}>
           {totalLine}
         </p>
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-x-4 gap-y-10 pt-8">
-        {stages.map((s) => {
-          const hex = PIPELINE_STAGE_BAR_HEX[s.slug] ?? "#64748b";
+        {barStages.map((s) => {
+          const hex = FUNNEL_STAGE_HEX[s.slug] ?? "#64748b";
           const pct = stageBarPercent(s.count, screeningTotal);
 
           return (
             <div key={s.id} className="flex flex-col items-stretch gap-3 min-h-[132px]">
               {canEdit ? (
                 <label className="block">
-                  <span className="sr-only">{s.label} count</span>
+                  <span className="sr-only">{s.label}</span>
                   <input
                     name={`c_${s.id}`}
                     type="number"
@@ -109,7 +117,7 @@ export function InterviewPipelineFunnel({
           </div>
         ))}
         <div className="text-center px-1">
-          <div className={cn("text-lg font-semibold tabular-nums", footerOverallToneClass())}>
+          <div className={cn("text-lg font-semibold tabular-nums", funnelOverallToneClass())}>
             {overallPct === null ? "—" : `${overallPct}%`}
           </div>
           <div className="mt-2 text-[10px] sm:text-[11px] uppercase tracking-wider text-white/40">Overall</div>
@@ -119,8 +127,8 @@ export function InterviewPipelineFunnel({
       {canEdit && (
         <div className="mt-10 flex flex-wrap items-center justify-between gap-4 rounded-xl bg-black/30 px-5 py-4 ring-1 ring-white/15">
           <p className="text-xs text-white/55 max-w-xl leading-relaxed">
-            Edit counts and hit save — percentages between stages and overall (joined ÷ screening) refresh automatically for
-            the whole recruitment workspace.
+            Workspace Admin or CEO edits — percentages use the SCREENING cohort. Use <strong>TOTAL</strong> in headline
+            strip for headline pipeline size.
           </p>
           <Button
             type="submit"
@@ -130,7 +138,7 @@ export function InterviewPipelineFunnel({
             )}
             variant="outline"
           >
-            Save funnel
+            Save funnel bars
           </Button>
         </div>
       )}
@@ -140,7 +148,7 @@ export function InterviewPipelineFunnel({
   return (
     <div className="rounded-2xl overflow-hidden shadow-[0_24px_50px_-30px_rgb(0_0_0/55%)] ring-1 ring-white/15 bg-[#2a292e] p-6 sm:p-8">
       {canEdit ? (
-        <form action={updateInterviewPipelineCounts}>{inner}</form>
+        <form action={updateRecruitmentFunnelCounts}>{inner}</form>
       ) : (
         inner
       )}

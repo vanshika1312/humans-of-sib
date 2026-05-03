@@ -6,6 +6,8 @@
  * - Sick: 3 days per half (non-probation).
  */
 
+import { eachUtcCalendarWorkingDay, halfYearPeriodUtcCalendar } from "@/lib/calendar-date";
+
 export function stripTime(d: Date): Date {
   const x = new Date(d);
   x.setHours(0, 0, 0, 0);
@@ -85,23 +87,16 @@ export function sickRemaining(opts: {
   return Math.max(0, sickEntitledPerHalf(opts.probationEndsAt, opts.refDate) - opts.sickUsed);
 }
 
-/** Mon–Fri dates from start through end (inclusive). */
+/** Mon–Fri dates from start through end (inclusive), using UTC calendar days (leave @db.Date ranges). */
 export function eachWorkingDay(start: Date, end: Date): Date[] {
-  const out: Date[] = [];
-  const s = stripTime(start);
-  const e = stripTime(end);
-  for (let d = new Date(s); d.getTime() <= e.getTime(); d.setDate(d.getDate() + 1)) {
-    const day = d.getDay();
-    if (day !== 0 && day !== 6) out.push(new Date(d));
-  }
-  return out;
+  return eachUtcCalendarWorkingDay(start, end);
 }
 
 /** Count working days per half bucket key `periodYear-half` e.g. `2026-1`. */
 export function workingDaysByHalfYear(start: Date, end: Date): Map<string, number> {
   const map = new Map<string, number>();
-  for (const d of eachWorkingDay(start, end)) {
-    const { periodYear, half } = getHalfYearPeriod(d);
+  for (const d of eachUtcCalendarWorkingDay(start, end)) {
+    const { periodYear, half } = halfYearPeriodUtcCalendar(d);
     const key = `${periodYear}-${half}`;
     map.set(key, (map.get(key) ?? 0) + 1);
   }
@@ -119,8 +114,8 @@ export function workingDaysInHalf(
   periodYear: number,
   half: 1 | 2,
 ): Date[] {
-  return eachWorkingDay(start, end).filter((d) => {
-    const p = getHalfYearPeriod(d);
+  return eachUtcCalendarWorkingDay(start, end).filter((d) => {
+    const p = halfYearPeriodUtcCalendar(d);
     return p.periodYear === periodYear && p.half === half;
   });
 }

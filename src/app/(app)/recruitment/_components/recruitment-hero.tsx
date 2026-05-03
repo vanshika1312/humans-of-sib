@@ -29,13 +29,14 @@ export function RecruitmentHero({
               Let&apos;s build the team, {firstName}
             </h1>
             <p className="mt-2 text-sm md:text-[15px] text-white/90 max-w-xl leading-relaxed">
-              Pipeline and requisitions stay in one glanceable view. Candidate tracking lands next — for now live org signals keep you anchored.
+              Pipeline and requisitions stay in one glanceable view here. Per-person rows in this funnel come
+              next — for now org signals above keep you anchored.
             </p>
           </div>
           <div className="flex flex-wrap gap-2 pt-1">
             <Chip label="Joins · 30d" value={`${recentJoins}`} />
             <Chip label="Active headcount" value={`${activeHeadcount}`} />
-            <Chip label="ATS" value="Soon" muted />
+            <Chip label="Sync" value="Soon" muted />
           </div>
         </div>
 

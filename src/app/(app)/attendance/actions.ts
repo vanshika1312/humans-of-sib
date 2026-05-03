@@ -2,17 +2,24 @@
 
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { calendarDateFromInput } from "@/lib/calendar-date";
 import { canApproveForEmployee, type AttendanceApproverContext } from "@/lib/attendance-scope";
 import type { LeaveType, Prisma } from "@/generated/prisma";
-import {
-  casualRemaining,
-  getHalfYearPeriod,
-  parseHalfKey,
-  sickRemaining,
-  workingDaysByHalfYear,
-  workingDaysInHalf,
-} from "@/lib/leave-policy";
+import { getHalfYearPeriod, parseHalfKey, workingDaysByHalfYear } from "@/lib/leave-policy";
 import { revalidatePath } from "next/cache";
+import {
+  canApproveSickLeaveWithMedicalRule,
+  sickLeaveMedicalProofProvided,
+  sickLeaveMedicalProofRequired,
+} from "@/lib/sick-leave-medical-proof";
+import { ledgerDebitSplitByHalf } from "@/lib/leave-debit-allocation";
+import {
+  leaveDebitFitsBalances,
+  leaveRequestsAllowInsufficientPaidBalance,
+  paidLeaveLedgerForType,
+  submitRequestPaidLeaveDebitFitsBalance,
+} from "@/lib/leave-balance-guard";
+import { redirect } from "next/navigation";
 
 function today() {
   const d = new Date();
@@ -235,65 +242,6 @@ export async function reviewRegularisationForm(formData: FormData) {
 
 /** --- Leave --------------------------------------------------------------- */
 
-type LeaveLedger = "casualUsed" | "sickUsed";
-
-function leaveTypeLedger(type: string): LeaveLedger | null {
-  switch (type) {
-    case "CASUAL":
-    case "MENSTRUAL":
-    case "BEREAVEMENT":
-    case "WEDDING":
-    case "EARNED":
-      return "casualUsed";
-    case "SICK":
-      return "sickUsed";
-    case "UNPAID":
-      return null;
-    default:
-      return "casualUsed";
-  }
-}
-
-async function leaveBalancesAllowApproval(params: {
-  userId: string;
-  probationEndsAt: Date | null;
-  joinedAt: Date;
-  ledger: LeaveLedger;
-  startDate: Date;
-  endDate: Date;
-}): Promise<boolean> {
-  const split = workingDaysByHalfYear(params.startDate, params.endDate);
-  for (const [key, needDays] of split) {
-    const { periodYear, half } = parseHalfKey(key);
-    const bal = await prisma.leaveBalance.findUnique({
-      where: { userId_periodYear_half: { userId: params.userId, periodYear, half } },
-    });
-    const casualUsed = bal?.casualUsed ?? 0;
-    const sickUsed = bal?.sickUsed ?? 0;
-
-    const daysInHalf = workingDaysInHalf(params.startDate, params.endDate, periodYear, half);
-    const refForEntitlement = daysInHalf.length ? daysInHalf[daysInHalf.length - 1]! : params.endDate;
-
-    if (params.ledger === "sickUsed") {
-      const rem = sickRemaining({
-        probationEndsAt: params.probationEndsAt,
-        refDate: refForEntitlement,
-        sickUsed,
-      });
-      if (needDays > rem) return false;
-    } else {
-      const rem = casualRemaining({
-        probationEndsAt: params.probationEndsAt,
-        joinedAt: params.joinedAt,
-        refDate: refForEntitlement,
-        casualUsed,
-      });
-      if (needDays > rem) return false;
-    }
-  }
-  return true;
-}
-
 export async function submitLeaveRequestForm(formData: FormData) {
   const session = await auth();
   if (!session?.user?.email) throw new Error("Unauthorized");
@@ -307,11 +255,30 @@ export async function submitLeaveRequestForm(formData: FormData) {
   const start = String(formData.get("leaveStart") || "").trim();
   const end = String(formData.get("leaveEnd") || "").trim();
   const reason = String(formData.get("leaveReason") || "").trim() || undefined;
+  const medicalProofUrl = String(formData.get("medicalProofUrl") || "").trim() || undefined;
 
   if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end)) return;
-  const sd = parseDateOnly(start);
-  const ed = parseDateOnly(end);
-  if (ed < sd) return;
+  const sd = calendarDateFromInput(start);
+  const ed = calendarDateFromInput(end);
+  if (Number.isNaN(sd.getTime()) || Number.isNaN(ed.getTime()) || ed.getTime() < sd.getTime()) return;
+
+  const needMedical =
+    type === "SICK" ? await sickLeaveMedicalProofRequired(user.id, sd, ed) : false;
+  if (needMedical && !sickLeaveMedicalProofProvided(type, medicalProofUrl)) {
+    redirect("/attendance?leaveApplyError=medical_proof");
+  }
+
+  if (!leaveRequestsAllowInsufficientPaidBalance()) {
+    const okBal = await submitRequestPaidLeaveDebitFitsBalance({
+      userId: user.id,
+      type,
+      startDate: sd,
+      endDate: ed,
+    });
+    if (!okBal) {
+      redirect("/attendance?leaveApplyError=insufficient_balance");
+    }
+  }
 
   await prisma.leaveRequest.create({
     data: {
@@ -321,8 +288,38 @@ export async function submitLeaveRequestForm(formData: FormData) {
       startDate: sd,
       endDate: ed,
       reason,
+      medicalProofUrl: medicalProofUrl || null,
       status: "PENDING",
     },
+  });
+  revalidatePath("/attendance");
+}
+
+export async function attachSickLeaveMedicalProofForm(formData: FormData) {
+  const session = await auth();
+  if (!session?.user?.email) throw new Error("Unauthorized");
+  const user = await prisma.user.findUnique({
+    where: { email: session.user.email },
+    select: { id: true },
+  });
+  if (!user) throw new Error("User not found");
+
+  const leaveId = String(formData.get("leaveId") || "").trim();
+  const medicalProofUrl = String(formData.get("medicalProofUrl") || "").trim();
+  if (!leaveId || !medicalProofUrl) return;
+
+  const lr = await prisma.leaveRequest.findFirst({
+    where: { id: leaveId, userId: user.id, type: "SICK", status: "PENDING" },
+    select: { id: true, startDate: true, endDate: true },
+  });
+  if (!lr) return;
+
+  const need = await sickLeaveMedicalProofRequired(user.id, lr.startDate, lr.endDate);
+  if (!need) return;
+
+  await prisma.leaveRequest.update({
+    where: { id: lr.id },
+    data: { medicalProofUrl },
   });
   revalidatePath("/attendance");
 }
@@ -347,24 +344,55 @@ export async function reviewLeaveForm(formData: FormData) {
   if (!lr || lr.status !== "PENDING") return;
   if (!canApproveForEmployee(viewer, lr.user)) return;
 
-  const ledger = leaveTypeLedger(lr.type);
+  const ledger = paidLeaveLedgerForType(lr.type);
+
+  const debitOverrideRaw = String(formData.get("leaveBalanceDebitOverride") ?? "").trim();
+  /** Proportional split across half-years — null skip path for unpaid rejects. */
+  let debitSplitForApprove: Map<string, number> | null = null;
+  let appliedLedgerDebitDaysTotal: number | null = null;
+
+  let debitOverrideRequested: number | undefined;
+  if (debitOverrideRaw !== "") {
+    const n = Number.parseInt(debitOverrideRaw, 10);
+    if (Number.isFinite(n) && n >= 0) debitOverrideRequested = n;
+  }
+
+  if (action === "approve") {
+    const medicalOk = await canApproveSickLeaveWithMedicalRule({
+      userId: lr.userId,
+      startDate: lr.startDate,
+      endDate: lr.endDate,
+      type: lr.type,
+      medicalProofUrl: lr.medicalProofUrl,
+    });
+    if (!medicalOk) {
+      redirect("/attendance?leaveApprovalError=medical_proof");
+    }
+  }
 
   if (action === "approve" && ledger) {
+    const computed = workingDaysByHalfYear(lr.startDate, lr.endDate);
+    debitSplitForApprove = ledgerDebitSplitByHalf(computed, debitOverrideRequested);
+    appliedLedgerDebitDaysTotal = [...debitSplitForApprove.values()].reduce((a, b) => a + b, 0);
+
     const emp = await prisma.user.findUnique({
       where: { id: lr.userId },
       select: { probationEndsAt: true, joinedAt: true },
     });
     if (!emp) return;
 
-    const ok = await leaveBalancesAllowApproval({
+    const ok = await leaveDebitFitsBalances({
       userId: lr.userId,
       probationEndsAt: emp.probationEndsAt,
       joinedAt: emp.joinedAt,
       ledger,
       startDate: lr.startDate,
       endDate: lr.endDate,
+      debitByHalf: debitSplitForApprove,
     });
-    if (!ok) return;
+    if (!ok) {
+      redirect("/attendance?leaveApprovalError=insufficient_balance");
+    }
   }
 
   await prisma.$transaction(async (tx) => {
@@ -381,9 +409,9 @@ export async function reviewLeaveForm(formData: FormData) {
       return;
     }
 
-    if (ledger) {
-      const split = workingDaysByHalfYear(lr.startDate, lr.endDate);
-      for (const [key, cnt] of split) {
+    if (ledger && debitSplitForApprove) {
+      for (const [key, cnt] of debitSplitForApprove.entries()) {
+        if (cnt <= 0) continue;
         const { periodYear, half } = parseHalfKey(key);
         await upsertLeaveBalance(tx, lr.userId, periodYear, half);
         await tx.leaveBalance.update({
@@ -403,6 +431,9 @@ export async function reviewLeaveForm(formData: FormData) {
         respondedAt: new Date(),
         responseNote,
         approverId: viewer.id,
+        ...(appliedLedgerDebitDaysTotal !== null
+          ? { appliedLedgerDebitDays: appliedLedgerDebitDaysTotal }
+          : {}),
       },
     });
   });

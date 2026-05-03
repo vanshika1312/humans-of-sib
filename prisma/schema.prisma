@@ -129,14 +129,16 @@ model User {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Recruitment — interview funnel (manual counts until ATS syncs)
+// Recruitment — hiring funnel (Humans of SIB; manual stage counts until live sync)
 // ──────────────────────────────────────────────────────────────────────────────
 
-model InterviewPipelineStage {
+model RecruitmentFunnelStage {
   id        String   @id @default(cuid())
-  sortOrder Int      @unique
+  /// Strip + funnel ordering (not unique — slug is canonical)
+  sortOrder Int      @default(0)
   slug      String   @unique
   label     String
+  /// For offer_rate_pct the count is interpreted as percentage points (e.g. 10 → 10%)
   count     Int      @default(0)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -384,16 +386,20 @@ enum LeaveStatus {
 }
 
 model LeaveRequest {
-  id         String      @id @default(cuid())
-  userId     String
-  approverId String?
-  type       LeaveType
-  startDate  DateTime    @db.Date
-  endDate    DateTime    @db.Date
-  reason     String?
-  status     LeaveStatus @default(PENDING)
+  id              String       @id @default(cuid())
+  userId          String
+  approverId      String?
+  type            LeaveType
+  startDate       DateTime     @db.Date
+  endDate         DateTime     @db.Date
+  reason          String?
+  /// Sick leave: Drive / doc link when policy requires certificate (multi-day contiguous sick or chained after prior approved sick).
+  medicalProofUrl String?
+  status          LeaveStatus  @default(PENDING)
   respondedAt DateTime?
   responseNote String?
+  /// Paid days deducted from leave bank when approved (uses counted weekdays in range; approver may request a smaller total allocated proportionally across half-years).
+  appliedLedgerDebitDays Int?
 
   user     User  @relation("LeaveRequester", fields: [userId], references: [id], onDelete: Cascade)
   approver User? @relation("LeaveApprover", fields: [approverId], references: [id])

@@ -4,8 +4,14 @@ import { redirect } from "next/navigation";
 import { RecruitmentHero } from "./_components/recruitment-hero";
 import { RecruitmentKpis } from "./_components/recruitment-kpis";
 import { RecruitmentSidebar } from "./_components/recruitment-sidebar";
-import { InterviewPipelineFunnel } from "./_components/interview-pipeline-funnel";
-import { getInterviewPipelineStagesOrdered } from "@/lib/interview-pipeline";
+import { RecruitmentFunnel } from "./_components/recruitment-funnel";
+import { RecruitmentMetricStrip } from "./_components/recruitment-metric-strip";
+import {
+  FUNNEL_BAR_SLUG_ORDER,
+  getRecruitmentFunnelStages,
+  pickStagesBySlugOrder,
+  STRIP_SLUG_ORDER,
+} from "@/lib/recruitment-funnel";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { Lightbulb, Sparkles } from "lucide-react";
@@ -13,9 +19,9 @@ import { Lightbulb, Sparkles } from "lucide-react";
 const HR_ROLES = ["CEO", "ADMIN", "HR"];
 
 export default async function RecruitmentOverviewPage(props: {
-  searchParams: Promise<{ pipelineSaved?: string }>;
+  searchParams: Promise<{ funnelSaved?: string; metricsForbidden?: string }>;
 }) {
-  const { pipelineSaved } = await props.searchParams;
+  const { funnelSaved, metricsForbidden } = await props.searchParams;
   const session = await auth();
   const me = await prisma.user.findUnique({ where: { email: session!.user!.email! } });
   if (!me || !HR_ROLES.includes(me.role)) redirect("/home");
@@ -23,7 +29,7 @@ export default async function RecruitmentOverviewPage(props: {
   const since = new Date();
   since.setDate(since.getDate() - 30);
 
-  const [recentJoinCount, activeHeadcount, recentJoiners, pipelineStages] = await Promise.all([
+  const [recentJoinCount, activeHeadcount, recentJoiners, funnelStagesRaw] = await Promise.all([
     prisma.user.count({
       where: {
         joinedAt: { gte: since },
@@ -44,8 +50,15 @@ export default async function RecruitmentOverviewPage(props: {
         department: { select: { name: true, emoji: true } },
       },
     }),
-    getInterviewPipelineStagesOrdered(),
+    getRecruitmentFunnelStages(),
   ]);
+
+  const headlineTotalCount = funnelStagesRaw.find((s) => s.slug === "total")?.count ?? 0;
+  const metricStripStages = pickStagesBySlugOrder(funnelStagesRaw, STRIP_SLUG_ORDER);
+  const funnelBarStages = pickStagesBySlugOrder(funnelStagesRaw, FUNNEL_BAR_SLUG_ORDER);
+
+  /** Only Workspace Admin + CEO mutate headline funnel data */
+  const canEditRecruitmentRollups = me.role === "CEO" || me.role === "ADMIN";
 
   const firstName = me.name?.split(/\s+/)[0] || "there";
 
@@ -59,15 +72,26 @@ export default async function RecruitmentOverviewPage(props: {
 
       <RecruitmentKpis recentJoins={recentJoinCount} activeHeadcount={activeHeadcount} />
 
-      {pipelineSaved === "1" && (
+      {funnelSaved === "1" && (
         <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
-          Funnel counts saved. Conversion rates below updated for everyone viewing recruitment.
+          Recruitment rollups saved — headline strip and funnel below refresh for the whole workspace.
+        </div>
+      )}
+
+      {metricsForbidden === "1" && (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">
+          Only Workspace Admin or CEO can change headline metrics and funnel numbers.
         </div>
       )}
 
       <section className="grid lg:grid-cols-12 gap-6 md:gap-8 items-start">
         <div className="lg:col-span-7 xl:col-span-8 space-y-6">
-          <InterviewPipelineFunnel stages={pipelineStages} canEdit />
+          <RecruitmentMetricStrip stages={metricStripStages} canEdit={canEditRecruitmentRollups} />
+          <RecruitmentFunnel
+            barStages={funnelBarStages}
+            headlineTotalCount={headlineTotalCount}
+            canEdit={canEditRecruitmentRollups}
+          />
 
           <div className="relative rounded-2xl overflow-hidden border border-ink-200/80 bg-ink-50/40 p-px">
             <div className="rounded-[15px] bg-gradient-to-br from-sky-50/90 via-white to-orange-50/60 px-5 py-5 md:px-6 md:py-6">
@@ -82,7 +106,8 @@ export default async function RecruitmentOverviewPage(props: {
                   </div>
                   <h3 className="mt-2 text-lg font-semibold text-ink-700 tracking-tight">What wires in next</h3>
                   <p className="mt-2 text-sm text-ink-500 leading-relaxed max-w-2xl">
-                    Headcount approvals, sourcing links, interviewer load-balancing, and offer letters will surface in this lane so HR and hiring managers never chase spreadsheets.
+                    Headcount approvals, sourcing links, panel scheduling on this workspace, and offer letters —
+                    kept in one place instead of scattered bolt-on tracking tools.
                   </p>
                   <Link
                     href="/admin"

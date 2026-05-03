@@ -22,13 +22,13 @@ export function RecruitmentKpis({
         icon={<KanbanSquare className="size-5" />}
         label="Pipeline"
         value="—"
-        sub="Stages when ATS syncs"
+        sub="When hiring data syncs live"
         tone="orange"
         placeholder
       />
       <MetricTile
         icon={<CalendarDays className="size-5" />}
-        label="Interview load"
+        label="Hiring calendar"
         value="—"
         sub="Rolling 7 days"
         tone="sun"
