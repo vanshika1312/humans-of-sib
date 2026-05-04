@@ -153,3 +153,55 @@ export async function updateRecruitmentFunnelCounts(formData: FormData) {
   revalidatePath("/recruitment");
   redirect("/recruitment?funnelSaved=1");
 }
+
+function parseUtcDateOnly(value: unknown): Date | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed);
+  if (!m) return null;
+  const y = Number(m[1]);
+  const mo = Number(m[2]) - 1;
+  const d = Number(m[3]);
+  const dt = new Date(Date.UTC(y, mo, d));
+  if (
+    Number.isNaN(dt.getTime()) ||
+    dt.getUTCFullYear() !== y ||
+    dt.getUTCMonth() !== mo ||
+    dt.getUTCDate() !== d
+  ) {
+    return null;
+  }
+  return dt;
+}
+
+export async function submitRecruitmentDailyReport(formData: FormData) {
+  const me = await requireRecruiter();
+
+  const reportDate = parseUtcDateOnly(formData.get("reportDate"));
+  const recruiterEntry = formData.get("recruiterName");
+  const locationEntry = formData.get("locationName");
+  const recruiterRaw = typeof recruiterEntry === "string" ? recruiterEntry.trim() : "";
+  const locationRaw = typeof locationEntry === "string" ? locationEntry.trim() : "";
+  const recruiterName = recruiterRaw.slice(0, 200);
+  const locationName = locationRaw.slice(0, 200);
+
+  if (!reportDate) {
+    redirect(`/recruitment?dailyReportError=${encodeURIComponent("Pick a valid report date.")}`);
+  }
+
+  if (!recruiterName || !locationName) {
+    redirect(`/recruitment?dailyReportError=${encodeURIComponent("Recruiter and location are required.")}`);
+  }
+
+  await prisma.recruitmentDailyReport.create({
+    data: {
+      reportDate,
+      recruiterName,
+      locationName,
+      submittedByUserId: me.id,
+    },
+  });
+
+  revalidatePath("/recruitment");
+  redirect("/recruitment?dailyReportSaved=1");
+}

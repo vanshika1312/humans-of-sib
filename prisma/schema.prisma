@@ -120,6 +120,8 @@ model User {
   lockedSheets        IncentiveSheet[]     @relation("IncentiveLocker")
   approvedSheets      IncentiveSheet[]     @relation("IncentiveApprover")
 
+  recruitmentDailyReports RecruitmentDailyReport[]
+
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -142,6 +144,20 @@ model RecruitmentFunnelStage {
   count     Int      @default(0)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model RecruitmentDailyReport {
+  id                 String    @id @default(cuid())
+  reportDate         DateTime  @db.Date
+  recruiterName      String    @db.VarChar(200)
+  locationName       String    @db.VarChar(200)
+  submittedByUserId  String?
+  submittedBy       User?     @relation(fields: [submittedByUserId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([reportDate])
+  @@index([submittedByUserId])
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

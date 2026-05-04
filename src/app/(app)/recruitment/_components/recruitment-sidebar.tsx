@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Avatar } from "@/components/ui/avatar";
 import { cn, formatDate } from "@/lib/utils";
-import { Building2, CalendarClock, ClipboardList, KeyRound, UserPlus } from "lucide-react";
+import { Building2, CalendarClock, ClipboardList, FileSpreadsheet, KeyRound, UserPlus } from "lucide-react";
 
 type RecentUser = {
   id: string;
@@ -9,7 +9,7 @@ type RecentUser = {
   image: string | null;
   email: string;
   joinedAt: Date;
-  department: Pick<Department, "name" | "emoji"> | null;
+  department: { name: string; emoji: string | null } | null;
 };
 
 export function RecruitmentSidebar({ recent }: { recent: RecentUser[] }) {
@@ -76,6 +76,7 @@ export function RecruitmentSidebar({ recent }: { recent: RecentUser[] }) {
 
 function Shortcuts() {
   const items = [
+    { href: "/recruitment#daily-report", label: "Daily report", Icon: FileSpreadsheet, desc: "Pick or type recruiter & location" },
     { href: "/recruitment/access", label: "Dashboard access", Icon: KeyRound, desc: "Admin vs HR workspace roles" },
     { href: "/admin/team/new", label: "Create profile", Icon: UserPlus, desc: "Add someone hired off-cycle" },
     { href: "/admin", label: "Team & access", Icon: ClipboardList, desc: "Titles, dept, payroll flags" },

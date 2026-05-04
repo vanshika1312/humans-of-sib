@@ -1,10 +1,57 @@
 import { Resend } from "resend";
 
-const resend = new Resend(process.env.RESEND_API_KEY);
-
-
 const FROM = process.env.EMAIL_FROM ?? "Humans of SIB <no-reply@humansofsib.com>";
 const BASE_URL = process.env.NEXT_PUBLIC_APP_URL ?? "https://humansofsib.com";
+
+/** `resend` (default) or `brevo` — https://developers.brevo.com/reference/send-transac-email */
+function emailProvider(): "resend" | "brevo" {
+  const p = (process.env.EMAIL_PROVIDER ?? "resend").toLowerCase();
+  return p === "brevo" ? "brevo" : "resend";
+}
+
+function parseFromHeader(from: string): { name?: string; email: string } {
+  const m = from.trim().match(/^(.+?)\s*<([^>]+)>$/);
+  if (m) return { name: m[1]!.trim().replace(/^"|"$/g, ""), email: m[2]!.trim() };
+  return { email: from.trim() };
+}
+
+async function sendHtmlEmail(params: { to: string; subject: string; html: string }) {
+  const provider = emailProvider();
+  if (provider === "brevo") {
+    const key = process.env.BREVO_API_KEY;
+    if (!key?.trim()) throw new Error("BREVO_API_KEY is required when EMAIL_PROVIDER=brevo");
+    const sender = parseFromHeader(FROM);
+    const res = await fetch("https://api.brevo.com/v3/smtp/email", {
+      method: "POST",
+      headers: {
+        accept: "application/json",
+        "content-type": "application/json",
+        "api-key": key,
+      },
+      body: JSON.stringify({
+        sender: { email: sender.email, ...(sender.name ? { name: sender.name } : {}) },
+        to: [{ email: params.to }],
+        subject: params.subject,
+        htmlContent: params.html,
+      }),
+    });
+    if (!res.ok) {
+      const detail = await res.text().catch(() => "");
+      throw new Error(`Brevo transactional send failed (${res.status}): ${detail.slice(0, 500)}`);
+    }
+    return;
+  }
+
+  const key = process.env.RESEND_API_KEY;
+  if (!key?.trim()) throw new Error("RESEND_API_KEY is required when EMAIL_PROVIDER is resend or unset");
+  const resend = new Resend(key);
+  await resend.emails.send({
+    from: FROM,
+    to: params.to,
+    subject: params.subject,
+    html: params.html,
+  });
+}
 
 export interface UnpaidSheet {
   counsellorName: string;
@@ -109,8 +156,7 @@ export async function sendIncentiveReminderEmail({
 </body>
 </html>`;
 
-  await resend.emails.send({
-    from:    FROM,
+  await sendHtmlEmail({
     to,
     subject: `⚠️ Incentive Payout Reminder – ${monthLabel} (${unpaidSheets.length} unpaid)`,
     html,
@@ -305,8 +351,7 @@ export async function sendWeeklyPerformanceEmail({
 </body>
 </html>`;
 
-  await resend.emails.send({
-    from:    FROM,
+  await sendHtmlEmail({
     to,
     subject: `${headline} — Week ${data.weekNumber}, ${data.monthLabel}`,
     html,

@@ -12,16 +12,28 @@ import {
   pickStagesBySlugOrder,
   STRIP_SLUG_ORDER,
 } from "@/lib/recruitment-funnel";
+import { getRecruitmentDailyReportSuggestions, utcCalendarToday } from "@/lib/recruitment-daily-report";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { Lightbulb, Sparkles } from "lucide-react";
+import { DailyReportForm } from "./_components/daily-report-form";
 
 const HR_ROLES = ["CEO", "ADMIN", "HR"];
 
 export default async function RecruitmentOverviewPage(props: {
-  searchParams: Promise<{ funnelSaved?: string; metricsForbidden?: string }>;
+  searchParams: Promise<{
+    funnelSaved?: string;
+    metricsForbidden?: string;
+    dailyReportSaved?: string;
+    dailyReportError?: string;
+  }>;
 }) {
-  const { funnelSaved, metricsForbidden } = await props.searchParams;
+  const {
+    funnelSaved,
+    metricsForbidden,
+    dailyReportSaved,
+    dailyReportError,
+  } = await props.searchParams;
   const session = await auth();
   const me = await prisma.user.findUnique({ where: { email: session!.user!.email! } });
   if (!me || !HR_ROLES.includes(me.role)) redirect("/home");
@@ -29,7 +41,8 @@ export default async function RecruitmentOverviewPage(props: {
   const since = new Date();
   since.setDate(since.getDate() - 30);
 
-  const [recentJoinCount, activeHeadcount, recentJoiners, funnelStagesRaw] = await Promise.all([
+  const [recentJoinCount, activeHeadcount, recentJoiners, funnelStagesRaw, dailySuggestions] =
+    await Promise.all([
     prisma.user.count({
       where: {
         joinedAt: { gte: since },
@@ -51,6 +64,7 @@ export default async function RecruitmentOverviewPage(props: {
       },
     }),
     getRecruitmentFunnelStages(),
+    getRecruitmentDailyReportSuggestions(),
   ]);
 
   const headlineTotalCount = funnelStagesRaw.find((s) => s.slug === "total")?.count ?? 0;
@@ -71,6 +85,26 @@ export default async function RecruitmentOverviewPage(props: {
       />
 
       <RecruitmentKpis recentJoins={recentJoinCount} activeHeadcount={activeHeadcount} />
+
+      {dailyReportSaved === "1" && (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+          Daily report saved — recruiter and location appear in dropdown suggestions next time.
+        </div>
+      )}
+
+      {dailyReportError && (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">
+          {dailyReportError}
+        </div>
+      )}
+
+      <section id="daily-report" className="scroll-mt-24">
+        <DailyReportForm
+          recruiterOptions={dailySuggestions.recruiters}
+          locationOptions={dailySuggestions.locations}
+          defaultReportDate={utcCalendarToday()}
+        />
+      </section>
 
       {funnelSaved === "1" && (
         <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
