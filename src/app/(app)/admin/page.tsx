@@ -67,6 +67,20 @@ export default async function AdminPage({
         />
       </div>
 
+      <Card className="mb-6">
+        <CardContent className="py-4 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="font-semibold text-ink-700">Attendance for payroll</div>
+            <p className="text-sm text-ink-500 mt-0.5">
+              Export everyone&apos;s monthly punches and approved leave weekdays as CSV.
+            </p>
+          </div>
+          <Link href="/admin/attendance-report">
+            <Button variant="outline">Open report</Button>
+          </Link>
+        </CardContent>
+      </Card>
+
       {/* Team table */}
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">

@@ -30,6 +30,18 @@ export function formatCalendarDate(d: Date | string | null | undefined): string 
   }).format(date);
 }
 
+/** Month is 1–12. UTC calendar bounds matching Postgres DATE semantics used for leave/attendance. */
+export function utcMonthBounds(year: number, month: number): { start: Date; end: Date } {
+  const start = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0, 0));
+  const end = new Date(Date.UTC(year, month, 0, 0, 0, 0, 0));
+  return { start, end };
+}
+
+export function workingWeekdaysInUtcMonth(year: number, month: number): number {
+  const { start, end } = utcMonthBounds(year, month);
+  return workingDaysInclusiveUtcCalendar(start, end);
+}
+
 export function workingDaysInclusiveUtcCalendar(start: Date, end: Date): number {
   const s = utcCalendarMidnight(start);
   const e = utcCalendarMidnight(end);
