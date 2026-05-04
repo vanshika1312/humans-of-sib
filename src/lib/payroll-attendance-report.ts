@@ -50,6 +50,8 @@ export interface PayrollAttendanceSummaryRow {
   leaveSickWd: number;
   leaveUnpaidWd: number;
   leaveOtherPaidWd: number;
+  /** Weekdays overlapping this month on requests still awaiting approval (PENDING only). */
+  leavePendingWd: number;
 }
 
 export interface PayrollAttendanceDetailRow {
@@ -135,7 +137,7 @@ export async function fetchPayrollAttendanceReport(year: number, month: number):
     orderBy: [{ userId: "asc" }, { date: "asc" }],
   });
 
-  const leaves = await prisma.leaveRequest.findMany({
+  const leavesApproved = await prisma.leaveRequest.findMany({
     where: {
       status: "APPROVED",
       AND: [{ startDate: { lte: monthEnd } }, { endDate: { gte: monthStart } }],
@@ -143,9 +145,18 @@ export async function fetchPayrollAttendanceReport(year: number, month: number):
     select: { userId: true, type: true, startDate: true, endDate: true },
   });
 
+  const leavesPending = await prisma.leaveRequest.findMany({
+    where: {
+      status: "PENDING",
+      AND: [{ startDate: { lte: monthEnd } }, { endDate: { gte: monthStart } }],
+    },
+    select: { userId: true, startDate: true, endDate: true },
+  });
+
   const extraIds = new Set<string>();
   for (const row of attendanceRows) extraIds.add(row.userId);
-  for (const lr of leaves) extraIds.add(lr.userId);
+  for (const lr of leavesApproved) extraIds.add(lr.userId);
+  for (const lr of leavesPending) extraIds.add(lr.userId);
   const activeIds = new Set(usersActive.map((u) => u.id));
   const needExtra = [...extraIds].filter((id) => !activeIds.has(id));
   const usersExtra =
@@ -190,6 +201,7 @@ export async function fetchPayrollAttendanceReport(year: number, month: number):
       leaveSickWd: 0,
       leaveUnpaidWd: 0,
       leaveOtherPaidWd: 0,
+      leavePendingWd: 0,
     });
   }
 
@@ -223,7 +235,7 @@ export async function fetchPayrollAttendanceReport(year: number, month: number):
     });
   }
 
-  for (const lr of leaves) {
+  for (const lr of leavesApproved) {
     const wd = overlapWorkingWeekdays(lr.startDate, lr.endDate, monthStart, monthEnd);
     if (wd <= 0) continue;
     const s = summaryMap.get(lr.userId);
@@ -233,6 +245,14 @@ export async function fetchPayrollAttendanceReport(year: number, month: number):
     else if (b === "sick") s.leaveSickWd += wd;
     else if (b === "unpaid") s.leaveUnpaidWd += wd;
     else s.leaveOtherPaidWd += wd;
+  }
+
+  for (const lr of leavesPending) {
+    const wd = overlapWorkingWeekdays(lr.startDate, lr.endDate, monthStart, monthEnd);
+    if (wd <= 0) continue;
+    const s = summaryMap.get(lr.userId);
+    if (!s) continue;
+    s.leavePendingWd += wd;
   }
 
   const summaries = [...summaryMap.values()].sort((a, b) => (a.name || a.email).localeCompare(b.name || b.email));
@@ -257,6 +277,7 @@ export function buildPayrollSummaryCsv(rows: PayrollAttendanceSummaryRow[]): str
     "source_biometric",
     "source_regularised",
     "approved_leave_weekdays_total",
+    "pending_leave_weekdays",
     "leave_casual_weekdays",
     "leave_sick_weekdays",
     "leave_unpaid_weekdays",
@@ -282,6 +303,7 @@ export function buildPayrollSummaryCsv(rows: PayrollAttendanceSummaryRow[]): str
       r.sourceBiometric,
       r.sourceRegularised,
       approvedLeaveTotal,
+      r.leavePendingWd,
       r.leaveCasualWd,
       r.leaveSickWd,
       r.leaveUnpaidWd,
