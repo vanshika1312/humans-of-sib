@@ -58,10 +58,10 @@ export const FUNNEL_STAGE_HEX: Record<string, string> = {
   joined: "#10b981",
 };
 
-/** Strip headline number colours (recruitment overview) */
+/** Strip headline number colours — saturated enough for white / ink-50 tiles */
 export const METRIC_STRIP_HEX: Record<string, string> = {
-  total: "#ffffff",
-  screening: "#7dd3fc",
+  total: "#1282aa",
+  screening: "#1aa4d6",
   round1: "#818cf8",
   round2: "#a78bfa",
   final: "#fb923c",
@@ -141,10 +141,10 @@ export function funnelFooterCells(barStages: { count: number }[]): {
 }
 
 function funnelFooterTone(colIdx: number) {
-  if (colIdx === 0) return "text-amber-300";
-  return "text-emerald-400";
+  if (colIdx === 0) return "text-amber-700";
+  return "text-emerald-700";
 }
 
 export function funnelOverallToneClass() {
-  return "text-rose-400";
+  return "text-rose-700";
 }

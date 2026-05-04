@@ -52,6 +52,8 @@ export interface PayrollAttendanceSummaryRow {
   leaveOtherPaidWd: number;
   /** Weekdays overlapping this month on requests still awaiting approval (PENDING only). */
   leavePendingWd: number;
+  /** Weekdays overlapping this month on requests declined by approver (REJECTED only). */
+  leaveRejectedWd: number;
 }
 
 export interface PayrollAttendanceDetailRow {
@@ -153,10 +155,19 @@ export async function fetchPayrollAttendanceReport(year: number, month: number):
     select: { userId: true, startDate: true, endDate: true },
   });
 
+  const leavesRejected = await prisma.leaveRequest.findMany({
+    where: {
+      status: "REJECTED",
+      AND: [{ startDate: { lte: monthEnd } }, { endDate: { gte: monthStart } }],
+    },
+    select: { userId: true, startDate: true, endDate: true },
+  });
+
   const extraIds = new Set<string>();
   for (const row of attendanceRows) extraIds.add(row.userId);
   for (const lr of leavesApproved) extraIds.add(lr.userId);
   for (const lr of leavesPending) extraIds.add(lr.userId);
+  for (const lr of leavesRejected) extraIds.add(lr.userId);
   const activeIds = new Set(usersActive.map((u) => u.id));
   const needExtra = [...extraIds].filter((id) => !activeIds.has(id));
   const usersExtra =
@@ -202,6 +213,7 @@ export async function fetchPayrollAttendanceReport(year: number, month: number):
       leaveUnpaidWd: 0,
       leaveOtherPaidWd: 0,
       leavePendingWd: 0,
+      leaveRejectedWd: 0,
     });
   }
 
@@ -255,6 +267,14 @@ export async function fetchPayrollAttendanceReport(year: number, month: number):
     s.leavePendingWd += wd;
   }
 
+  for (const lr of leavesRejected) {
+    const wd = overlapWorkingWeekdays(lr.startDate, lr.endDate, monthStart, monthEnd);
+    if (wd <= 0) continue;
+    const s = summaryMap.get(lr.userId);
+    if (!s) continue;
+    s.leaveRejectedWd += wd;
+  }
+
   const summaries = [...summaryMap.values()].sort((a, b) => (a.name || a.email).localeCompare(b.name || b.email));
 
   return { summaries, details };
@@ -278,6 +298,7 @@ export function buildPayrollSummaryCsv(rows: PayrollAttendanceSummaryRow[]): str
     "source_regularised",
     "approved_leave_weekdays_total",
     "pending_leave_weekdays",
+    "rejected_leave_weekdays",
     "leave_casual_weekdays",
     "leave_sick_weekdays",
     "leave_unpaid_weekdays",
@@ -304,6 +325,7 @@ export function buildPayrollSummaryCsv(rows: PayrollAttendanceSummaryRow[]): str
       r.sourceRegularised,
       approvedLeaveTotal,
       r.leavePendingWd,
+      r.leaveRejectedWd,
       r.leaveCasualWd,
       r.leaveSickWd,
       r.leaveUnpaidWd,

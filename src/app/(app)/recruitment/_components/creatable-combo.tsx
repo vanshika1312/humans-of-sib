@@ -64,7 +64,7 @@ export function CreatableCombo({
 
   return (
     <div className={cn("relative", className)}>
-      <label htmlFor={id} className="block text-[10px] font-semibold uppercase tracking-wider text-white/38 mb-1.5">
+      <label htmlFor={id} className="block text-[10px] font-semibold uppercase tracking-wider text-ink-400 mb-1.5">
         {label}
       </label>
       <div className="relative">
@@ -101,14 +101,14 @@ export function CreatableCombo({
             }
           }}
           className={cn(
-            "w-full rounded-lg border border-white/12 bg-white/[0.06] pl-3 pr-9 py-2.5 text-sm text-white/90",
-            "placeholder:text-white/28 outline-none transition-[box-shadow,border-color]",
-            "focus-visible:border-orange-400/70 focus-visible:ring-2 focus-visible:ring-orange-500/35",
+            "w-full rounded-lg border border-ink-200 bg-white pl-3 pr-9 py-2.5 text-sm text-ink-800",
+            "placeholder:text-ink-400 outline-none transition-[box-shadow,border-color]",
+            "focus-visible:border-sky-400 focus-visible:ring-2 focus-visible:ring-sky-500/25",
             inputClassName,
           )}
         />
         <ChevronDown
-          className="pointer-events-none absolute right-2.5 top-1/2 size-4 -translate-y-1/2 text-white/35"
+          className="pointer-events-none absolute right-2.5 top-1/2 size-4 -translate-y-1/2 text-ink-400"
           aria-hidden
         />
       </div>
@@ -116,7 +116,7 @@ export function CreatableCombo({
         <ul
           role="listbox"
           className={cn(
-            "absolute left-0 right-0 top-full z-20 mt-1 max-h-48 overflow-auto rounded-lg border border-white/12 bg-[#16181f] py-1 shadow-xl shadow-black/50",
+            "absolute left-0 right-0 top-full z-20 mt-1 max-h-48 overflow-auto rounded-lg border border-ink-100 bg-white py-1 shadow-lg shadow-ink-900/10",
           )}
           onMouseDown={(e) => e.preventDefault()}
         >
@@ -127,8 +127,8 @@ export function CreatableCombo({
                 role="option"
                 aria-selected={idx === displayHighlight}
                 className={cn(
-                  "w-full truncate px-3 py-2 text-left text-xs text-white/85 hover:bg-orange-500/15",
-                  idx === displayHighlight && "bg-orange-500/25",
+                  "w-full truncate px-3 py-2 text-left text-xs text-ink-700 hover:bg-sky-50",
+                  idx === displayHighlight && "bg-sky-50",
                 )}
                 onMouseEnter={() => setHighlight(idx)}
                 onClick={() => pick(opt)}

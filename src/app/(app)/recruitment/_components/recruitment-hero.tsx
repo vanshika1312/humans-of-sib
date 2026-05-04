@@ -12,7 +12,7 @@ export function RecruitmentHero({
   activeHeadcount: number;
 }) {
   return (
-    <div className="relative overflow-hidden rounded-2xl brand-gradient p-6 md:p-8 text-white shadow-[0_24px_50px_-20px_rgb(41_182_232/35%)]">
+    <div className="relative overflow-hidden rounded-2xl brand-gradient p-6 md:p-8 text-white shadow-[0_12px_40px_-24px_rgb(41_182_232/28%)]">
       <div className="absolute inset-0 confetti opacity-25" />
       <div className="absolute -top-24 -right-24 size-72 rounded-full bg-white/12 blur-3xl" />
       <div className="absolute -bottom-16 left-1/4 size-48 rounded-full bg-orange-400/25 blur-2xl" />

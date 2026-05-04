@@ -60,7 +60,7 @@ export default async function AdminAttendanceReportPage(props: {
       <PageHeader
         title="Attendance · Payroll export"
         emoji="📊"
-        subtitle="Month-level punches, approved leave weekdays by type, and pending (unapproved) leave weekdays — CSV for spreadsheets."
+        subtitle="Month-level punches, approved leave by type, and pending vs rejected leave weekdays — CSV for spreadsheets."
         action={
           <div className="flex flex-wrap gap-2">
             <Button variant="accent" asChild>
@@ -84,7 +84,7 @@ export default async function AdminAttendanceReportPage(props: {
           <div>
             <CardTitle>{MONTHS[month - 1]} {year}</CardTitle>
             <CardDescription>
-              Rows: {summaries.length} employee{summaries.length !== 1 ? "s" : ""} (everyone active, plus anyone not active who still has a punch, approved leave, or pending leave overlapping this month)
+              Rows: {summaries.length} employee{summaries.length !== 1 ? "s" : ""} (everyone active, plus anyone not active who still has a punch or leave activity overlapping this month: approved, pending, or rejected)
               · Punch rows: {details.length}. Leave counts are weekdays overlapping this calendar month only.
             </CardDescription>
           </div>
@@ -112,7 +112,7 @@ export default async function AdminAttendanceReportPage(props: {
             </div>
             <div className="rounded-lg border border-ink-100 bg-ink-50/50 px-4 py-3">
               <div className="text-xs font-semibold text-ink-400 uppercase tracking-wide">Summary CSV</div>
-              <div className="text-sm text-ink-600 mt-1">One row per active employee — punches, approved-leave totals by type, plus pending (not yet approved) leave weekdays.</div>
+              <div className="text-sm text-ink-600 mt-1">One row per active employee — punches, approved-leave totals by type, pending WD, and rejected WD.</div>
             </div>
             <div className="rounded-lg border border-ink-100 bg-ink-50/50 px-4 py-3">
               <div className="text-xs font-semibold text-ink-400 uppercase tracking-wide">Detail CSV</div>
@@ -135,6 +135,9 @@ export default async function AdminAttendanceReportPage(props: {
                   <th className="px-4 py-3 text-center" title="Leave requests still pending manager approval">
                     Pending WD
                   </th>
+                  <th className="px-4 py-3 text-center" title="Weekdays on requests declined by approver (REJECTED)">
+                    Rejected WD
+                  </th>
                   <th className="px-4 py-3 text-center">Casual L</th>
                   <th className="px-4 py-3 text-center">Sick L</th>
                   <th className="px-4 py-3 text-center">Unpaid L</th>
@@ -156,6 +159,7 @@ export default async function AdminAttendanceReportPage(props: {
                       <td className="px-4 py-2.5 text-center tabular-nums">{r.wfhDays}</td>
                       <td className="px-4 py-2.5 text-center tabular-nums">{leaveWd}</td>
                       <td className="px-4 py-2.5 text-center tabular-nums">{r.leavePendingWd}</td>
+                      <td className="px-4 py-2.5 text-center tabular-nums">{r.leaveRejectedWd}</td>
                       <td className="px-4 py-2.5 text-center tabular-nums">{r.leaveCasualWd}</td>
                       <td className="px-4 py-2.5 text-center tabular-nums">{r.leaveSickWd}</td>
                       <td className="px-4 py-2.5 text-center tabular-nums">{r.leaveUnpaidWd}</td>
@@ -166,7 +170,7 @@ export default async function AdminAttendanceReportPage(props: {
             </table>
           </div>
           <p className="text-xs text-ink-400">
-            Σ appr. leave is the total approved leave weekdays (casual + sick + unpaid + other paid)—not a duplicate of casual. Pending WD counts weekdays on requests with status PENDING only (rejected/cancelled are excluded). Menstrual / bereavement / wedding / earned leave weekdays roll into “other paid” in the CSV. Times in detail export use Asia/Kolkata; calendar dates use UTC date stored with attendance (consistent with the attendance module).
+            Σ appr. leave is the total approved leave weekdays (casual + sick + unpaid + other paid)—not a duplicate of casual. Pending WD is weekdays on status PENDING; Rejected WD is weekdays on status REJECTED (declined by approver). CANCELLED is excluded from both. Menstrual / bereavement / wedding / earned leave weekdays roll into “other paid” in the CSV. Times in detail export use Asia/Kolkata; calendar dates use UTC date stored with attendance (consistent with the attendance module).
           </p>
         </CardContent>
       </Card>
