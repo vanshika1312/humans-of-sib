@@ -309,7 +309,6 @@ model Certificate {
 enum AttendanceMode {
   OFFICE
   WFH
-  FIELD
 }
 
 /// How this attendance row was created or last updated.
@@ -345,8 +344,8 @@ model LeaveBalance {
   userId     String
   periodYear Int
   half       Int     // 1 = Jan–Jun, 2 = Jul–Dec (same calendar periodYear)
-  casualUsed Int     @default(0)
-  sickUsed   Int     @default(0)
+  casualUsed Float   @default(0)
+  sickUsed   Float   @default(0)
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -370,6 +369,8 @@ model RegularisationRequest {
   requestCheckIn  DateTime?
   requestCheckOut DateTime?
   requestMode     AttendanceMode?
+  /// When true (and approved), attendance is set to standard full-day present punches (on-time, full hours) for that date.
+  markFullDayPresent Boolean                  @default(false)
   status          RegularisationStatus @default(PENDING)
   reviewedById    String?
   reviewedAt      DateTime?
@@ -415,7 +416,9 @@ model LeaveRequest {
   respondedAt DateTime?
   responseNote String?
   /// Paid days deducted from leave bank when approved (uses counted weekdays in range; approver may request a smaller total allocated proportionally across half-years).
-  appliedLedgerDebitDays Int?
+  appliedLedgerDebitDays Float?
+  /// Half-day leave: 0.5 weekday debit and payroll overlap; only valid for a single working day (enforced on submit).
+  isHalfDay       Boolean      @default(false)
 
   user     User  @relation("LeaveRequester", fields: [userId], references: [id], onDelete: Cascade)
   approver User? @relation("LeaveApprover", fields: [approverId], references: [id])

@@ -76,3 +76,15 @@ export function halfYearPeriodUtcCalendar(ref: Date): { periodYear: number; half
   const m = ref.getUTCMonth() + 1;
   return m <= 6 ? { periodYear: ref.getUTCFullYear(), half: 1 } : { periodYear: ref.getUTCFullYear(), half: 2 };
 }
+
+/** Civil time on a stored @db.Date (UTC midnight) in Asia/Kolkata (IST, +05:30, no DST). */
+export function utcCalendarDateWithIstClock(dateUtcMidnight: Date, hour: number, minute: number): Date {
+  const y = dateUtcMidnight.getUTCFullYear();
+  const mo = String(dateUtcMidnight.getUTCMonth() + 1).padStart(2, "0");
+  const da = String(dateUtcMidnight.getUTCDate()).padStart(2, "0");
+  const hh = String(hour).padStart(2, "0");
+  const mi = String(minute).padStart(2, "0");
+  const ms = Date.parse(`${y}-${mo}-${da}T${hh}:${mi}:00+05:30`);
+  if (Number.isNaN(ms)) return new Date(NaN);
+  return new Date(ms);
+}

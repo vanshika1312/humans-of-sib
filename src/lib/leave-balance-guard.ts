@@ -4,7 +4,7 @@ import {
   casualRemaining,
   parseHalfKey,
   sickRemaining,
-  workingDaysByHalfYear,
+  workingDaysByHalfYearForLeave,
   workingDaysInHalf,
 } from "@/lib/leave-policy";
 
@@ -88,6 +88,7 @@ export async function paidLeaveApproverBalancePreview(params: {
   type: string;
   startDate: Date;
   endDate: Date;
+  isHalfDay?: boolean;
 }): Promise<{
   ledgerKind: PaidLeaveLedger | null;
   defaultDebitDays: number | null;
@@ -110,7 +111,7 @@ export async function paidLeaveApproverBalancePreview(params: {
     return { ledgerKind, defaultDebitDays: null, sufficientForFullDefaultDebit: false };
   }
 
-  const computed = workingDaysByHalfYear(params.startDate, params.endDate);
+  const computed = workingDaysByHalfYearForLeave(params.startDate, params.endDate, params.isHalfDay ?? false);
   const debitMap = ledgerDebitSplitByHalf(computed, undefined);
   const defaultDebitDays = [...debitMap.values()].reduce((a, b) => a + b, 0);
 
@@ -132,6 +133,7 @@ export async function submitRequestPaidLeaveDebitFitsBalance(params: {
   type: string;
   startDate: Date;
   endDate: Date;
+  isHalfDay?: boolean;
 }): Promise<boolean> {
   const ledger = paidLeaveLedgerForType(params.type);
   if (!ledger) return true;
@@ -142,7 +144,7 @@ export async function submitRequestPaidLeaveDebitFitsBalance(params: {
   });
   if (!emp) return false;
 
-  const computed = workingDaysByHalfYear(params.startDate, params.endDate);
+  const computed = workingDaysByHalfYearForLeave(params.startDate, params.endDate, params.isHalfDay ?? false);
   const debitMap = ledgerDebitSplitByHalf(computed, undefined);
 
   return leaveDebitFitsBalances({

@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
  * Body JSON:
  *   { "email": "user@domain.in", "date": "2026-05-02",
  *     "checkIn": "2026-05-02T09:30:00.000Z", "checkOut"?: "...",
- *     "externalRef"?: "device-row-id", "mode"?: "OFFICE"|"WFH"|"FIELD" }
+ *     "externalRef"?: "device-row-id", "mode"?: "OFFICE"|"WFH" }
  */
 export async function POST(req: NextRequest) {
   const secret = process.env.BIOMETRIC_WEBHOOK_SECRET;
@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
     checkIn?: string;
     checkOut?: string;
     externalRef?: string;
-    mode?: "OFFICE" | "WFH" | "FIELD";
+    mode?: "OFFICE" | "WFH";
   };
   try {
     body = await req.json();

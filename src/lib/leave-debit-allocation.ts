@@ -1,6 +1,6 @@
 /**
  * Turn computed working weekdays per policy half ({ periodYear-half -> days }) into
- * integer ledger debits that sum to min(overrideTotal, sumComputed).
+ * ledger debits (0.5-day granularity when needed) that sum to min(overrideTotal, sumComputed).
  */
 export function ledgerDebitSplitByHalf(
   computedByHalf: Map<string, number>,
@@ -16,9 +16,7 @@ export function ledgerDebitSplitByHalf(
   }
 
   let target =
-    overrideTotal === null || overrideTotal === undefined
-      ? sumComputed
-      : Math.floor(Number(overrideTotal));
+    overrideTotal === null || overrideTotal === undefined ? sumComputed : Number(overrideTotal);
 
   if (!Number.isFinite(target)) target = sumComputed;
   target = Math.max(0, Math.min(target, sumComputed));
@@ -30,23 +28,27 @@ export function ledgerDebitSplitByHalf(
     return new Map(entries.map(([k]) => [k, 0]));
   }
 
-  const frac = entries.map(([k, v]) => {
-    const ideal = (target * v) / sumComputed;
-    const floorPart = Math.floor(ideal);
-    return { k, v, ideal, floor: floorPart, fracRem: ideal - floorPart };
+  return splitDebitProportionally(entries, target);
+}
+
+/** Allocate `target` across halves proportionally to weights, rounded to nearest 0.5 day. */
+function splitDebitProportionally(
+  entries: readonly (readonly [string, number])[],
+  target: number,
+): Map<string, number> {
+  const sumComputed = entries.reduce((a, [, v]) => a + v, 0);
+  if (sumComputed <= 0) return new Map(entries.map(([k]) => [k, 0]));
+  const out = new Map<string, number>();
+  let assigned = 0;
+  entries.forEach(([k, v], i) => {
+    if (i === entries.length - 1) {
+      out.set(k, Math.max(0, Math.round((target - assigned) * 2) / 2));
+    } else {
+      const share = (target * v) / sumComputed;
+      const part = Math.max(0, Math.round(share * 2) / 2);
+      out.set(k, part);
+      assigned += part;
+    }
   });
-
-  let assigned = frac.reduce((a, f) => a + f.floor, 0);
-  let leftover = target - assigned;
-  frac.sort((a, b) => b.fracRem - a.fracRem || a.k.localeCompare(b.k));
-  for (let i = 0; i < frac.length && leftover > 0; i++) {
-    frac[i]!.floor++;
-    leftover--;
-  }
-
-  return new Map(
-    frac
-      .sort((a, b) => a.k.localeCompare(b.k))
-      .map((f) => [f.k, f.floor] as const),
-  );
+  return out;
 }

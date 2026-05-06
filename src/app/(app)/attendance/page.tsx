@@ -9,7 +9,7 @@ import {
   isOnProbation,
   sickEntitledPerHalf,
   sickRemaining,
-  workingDaysByHalfYear,
+  workingDaysByHalfYearForLeave,
 } from "@/lib/leave-policy";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardContent } from "@/components/ui/card";
@@ -28,23 +28,22 @@ import {
   submitCheckInForm,
   submitCheckOut,
   ensureLeaveBalanceRow,
-  submitRegularisationForm,
   reviewRegularisationForm,
   submitLeaveRequestForm,
   reviewLeaveForm,
   attachSickLeaveMedicalProofForm,
 } from "./actions";
+import { RegularisationRequestForm } from "./_components/RegularisationRequestForm";
 
 const FULL_MONTHS = [
   "January","February","March","April","May","June",
   "July","August","September","October","November","December",
 ];
-type AttendanceMode = "OFFICE" | "WFH" | "FIELD";
+type AttendanceMode = "OFFICE" | "WFH";
 
 function modeStyle(mode: AttendanceMode) {
-  if (mode === "WFH")   return { bg: "bg-amber-100 text-amber-700",  pill: "bg-amber-50 text-amber-700",  label: "🏠 WFH"   };
-  if (mode === "FIELD") return { bg: "bg-orange-100 text-orange-700", pill: "bg-orange-50 text-orange-700", label: "🚶 Field" };
-  return                       { bg: "bg-sky-100 text-sky-700",       pill: "bg-sky-50 text-sky-700",       label: "🏢 Office" };
+  if (mode === "WFH") return { bg: "bg-amber-100 text-amber-700", pill: "bg-amber-50 text-amber-700", label: "🏠 WFH" };
+  return { bg: "bg-sky-100 text-sky-700", pill: "bg-sky-50 text-sky-700", label: "🏢 Office" };
 }
 
 function sourceBadgeTone(src: string): "sky" | "sun" | "orange" | "ink" {
@@ -191,13 +190,14 @@ export default async function AttendancePage({
       const ledgerDebitDaysDefault =
         r.type === "UNPAID"
           ? null
-          : [...workingDaysByHalfYear(r.startDate, r.endDate).values()].reduce((a, b) => a + b, 0);
+          : [...workingDaysByHalfYearForLeave(r.startDate, r.endDate, r.isHalfDay).values()].reduce((a, b) => a + b, 0);
 
       const balancePreview = await paidLeaveApproverBalancePreview({
         userId: r.userId,
         type: r.type,
         startDate: r.startDate,
         endDate: r.endDate,
+        isHalfDay: r.isHalfDay,
       });
       const insufficientPaidBalanceForDefault =
         balancePreview.ledgerKind !== null && !balancePreview.sufficientForFullDefaultDebit;
@@ -235,7 +235,6 @@ export default async function AttendancePage({
     present: number;
     office: number;
     wfh: number;
-    field: number;
     ratePct: number;
     manual: number;
     biometric: number;
@@ -302,7 +301,6 @@ export default async function AttendancePage({
         present,
         office: recs.filter((r) => r.mode === "OFFICE").length,
         wfh: recs.filter((r) => r.mode === "WFH").length,
-        field: recs.filter((r) => r.mode === "FIELD").length,
         ratePct,
         manual,
         biometric,
@@ -340,6 +338,18 @@ export default async function AttendancePage({
         emoji="🟢"
         subtitle="Check in, biometric sync, leave bank, regularisation — all in one place."
       />
+
+      {qs.leaveApplyError === "half_day" && (
+        <Card className="border-orange-300 bg-orange-50/90">
+          <CardContent className="pt-4 pb-4 text-sm text-orange-950">
+            <p>
+              <span className="font-semibold">Request not submitted.</span> Half day must cover{" "}
+              <strong className="font-medium">exactly one working day</strong> — set From and To to the same date on a
+              weekday (Mon–Fri).
+            </p>
+          </CardContent>
+        </Card>
+      )}
 
       {(qs.leaveApplyError === "insufficient_balance" ||
         qs.leaveApplyError === "medical_proof") && (
@@ -393,7 +403,7 @@ export default async function AttendancePage({
             <div>
               <div className="flex items-center gap-3 flex-wrap">
                 <Badge tone="green">Checked in {formatTime(todayRecord.checkIn)}</Badge>
-                <Badge tone={todayRecord.mode === "WFH" ? "sun" : todayRecord.mode === "FIELD" ? "orange" : "sky"}>
+                <Badge tone={todayRecord.mode === "WFH" ? "sun" : "sky"}>
                   {modeStyle(todayRecord.mode as AttendanceMode).label}
                 </Badge>
                 <Badge tone={sourceBadgeTone(todayRecord.source)}>{sourceShort(todayRecord.source)}</Badge>
@@ -417,7 +427,6 @@ export default async function AttendancePage({
                 <Select id="mode" name="mode" defaultValue="OFFICE">
                   <option value="OFFICE">🏢 Office</option>
                   <option value="WFH">🏠 Work from home</option>
-                  <option value="FIELD">🚶 Field / travel</option>
                 </Select>
               </div>
               <div>
@@ -534,6 +543,22 @@ export default async function AttendancePage({
                   <Input id="leaveEnd" name="leaveEnd" type="date" defaultValue={isoLocal(today)} required />
                 </div>
               </div>
+              <label className="flex items-start gap-2.5 rounded-lg border border-ink-100 bg-ink-50/50 px-3 py-2.5 cursor-pointer">
+                <input
+                  id="leaveHalfDay"
+                  name="leaveHalfDay"
+                  type="checkbox"
+                  value="1"
+                  className="mt-0.5 size-4 rounded border-ink-200 text-sky-600"
+                />
+                <span className="text-sm text-ink-700">
+                  <span className="font-medium">Half day</span>
+                  <span className="block text-xs text-ink-500 mt-0.5">
+                    Counts as <strong className="font-medium text-ink-600">0.5</strong> weekday for payroll and paid
+                    leave. Use the same From/To date on a weekday.
+                  </span>
+                </span>
+              </label>
               <div>
                 <Label htmlFor="leaveReason">Reason</Label>
                 <Textarea id="leaveReason" name="leaveReason" placeholder="Optional context for your manager" />
@@ -565,40 +590,10 @@ export default async function AttendancePage({
           <CardContent className="pt-5">
             <h2 className="font-semibold text-ink-700 mb-2">Regularisation request</h2>
             <p className="text-sm text-ink-500 mb-4">
-              Fix a missed or incorrect punch. Your manager or HR will approve — approved rows show as{" "}
-              <span className="font-medium text-ink-600">Reg</span> in your log.
+              Fix a missed or incorrect punch, or correct a day that wrongly shows late / early leave. Your manager or HR
+              will approve — approved rows show as <span className="font-medium text-ink-600">Reg</span> in your log.
             </p>
-            <form action={submitRegularisationForm} className="space-y-3">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label htmlFor="regDate">Date</Label>
-                  <Input id="regDate" name="regDate" type="date" required max={isoLocal(today)} defaultValue={isoLocal(today)} />
-                </div>
-                <div>
-                  <Label htmlFor="regMode">Mode</Label>
-                  <Select id="regMode" name="regMode" defaultValue="OFFICE">
-                    <option value="OFFICE">🏢 Office</option>
-                    <option value="WFH">🏠 WFH</option>
-                    <option value="FIELD">🚶 Field</option>
-                  </Select>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label htmlFor="regCheckIn">Check-in time</Label>
-                  <Input id="regCheckIn" name="regCheckIn" type="time" required />
-                </div>
-                <div>
-                  <Label htmlFor="regCheckOut">Check-out time</Label>
-                  <Input id="regCheckOut" name="regCheckOut" type="time" />
-                </div>
-              </div>
-              <div>
-                <Label htmlFor="reason">Why does this need fixing?</Label>
-                <Textarea id="reason" name="reason" required placeholder="e.g. Forgot to check in after client visit" />
-              </div>
-              <Button type="submit" variant="outline">Submit regularisation</Button>
-            </form>
+            <RegularisationRequestForm defaultDateIso={isoLocal(today)} maxDateIso={isoLocal(today)} />
           </CardContent>
         </Card>
 
@@ -633,7 +628,9 @@ export default async function AttendancePage({
                       <li key={r.id} className="text-sm rounded-lg border border-ink-100 p-3 space-y-2">
                         <div className="flex items-start justify-between gap-2 flex-wrap">
                           <span className="text-ink-600">
-                            {r.type} · {formatCalendarDate(r.startDate)} → {formatCalendarDate(r.endDate)}
+                            {r.type}
+                            {r.isHalfDay ? " (half day)" : ""} · {formatCalendarDate(r.startDate)} →{" "}
+                            {formatCalendarDate(r.endDate)}
                           </span>
                           <Badge tone={r.status === "APPROVED" ? "green" : r.status === "REJECTED" ? "orange" : "sun"}>
                             {r.status}
@@ -664,7 +661,7 @@ export default async function AttendancePage({
                             <p className="text-xs text-ink-500">
                               Deducted from {leaveApprovalsBalanceLabel(r.type)} balance:{" "}
                               <span className="font-medium text-ink-700">{r.appliedLedgerDebitDays}</span>
-                              weekday{r.appliedLedgerDebitDays === 1 ? "" : "s"}
+                              {Number(r.appliedLedgerDebitDays) === 1 ? " weekday" : " weekdays"}
                             </p>
                           )}
                       </li>
@@ -708,9 +705,15 @@ export default async function AttendancePage({
                     </div>
                     <p className="text-sm text-ink-600">{r.reason}</p>
                     <p className="text-xs text-ink-400">
-                      Proposed: {r.requestCheckIn ? formatTime(r.requestCheckIn) : "—"}
-                      {" → "}
-                      {r.requestCheckOut ? formatTime(r.requestCheckOut) : "—"}
+                      {r.markFullDayPresent ? (
+                        <>Proposed: full day present (09:00–18:00 IST after approval)</>
+                      ) : (
+                        <>
+                          Proposed: {r.requestCheckIn ? formatTime(r.requestCheckIn) : "—"}
+                          {" → "}
+                          {r.requestCheckOut ? formatTime(r.requestCheckOut) : "—"}
+                        </>
+                      )}
                     </p>
                     <div className="flex flex-wrap gap-2 items-end">
                       <form action={reviewRegularisationForm} className="flex gap-2 items-end flex-wrap">
@@ -745,6 +748,7 @@ export default async function AttendancePage({
                       <Avatar src={r.user.image} name={r.user.name} size="sm" />
                       <span className="font-medium text-ink-700">{r.user.name}</span>
                       <Badge tone="sky">{r.type}</Badge>
+                      {r.isHalfDay && <Badge tone="sun">Half day</Badge>}
                       {r.incompleteMedical && (
                         <Badge tone="orange">Medical proof missing</Badge>
                       )}
@@ -780,7 +784,7 @@ export default async function AttendancePage({
                           <span className="font-medium text-ink-800">
                             {r.ledgerDebitDaysDefault}{" "}
                             {leaveApprovalsBalanceLabel(r.type)} weekday
-                            {r.ledgerDebitDaysDefault === 1 ? "" : "s"}
+                            {Number(r.ledgerDebitDaysDefault) === 1 ? "" : "s"}
                           </span>
                         </p>
                         <p className="text-[10px] text-ink-400">
@@ -801,7 +805,7 @@ export default async function AttendancePage({
                               type="number"
                               min={0}
                               max={r.ledgerDebitDaysDefault}
-                              step={1}
+                              step={0.5}
                               placeholder={String(r.ledgerDebitDaysDefault)}
                               disabled={r.incompleteMedical}
                               className="h-9 w-28"
@@ -843,7 +847,7 @@ export default async function AttendancePage({
                     <div className="font-medium text-ink-700 w-28 shrink-0">
                       {formatDate(r.date, { day: "2-digit", month: "short", weekday: "short" })}
                     </div>
-                    <Badge tone={r.mode === "WFH" ? "sun" : r.mode === "FIELD" ? "orange" : "sky"}>
+                    <Badge tone={r.mode === "WFH" ? "sun" : "sky"}>
                       {modeStyle(r.mode as AttendanceMode).label}
                     </Badge>
                     <Badge tone={sourceBadgeTone(r.source)}>{sourceShort(r.source)}</Badge>
@@ -947,7 +951,6 @@ export default async function AttendancePage({
                       <th className="text-center py-3 px-3">Present</th>
                       <th className="text-center py-3 px-3">🏢</th>
                       <th className="text-center py-3 px-3">🏠</th>
-                      <th className="text-center py-3 px-3">🚶</th>
                       <th className="text-center py-3 px-3">App</th>
                       <th className="text-center py-3 px-3">Bio</th>
                       <th className="text-center py-3 px-3">Reg</th>
@@ -967,7 +970,6 @@ export default async function AttendancePage({
                         <td className="py-3.5 px-3 text-center font-semibold text-ink-700">{u.present}</td>
                         <td className="py-3.5 px-3 text-center text-sky-600">{u.office || "—"}</td>
                         <td className="py-3.5 px-3 text-center text-amber-600">{u.wfh || "—"}</td>
-                        <td className="py-3.5 px-3 text-center text-orange-600">{u.field || "—"}</td>
                         <td className="py-3.5 px-3 text-center text-ink-500">{u.manual || "—"}</td>
                         <td className="py-3.5 px-3 text-center text-ink-500">{u.biometric || "—"}</td>
                         <td className="py-3.5 px-3 text-center text-ink-500">{u.regularised || "—"}</td>

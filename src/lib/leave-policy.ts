@@ -48,7 +48,7 @@ export function casualAccruedMonthsInHalf(joinedAt: Date, refDate: Date): number
   const until = ref.getTime() < halfEnd.getTime() ? ref : halfEnd;
 
   let months = 0;
-  let cur = new Date(effectiveStart.getFullYear(), effectiveStart.getMonth(), 1);
+  const cur = new Date(effectiveStart.getFullYear(), effectiveStart.getMonth(), 1);
   const endCap = new Date(until.getFullYear(), until.getMonth(), 1);
 
   while (cur.getTime() <= endCap.getTime()) {
@@ -101,6 +101,20 @@ export function workingDaysByHalfYear(start: Date, end: Date): Map<string, numbe
     map.set(key, (map.get(key) ?? 0) + 1);
   }
   return map;
+}
+
+/**
+ * Same as {@link workingDaysByHalfYear}, but for an approved half-day leave the debit is **0.5 ×** each bucket
+ * (submit enforces a single working day in range when `isHalfDay` is true).
+ */
+export function workingDaysByHalfYearForLeave(start: Date, end: Date, isHalfDay: boolean): Map<string, number> {
+  const base = workingDaysByHalfYear(start, end);
+  if (!isHalfDay) return base;
+  const out = new Map<string, number>();
+  for (const [k, v] of base.entries()) {
+    out.set(k, v * 0.5);
+  }
+  return out;
 }
 
 export function parseHalfKey(key: string): { periodYear: number; half: 1 | 2 } {

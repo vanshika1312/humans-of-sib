@@ -4,12 +4,17 @@ import { prisma } from "@/lib/prisma";
 import {
   PAYROLL_REPORT_ROLES,
   fetchPayrollAttendanceReport,
+  REPORT_HALF_DAY_IF_HOURS_BELOW,
+  REPORT_LATE_AFTER_IST,
+  REPORT_LATES_PER_HALF_DAY,
+  REPORT_MIN_HOURS_FOR_HALF_DAY,
 } from "@/lib/payroll-attendance-report";
 import { redirect } from "next/navigation";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Download, ChevronLeft, ChevronRight } from "lucide-react";
+import { AttendanceCsvImport } from "./_components/AttendanceCsvImport";
 
 const MONTHS = [
   "January", "February", "March", "April", "May", "June",
@@ -80,6 +85,19 @@ export default async function AdminAttendanceReportPage(props: {
       />
 
       <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Import test attendance (CSV)</CardTitle>
+          <CardDescription>
+            Upsert punches from a file—then use Prev/Next above to open that month and confirm Late, Half day, and
+            Deduction match your expectations.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <AttendanceCsvImport templateHref="/admin/attendance-report/import-template" />
+        </CardContent>
+      </Card>
+
+      <Card>
         <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <CardTitle>{MONTHS[month - 1]} {year}</CardTitle>
@@ -116,7 +134,7 @@ export default async function AdminAttendanceReportPage(props: {
             </div>
             <div className="rounded-lg border border-ink-100 bg-ink-50/50 px-4 py-3">
               <div className="text-xs font-semibold text-ink-400 uppercase tracking-wide">Detail CSV</div>
-              <div className="text-sm text-ink-600 mt-1">One row per punch with IST times and hours (when checkout exists).</div>
+              <div className="text-sm text-ink-600 mt-1">One row per punch with DD-MM-YYYY, IST times, and hours (when checkout exists).</div>
             </div>
           </div>
 
@@ -141,6 +159,30 @@ export default async function AdminAttendanceReportPage(props: {
                   <th className="px-4 py-3 text-center">Casual L</th>
                   <th className="px-4 py-3 text-center">Sick L</th>
                   <th className="px-4 py-3 text-center">Unpaid L</th>
+                  <th
+                    className="px-4 py-3 text-center"
+                    title={`Mon–Fri punch days: check-in (IST) strictly after ${String(REPORT_LATE_AFTER_IST.hour).padStart(2, "0")}:${String(REPORT_LATE_AFTER_IST.minute).padStart(2, "0")}`}
+                  >
+                    Late
+                  </th>
+                  <th
+                    className="px-4 py-3 text-center"
+                    title={`Mon–Fri punch days: both punches, hours ≥ ${REPORT_MIN_HOURS_FOR_HALF_DAY} and &lt; ${REPORT_HALF_DAY_IF_HOURS_BELOW}`}
+                  >
+                    Half day
+                  </th>
+                  <th
+                    className="px-4 py-3 text-center"
+                    title={`⌊late days ÷ ${REPORT_LATES_PER_HALF_DAY}⌋ — each unit counts as ½ day toward deductions`}
+                  >
+                    ½ from lates
+                  </th>
+                  <th
+                    className="px-4 py-3 text-center font-semibold text-ink-600"
+                    title="Unpaid leave (weekdays) + ½ × punch half-days + ½ × half-units from lates — full-day units"
+                  >
+                    Deduction
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-ink-100">
@@ -163,6 +205,12 @@ export default async function AdminAttendanceReportPage(props: {
                       <td className="px-4 py-2.5 text-center tabular-nums">{r.leaveCasualWd}</td>
                       <td className="px-4 py-2.5 text-center tabular-nums">{r.leaveSickWd}</td>
                       <td className="px-4 py-2.5 text-center tabular-nums">{r.leaveUnpaidWd}</td>
+                      <td className="px-4 py-2.5 text-center tabular-nums">{r.lateDays}</td>
+                      <td className="px-4 py-2.5 text-center tabular-nums">{r.halfDays}</td>
+                      <td className="px-4 py-2.5 text-center tabular-nums">{r.lateHalfEquiv}</td>
+                      <td className="px-4 py-2.5 text-center tabular-nums font-semibold text-ink-800">
+                        {r.deductionDays % 1 === 0 ? r.deductionDays : r.deductionDays.toFixed(1)}
+                      </td>
                     </tr>
                   );
                 })}
@@ -170,7 +218,12 @@ export default async function AdminAttendanceReportPage(props: {
             </table>
           </div>
           <p className="text-xs text-ink-400">
-            Σ appr. leave is the total approved leave weekdays (casual + sick + unpaid + other paid)—not a duplicate of casual. Pending WD is weekdays on status PENDING; Rejected WD is weekdays on status REJECTED (declined by approver). CANCELLED is excluded from both. Menstrual / bereavement / wedding / earned leave weekdays roll into “other paid” in the CSV. Times in detail export use Asia/Kolkata; calendar dates use UTC date stored with attendance (consistent with the attendance module).
+            Σ appr. leave is the total approved leave weekdays (casual + sick + unpaid + other paid)—not a duplicate of casual. Pending WD is weekdays on status PENDING; Rejected WD is weekdays on status REJECTED (declined by approver). CANCELLED is excluded from both. Menstrual / bereavement / wedding / earned leave weekdays roll into “other paid” in the CSV. Times in detail export use Asia/Kolkata; the date column is <strong className="font-medium text-ink-500">DD-MM-YYYY</strong> (UTC calendar day, matches CSV import).{" "}
+            <strong className="font-medium text-ink-500">Late</strong> counts Mon–Fri punch rows where IST check-in is after{" "}
+            {String(REPORT_LATE_AFTER_IST.hour).padStart(2, "0")}:{String(REPORT_LATE_AFTER_IST.minute).padStart(2, "0")}.{" "}
+            <strong className="font-medium text-ink-500">Half day</strong> counts Mon–Fri rows with both punches and hours ≥ {REPORT_MIN_HOURS_FOR_HALF_DAY} and &lt; {REPORT_HALF_DAY_IF_HOURS_BELOW}.{" "}
+            <strong className="font-medium text-ink-500">½ from lates</strong> is ⌊Late ÷ {REPORT_LATES_PER_HALF_DAY}⌋ (every {REPORT_LATES_PER_HALF_DAY} lates = one half-day unit).{" "}
+            <strong className="font-medium text-ink-500">Deduction</strong> (full-day units) = unpaid leave weekdays + ½ × half-day instances + ½ × ½-from-lates. Paid leave types are not in this total.
           </p>
         </CardContent>
       </Card>

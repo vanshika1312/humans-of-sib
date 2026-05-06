@@ -2,10 +2,10 @@
 
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import { calendarDateFromInput } from "@/lib/calendar-date";
+import { calendarDateFromInput, eachUtcCalendarWorkingDay } from "@/lib/calendar-date";
 import { canApproveForEmployee, type AttendanceApproverContext } from "@/lib/attendance-scope";
 import type { LeaveType, Prisma } from "@/generated/prisma";
-import { getHalfYearPeriod, parseHalfKey, workingDaysByHalfYear } from "@/lib/leave-policy";
+import { getHalfYearPeriod, parseHalfKey, workingDaysByHalfYearForLeave } from "@/lib/leave-policy";
 import { revalidatePath } from "next/cache";
 import {
   canApproveSickLeaveWithMedicalRule,
@@ -20,6 +20,7 @@ import {
   submitRequestPaidLeaveDebitFitsBalance,
 } from "@/lib/leave-balance-guard";
 import { redirect } from "next/navigation";
+import { fullDayPresentCheckInOut } from "@/lib/attendance-present-correction";
 
 function today() {
   const d = new Date();
@@ -82,7 +83,7 @@ export async function ensureLeaveBalanceRow(userId: string, refDate: Date = new 
   });
 }
 
-export async function checkIn(mode: "OFFICE" | "WFH" | "FIELD", note?: string) {
+export async function checkIn(mode: "OFFICE" | "WFH", note?: string) {
   const session = await auth();
   if (!session?.user?.email) throw new Error("Unauthorized");
   const user = await prisma.user.findUnique({ where: { email: session.user.email } });
@@ -120,7 +121,7 @@ export async function checkOut() {
 }
 
 export async function submitCheckInForm(formData: FormData) {
-  const mode = (formData.get("mode") || "OFFICE") as "OFFICE" | "WFH" | "FIELD";
+  const mode = (formData.get("mode") || "OFFICE") as "OFFICE" | "WFH";
   const note = String(formData.get("note") || "").trim() || undefined;
   await checkIn(mode, note);
 }
@@ -139,9 +140,10 @@ export async function submitRegularisationForm(formData: FormData) {
 
   const dateRaw = String(formData.get("regDate") || "").trim();
   const reason = String(formData.get("reason") || "").trim();
-  const mode = String(formData.get("regMode") || "OFFICE") as "OFFICE" | "WFH" | "FIELD";
+  const mode = String(formData.get("regMode") || "OFFICE") as "OFFICE" | "WFH";
   const checkInT = String(formData.get("regCheckIn") || "").trim() || null;
   const checkOutT = String(formData.get("regCheckOut") || "").trim() || null;
+  const fullDayPresent = String(formData.get("regFullDayPresent") || "") === "1";
 
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dateRaw)) return;
   if (reason.length < 4) return;
@@ -149,9 +151,13 @@ export async function submitRegularisationForm(formData: FormData) {
   const rowDate = parseDateOnly(dateRaw);
   if (rowDate > today()) return;
 
-  const requestCheckIn = combineDateAndTime(dateRaw, checkInT);
-  const requestCheckOut = combineDateAndTime(dateRaw, checkOutT);
-  if (!requestCheckIn) return;
+  let requestCheckIn: Date | null = null;
+  let requestCheckOut: Date | null = null;
+  if (!fullDayPresent) {
+    requestCheckIn = combineDateAndTime(dateRaw, checkInT);
+    requestCheckOut = combineDateAndTime(dateRaw, checkOutT);
+    if (!requestCheckIn) return;
+  }
 
   await prisma.regularisationRequest.create({
     data: {
@@ -161,6 +167,7 @@ export async function submitRegularisationForm(formData: FormData) {
       requestCheckIn,
       requestCheckOut,
       requestMode: mode,
+      markFullDayPresent: fullDayPresent,
     },
   });
   revalidatePath("/attendance");
@@ -202,6 +209,14 @@ export async function reviewRegularisationForm(formData: FormData) {
   }
 
   const d = stripTime(req.date);
+  const { checkIn: resolvedCheckIn, checkOut: resolvedCheckOut } = req.markFullDayPresent
+    ? fullDayPresentCheckInOut(d)
+    : {
+        checkIn: req.requestCheckIn,
+        checkOut: req.requestCheckOut ?? req.requestCheckIn,
+      };
+  if (!resolvedCheckIn) return;
+
   const existing = await prisma.attendance.findUnique({
     where: { userId_date: { userId: req.userId, date: d } },
   });
@@ -222,15 +237,15 @@ export async function reviewRegularisationForm(formData: FormData) {
       create: {
         userId: req.userId,
         date: d,
-        checkIn: req.requestCheckIn,
-        checkOut: req.requestCheckOut ?? req.requestCheckIn,
+        checkIn: resolvedCheckIn,
+        checkOut: resolvedCheckOut ?? resolvedCheckIn,
         mode: req.requestMode ?? "OFFICE",
         source: "REGULARISED",
         note: existing?.note ?? `Regularisation approved · ${req.reason.slice(0, 160)}`,
       },
       update: {
-        checkIn: req.requestCheckIn ?? undefined,
-        checkOut: req.requestCheckOut ?? existing?.checkOut ?? req.requestCheckIn ?? undefined,
+        checkIn: resolvedCheckIn,
+        checkOut: resolvedCheckOut ?? existing?.checkOut ?? resolvedCheckIn,
         mode: req.requestMode ?? undefined,
         source: "REGULARISED",
       },
@@ -256,11 +271,21 @@ export async function submitLeaveRequestForm(formData: FormData) {
   const end = String(formData.get("leaveEnd") || "").trim();
   const reason = String(formData.get("leaveReason") || "").trim() || undefined;
   const medicalProofUrl = String(formData.get("medicalProofUrl") || "").trim() || undefined;
+  const isHalfDay = formData.get("leaveHalfDay") === "1";
 
   if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end)) return;
+  let ed = calendarDateFromInput(end);
   const sd = calendarDateFromInput(start);
-  const ed = calendarDateFromInput(end);
   if (Number.isNaN(sd.getTime()) || Number.isNaN(ed.getTime()) || ed.getTime() < sd.getTime()) return;
+
+  if (isHalfDay) {
+    ed = sd;
+  }
+
+  const workingDaysInRange = eachUtcCalendarWorkingDay(sd, ed).length;
+  if (isHalfDay && workingDaysInRange !== 1) {
+    redirect("/attendance?leaveApplyError=half_day");
+  }
 
   const needMedical =
     type === "SICK" ? await sickLeaveMedicalProofRequired(user.id, sd, ed) : false;
@@ -274,6 +299,7 @@ export async function submitLeaveRequestForm(formData: FormData) {
       type,
       startDate: sd,
       endDate: ed,
+      isHalfDay,
     });
     if (!okBal) {
       redirect("/attendance?leaveApplyError=insufficient_balance");
@@ -290,6 +316,7 @@ export async function submitLeaveRequestForm(formData: FormData) {
       reason,
       medicalProofUrl: medicalProofUrl || null,
       status: "PENDING",
+      isHalfDay,
     },
   });
   revalidatePath("/attendance");
@@ -353,7 +380,7 @@ export async function reviewLeaveForm(formData: FormData) {
 
   let debitOverrideRequested: number | undefined;
   if (debitOverrideRaw !== "") {
-    const n = Number.parseInt(debitOverrideRaw, 10);
+    const n = Number.parseFloat(debitOverrideRaw);
     if (Number.isFinite(n) && n >= 0) debitOverrideRequested = n;
   }
 
@@ -371,7 +398,7 @@ export async function reviewLeaveForm(formData: FormData) {
   }
 
   if (action === "approve" && ledger) {
-    const computed = workingDaysByHalfYear(lr.startDate, lr.endDate);
+    const computed = workingDaysByHalfYearForLeave(lr.startDate, lr.endDate, lr.isHalfDay);
     debitSplitForApprove = ledgerDebitSplitByHalf(computed, debitOverrideRequested);
     appliedLedgerDebitDaysTotal = [...debitSplitForApprove.values()].reduce((a, b) => a + b, 0);
 

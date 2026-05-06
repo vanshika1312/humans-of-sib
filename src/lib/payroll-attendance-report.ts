@@ -10,6 +10,68 @@ export const PAYROLL_REPORT_ROLES = ["CEO", "ADMIN", "HR"] as const;
 
 const IST = "Asia/Kolkata";
 
+/**
+ * Attendance report — late / half-day counts (tune when payroll deduction policy is wired in).
+ * Late: first punch on a working day is strictly after this IST clock time.
+ * Half day: both punches exist, duration ≥ {@link REPORT_MIN_HOURS_FOR_HALF_DAY} and strictly below {@link REPORT_HALF_DAY_IF_HOURS_BELOW}.
+ * For payroll deduction: every {@link REPORT_LATES_PER_HALF_DAY} late instances count as one additional half-day unit.
+ */
+export const REPORT_LATE_AFTER_IST = { hour: 10, minute: 15 } as const;
+export const REPORT_HALF_DAY_IF_HOURS_BELOW = 4.5;
+export const REPORT_MIN_HOURS_FOR_HALF_DAY = 0.25;
+export const REPORT_LATES_PER_HALF_DAY = 3;
+
+function istClockMinutes(d: Date): number {
+  const parts = new Intl.DateTimeFormat("en-IN", {
+    timeZone: IST,
+    hour: "numeric",
+    minute: "numeric",
+    hour12: false,
+  }).formatToParts(d);
+  let hour = 0;
+  let minute = 0;
+  for (const p of parts) {
+    if (p.type === "hour") hour = parseInt(p.value, 10) || 0;
+    if (p.type === "minute") minute = parseInt(p.value, 10) || 0;
+  }
+  return hour * 60 + minute;
+}
+
+export function payrollReportLateFlag(checkIn: Date | null, date: Date): boolean {
+  if (!checkIn) return false;
+  const wd = utcCalendarMidnight(date).getUTCDay();
+  if (wd === 0 || wd === 6) return false;
+  const cutoff = REPORT_LATE_AFTER_IST.hour * 60 + REPORT_LATE_AFTER_IST.minute;
+  return istClockMinutes(checkIn) > cutoff;
+}
+
+export function payrollReportHalfDayFlag(checkIn: Date | null, checkOut: Date | null, date: Date): boolean {
+  if (!checkIn || !checkOut) return false;
+  const wd = utcCalendarMidnight(date).getUTCDay();
+  if (wd === 0 || wd === 6) return false;
+  const h = (checkOut.getTime() - checkIn.getTime()) / 3_600_000;
+  return h >= REPORT_MIN_HOURS_FOR_HALF_DAY && h < REPORT_HALF_DAY_IF_HOURS_BELOW;
+}
+
+/** Half-day units earned from late arrivals (e.g. 3 lates → 1). */
+export function payrollLateHalfEquivalents(lateDayCount: number): number {
+  return Math.floor(lateDayCount / REPORT_LATES_PER_HALF_DAY);
+}
+
+/**
+ * Combined deduction in **full-day units**: unpaid leave weekdays +
+ * 0.5 × (punch half-days + half-days from lates via {@link payrollLateHalfEquivalents}).
+ */
+export function payrollDeductionDays(row: {
+  leaveUnpaidWd: number;
+  halfDays: number;
+  lateDays: number;
+}): number {
+  const fromLates = payrollLateHalfEquivalents(row.lateDays) * 0.5;
+  const raw = row.leaveUnpaidWd + row.halfDays * 0.5 + fromLates;
+  return Math.round(raw * 2) / 2;
+}
+
 export function csvEscape(value: string | number | null | undefined): string {
   const s = value === null || value === undefined ? "" : String(value);
   if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
@@ -42,7 +104,6 @@ export interface PayrollAttendanceSummaryRow {
   presentDays: number;
   officeDays: number;
   wfhDays: number;
-  fieldDays: number;
   sourceManual: number;
   sourceBiometric: number;
   sourceRegularised: number;
@@ -54,6 +115,14 @@ export interface PayrollAttendanceSummaryRow {
   leavePendingWd: number;
   /** Weekdays overlapping this month on requests declined by approver (REJECTED only). */
   leaveRejectedWd: number;
+  /** Working days in this month where check-in (IST) is after {@link REPORT_LATE_AFTER_IST}. */
+  lateDays: number;
+  /** Working days with both punches and hours in [{@link REPORT_MIN_HOURS_FOR_HALF_DAY}, {@link REPORT_HALF_DAY_IF_HOURS_BELOW}). */
+  halfDays: number;
+  /** floor(lateDays / REPORT_LATES_PER_HALF_DAY); each unit adds ½ day to deductionDays. */
+  lateHalfEquiv: number;
+  /** Unpaid leave weekdays + ½×halfDays + ½×lateHalfEquiv (full-day units). */
+  deductionDays: number;
 }
 
 export interface PayrollAttendanceDetailRow {
@@ -68,14 +137,17 @@ export interface PayrollAttendanceDetailRow {
   mode: string;
   source: string;
   note: string | null;
+  late: boolean;
+  halfDay: boolean;
 }
 
-function formatIsoDateUtc(d: Date): string {
+/** DD-MM-YYYY for payroll detail CSV (UTC calendar day, matches @db.Date and import format). */
+function formatDetailCsvDateUtc(d: Date): string {
   const x = utcCalendarMidnight(d);
-  const y = x.getUTCFullYear();
-  const m = String(x.getUTCMonth() + 1).padStart(2, "0");
   const da = String(x.getUTCDate()).padStart(2, "0");
-  return `${y}-${m}-${da}`;
+  const m = String(x.getUTCMonth() + 1).padStart(2, "0");
+  const y = x.getUTCFullYear();
+  return `${da}-${m}-${y}`;
 }
 
 function formatWeekdayShortUtc(d: Date): string {
@@ -204,7 +276,6 @@ export async function fetchPayrollAttendanceReport(year: number, month: number):
       presentDays: 0,
       officeDays: 0,
       wfhDays: 0,
-      fieldDays: 0,
       sourceManual: 0,
       sourceBiometric: 0,
       sourceRegularised: 0,
@@ -214,6 +285,10 @@ export async function fetchPayrollAttendanceReport(year: number, month: number):
       leaveOtherPaidWd: 0,
       leavePendingWd: 0,
       leaveRejectedWd: 0,
+      lateDays: 0,
+      halfDays: 0,
+      lateHalfEquiv: 0,
+      deductionDays: 0,
     });
   }
 
@@ -225,10 +300,14 @@ export async function fetchPayrollAttendanceReport(year: number, month: number):
       s.presentDays += 1;
       if (row.mode === "OFFICE") s.officeDays += 1;
       else if (row.mode === "WFH") s.wfhDays += 1;
-      else if (row.mode === "FIELD") s.fieldDays += 1;
       if (row.source === "MANUAL") s.sourceManual += 1;
       else if (row.source === "BIOMETRIC") s.sourceBiometric += 1;
       else if (row.source === "REGULARISED") s.sourceRegularised += 1;
+
+      const late = payrollReportLateFlag(row.checkIn, row.date);
+      const halfDay = payrollReportHalfDayFlag(row.checkIn, row.checkOut, row.date);
+      if (late) s.lateDays += 1;
+      if (halfDay) s.halfDays += 1;
     }
 
     const u = row.user;
@@ -244,11 +323,14 @@ export async function fetchPayrollAttendanceReport(year: number, month: number):
       mode: row.mode,
       source: row.source,
       note: row.note,
+      late: payrollReportLateFlag(row.checkIn, row.date),
+      halfDay: payrollReportHalfDayFlag(row.checkIn, row.checkOut, row.date),
     });
   }
 
   for (const lr of leavesApproved) {
-    const wd = overlapWorkingWeekdays(lr.startDate, lr.endDate, monthStart, monthEnd);
+    let wd = overlapWorkingWeekdays(lr.startDate, lr.endDate, monthStart, monthEnd);
+    if (lr.isHalfDay) wd *= 0.5;
     if (wd <= 0) continue;
     const s = summaryMap.get(lr.userId);
     if (!s) continue;
@@ -260,7 +342,8 @@ export async function fetchPayrollAttendanceReport(year: number, month: number):
   }
 
   for (const lr of leavesPending) {
-    const wd = overlapWorkingWeekdays(lr.startDate, lr.endDate, monthStart, monthEnd);
+    let wd = overlapWorkingWeekdays(lr.startDate, lr.endDate, monthStart, monthEnd);
+    if (lr.isHalfDay) wd *= 0.5;
     if (wd <= 0) continue;
     const s = summaryMap.get(lr.userId);
     if (!s) continue;
@@ -268,11 +351,17 @@ export async function fetchPayrollAttendanceReport(year: number, month: number):
   }
 
   for (const lr of leavesRejected) {
-    const wd = overlapWorkingWeekdays(lr.startDate, lr.endDate, monthStart, monthEnd);
+    let wd = overlapWorkingWeekdays(lr.startDate, lr.endDate, monthStart, monthEnd);
+    if (lr.isHalfDay) wd *= 0.5;
     if (wd <= 0) continue;
     const s = summaryMap.get(lr.userId);
     if (!s) continue;
     s.leaveRejectedWd += wd;
+  }
+
+  for (const s of summaryMap.values()) {
+    s.lateHalfEquiv = payrollLateHalfEquivalents(s.lateDays);
+    s.deductionDays = payrollDeductionDays(s);
   }
 
   const summaries = [...summaryMap.values()].sort((a, b) => (a.name || a.email).localeCompare(b.name || b.email));
@@ -292,7 +381,6 @@ export function buildPayrollSummaryCsv(rows: PayrollAttendanceSummaryRow[]): str
     "present_days",
     "office_days",
     "wfh_days",
-    "field_days",
     "source_app_manual",
     "source_biometric",
     "source_regularised",
@@ -303,6 +391,10 @@ export function buildPayrollSummaryCsv(rows: PayrollAttendanceSummaryRow[]): str
     "leave_sick_weekdays",
     "leave_unpaid_weekdays",
     "leave_other_paid_weekdays",
+    "late_days",
+    "late_half_equiv_from_lates",
+    "half_day_instances",
+    "deduction_days",
   ].join(",");
 
   const lines = rows.map((r) => {
@@ -319,7 +411,6 @@ export function buildPayrollSummaryCsv(rows: PayrollAttendanceSummaryRow[]): str
       r.presentDays,
       r.officeDays,
       r.wfhDays,
-      r.fieldDays,
       r.sourceManual,
       r.sourceBiometric,
       r.sourceRegularised,
@@ -330,6 +421,10 @@ export function buildPayrollSummaryCsv(rows: PayrollAttendanceSummaryRow[]): str
       r.leaveSickWd,
       r.leaveUnpaidWd,
       r.leaveOtherPaidWd,
+      r.lateDays,
+      r.lateHalfEquiv,
+      r.halfDays,
+      r.deductionDays,
     ].join(",");
   });
 
@@ -350,6 +445,8 @@ export function buildPayrollDetailCsv(rows: PayrollAttendanceDetailRow[]): strin
     "mode",
     "source",
     "note",
+    "late",
+    "half_day",
   ].join(",");
 
   const lines = rows.map((r) =>
@@ -358,7 +455,7 @@ export function buildPayrollDetailCsv(rows: PayrollAttendanceDetailRow[]): strin
       csvEscape(r.name),
       csvEscape(r.department),
       csvEscape(r.city),
-      csvEscape(formatIsoDateUtc(r.date)),
+      csvEscape(formatDetailCsvDateUtc(r.date)),
       csvEscape(formatWeekdayShortUtc(r.date)),
       csvEscape(formatTimeIST(r.checkIn)),
       csvEscape(formatTimeIST(r.checkOut)),
@@ -366,6 +463,8 @@ export function buildPayrollDetailCsv(rows: PayrollAttendanceDetailRow[]): strin
       csvEscape(r.mode),
       csvEscape(r.source),
       csvEscape(r.note),
+      r.late ? "yes" : "no",
+      r.halfDay ? "yes" : "no",
     ].join(","),
   );
 
