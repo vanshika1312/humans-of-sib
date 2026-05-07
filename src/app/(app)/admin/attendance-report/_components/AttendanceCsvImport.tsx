@@ -22,8 +22,9 @@ export function AttendanceCsvImport({ templateHref }: Props) {
         <p className="text-ink-500">
           One row per calendar day. Times are{" "}
           <strong className="font-medium text-ink-600">Asia/Kolkata</strong> on that date. Rows upsert by employee + date
-          (existing punches for that day are replaced). Use this to validate late / half-day / deduction counts for last
-          month or any range.
+          (existing punches for that day are replaced — including correcting a bad CSV import). Use this to validate late /
+          half-day / deduction counts for last month or any range. To <strong className="font-medium text-ink-600">delete</strong>{" "}
+          days entirely, use the remove-CSV section below.
         </p>
         <ol className="list-decimal list-inside space-y-1 text-ink-500">
           <li>

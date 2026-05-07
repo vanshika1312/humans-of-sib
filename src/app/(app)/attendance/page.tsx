@@ -1,7 +1,6 @@
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { manageableEmployeesWhere, canApproveForEmployee, type AttendanceApproverContext } from "@/lib/attendance-scope";
-import { workingDaysInclusive } from "@/lib/attendance-metrics";
 import {
   casualEntitled,
   casualRemaining,
@@ -18,12 +17,15 @@ import { Badge } from "@/components/ui/badge";
 import { Avatar } from "@/components/ui/avatar";
 import { Input, Select, Label, Textarea } from "@/components/ui/input";
 import { formatDate, formatTime } from "@/lib/utils";
-import { formatCalendarDate } from "@/lib/calendar-date";
+import { formatCalendarDate, utcMonthBounds, utcCalendarMidnight, workingDaysInclusiveUtcCalendar } from "@/lib/calendar-date";
 import { sickLeaveMedicalProofRequired } from "@/lib/sick-leave-medical-proof";
 import {
   leaveRequestsAllowInsufficientPaidBalance,
   paidLeaveApproverBalancePreview,
 } from "@/lib/leave-balance-guard";
+import Link from "next/link";
+import { ReportMonthNav } from "@/components/report-month-nav";
+import { Suspense } from "react";
 import {
   submitCheckInForm,
   submitCheckOut,
@@ -34,6 +36,13 @@ import {
   attachSickLeaveMedicalProofForm,
 } from "./actions";
 import { RegularisationRequestForm } from "./_components/RegularisationRequestForm";
+import { AttendanceTabNav, type AttendanceTab } from "./_components/AttendanceTabNav";
+import {
+  payrollReportLateFlag,
+  payrollReportHalfDayFlag,
+  REPORT_HALF_DAY_IF_HOURS_BELOW,
+  REPORT_MIN_HOURS_FOR_HALF_DAY,
+} from "@/lib/payroll-attendance-report";
 
 const FULL_MONTHS = [
   "January","February","March","April","May","June",
@@ -69,16 +78,30 @@ function leaveApprovalsBalanceLabel(type: string): "sick" | "casual paid" {
   return type === "SICK" ? "sick" : "casual paid";
 }
 
+function clampViewYear(y: number): number {
+  if (!Number.isFinite(y)) return new Date().getFullYear();
+  return Math.min(2100, Math.max(2000, Math.trunc(y)));
+}
+
+function clampViewMonth(m: number): number {
+  if (!Number.isFinite(m)) return new Date().getMonth() + 1;
+  return Math.min(12, Math.max(1, Math.trunc(m)));
+}
+
 export default async function AttendancePage({
   searchParams,
 }: {
   searchParams: Promise<{
     leaveApplyError?: string;
     leaveApprovalError?: string;
+    year?: string;
+    month?: string;
+    tab?: string;
   }>;
 }) {
   const session = await auth();
   const qs = await searchParams;
+  const activeTab: AttendanceTab = qs.tab === "requests" ? "requests" : "attendance";
   const me = await prisma.user.findUnique({
     where: { email: session!.user!.email! },
     select: {
@@ -98,10 +121,21 @@ export default async function AttendancePage({
     headedDeptId: me.headedDept?.id ?? null,
   };
 
-  const today = new Date(); today.setHours(0, 0, 0, 0);
-  const year  = today.getFullYear();
-  const month = today.getMonth();
-  const monthStart = new Date(year, month, 1);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const yRaw = parseInt(String(qs.year ?? ""), 10);
+  const mRaw = parseInt(String(qs.month ?? ""), 10);
+  const viewYear = clampViewYear(Number.isFinite(yRaw) ? yRaw : today.getFullYear());
+  const viewMonth = clampViewMonth(Number.isFinite(mRaw) ? mRaw : today.getMonth() + 1);
+  const { start: viewMonthStart, end: viewMonthEnd } = utcMonthBounds(viewYear, viewMonth);
+  const todayUtcCal = utcCalendarMidnight(new Date());
+  const isViewingCurrentMonth =
+    viewYear === todayUtcCal.getUTCFullYear() && viewMonth === todayUtcCal.getUTCMonth() + 1;
+  const ratePeriodEnd =
+    isViewingCurrentMonth && todayUtcCal.getTime() <= viewMonthEnd.getTime() ? todayUtcCal : viewMonthEnd;
+  const workingDaysForMonthRate = workingDaysInclusiveUtcCalendar(viewMonthStart, ratePeriodEnd);
+  const calendarMonthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+  calendarMonthStart.setHours(0, 0, 0, 0);
   const { periodYear: leavePeriodYear, half: leaveHalf } = getHalfYearPeriod(today);
 
   const isApprover = ["MANAGER", "DEPT_HEAD", "HR", "CEO", "ADMIN"].includes(me.role);
@@ -127,7 +161,7 @@ export default async function AttendancePage({
       where: { userId_date: { userId: me.id, date: today } },
     }),
     prisma.attendance.findMany({
-      where: { userId: me.id, date: { gte: monthStart } },
+      where: { userId: me.id, date: { gte: viewMonthStart, lte: viewMonthEnd } },
       orderBy: { date: "desc" },
     }),
     prisma.leaveBalance.findUnique({
@@ -216,8 +250,6 @@ export default async function AttendancePage({
     }),
   );
 
-  const workingDaysMonthToDate = workingDaysInclusive(monthStart, today);
-
   let teamToday: {
     id: string;
     name: string | null;
@@ -239,6 +271,10 @@ export default async function AttendancePage({
     manual: number;
     biometric: number;
     regularised: number;
+    lateDays: number;
+    lateDatesShort: string;
+    halfDays: number;
+    halfDatesShort: string;
   }[] = [];
 
   if (isApprover) {
@@ -262,7 +298,7 @@ export default async function AttendancePage({
         : await Promise.all([
             prisma.attendance.findMany({ where: { date: today, userId: { in: teamIds } } }),
             prisma.attendance.findMany({
-              where: { date: { gte: monthStart }, userId: { in: teamIds } },
+              where: { date: { gte: viewMonthStart, lte: viewMonthEnd }, userId: { in: teamIds } },
             }),
           ]);
 
@@ -292,7 +328,27 @@ export default async function AttendancePage({
       const biometric = recs.filter((r) => r.source === "BIOMETRIC").length;
       const regularised = recs.filter((r) => r.source === "REGULARISED").length;
       const ratePct =
-        workingDaysMonthToDate > 0 ? Math.min(100, Math.round((present / workingDaysMonthToDate) * 100)) : 0;
+        workingDaysForMonthRate > 0 ? Math.min(100, Math.round((present / workingDaysForMonthRate) * 100)) : 0;
+      const lateRecs = recs
+        .filter((r) => payrollReportLateFlag(r.checkIn, r.date))
+        .sort((a, b) => a.date.getTime() - b.date.getTime());
+      const lateDays = lateRecs.length;
+      const lateDatesShort =
+        lateRecs.length === 0
+          ? ""
+          : lateRecs
+              .map((r) => formatDate(r.date, { day: "numeric", month: "short" }))
+              .join(", ");
+      const halfRecs = recs
+        .filter((r) => payrollReportHalfDayFlag(r.checkIn, r.checkOut, r.date))
+        .sort((a, b) => a.date.getTime() - b.date.getTime());
+      const halfDays = halfRecs.length;
+      const halfDatesShort =
+        halfRecs.length === 0
+          ? ""
+          : halfRecs
+              .map((r) => formatDate(r.date, { day: "numeric", month: "short" }))
+              .join(", ");
       return {
         id: u.id,
         name: u.name,
@@ -305,6 +361,10 @@ export default async function AttendancePage({
         manual,
         biometric,
         regularised,
+        lateDays,
+        lateDatesShort,
+        halfDays,
+        halfDatesShort,
       };
     });
   }
@@ -331,12 +391,20 @@ export default async function AttendancePage({
   const halfLabel =
     leaveHalf === 1 ? `Jan–Jun ${leavePeriodYear}` : `Jul–Dec ${leavePeriodYear}`;
 
+  const myLateDaysChrono = [...monthRecords]
+    .filter((r) => payrollReportLateFlag(r.checkIn, r.date))
+    .sort((a, b) => a.date.getTime() - b.date.getTime());
+
+  const myHalfDaysChrono = [...monthRecords]
+    .filter((r) => payrollReportHalfDayFlag(r.checkIn, r.checkOut, r.date))
+    .sort((a, b) => a.date.getTime() - b.date.getTime());
+
   return (
     <div className="space-y-6">
       <PageHeader
         title="Attendance"
         emoji="🟢"
-        subtitle="Check in, biometric sync, leave bank, regularisation — all in one place."
+        subtitle="Tabs separate your punch log from leave and regularisation — fewer scroll, same tools."
       />
 
       {qs.leaveApplyError === "half_day" && (
@@ -345,7 +413,7 @@ export default async function AttendancePage({
             <p>
               <span className="font-semibold">Request not submitted.</span> Half day must cover{" "}
               <strong className="font-medium">exactly one working day</strong> — set From and To to the same date on a
-              weekday (Mon–Fri).
+              weekday (Mon–Sat, Sun off).
             </p>
           </CardContent>
         </Card>
@@ -390,6 +458,10 @@ export default async function AttendancePage({
         </Card>
       )}
 
+      <AttendanceTabNav active={activeTab} viewYear={viewYear} viewMonth={viewMonth} />
+
+      {activeTab === "attendance" && (
+        <>
       {/* ── Today ───────────────────────────────────────────────────────────── */}
       <Card className="overflow-hidden">
         <div className="p-5 md:p-6 brand-gradient text-white">
@@ -471,7 +543,11 @@ export default async function AttendancePage({
           </div>
         </CardContent>
       </Card>
+        </>
+      )}
 
+      {activeTab === "requests" && (
+        <>
       {/* ── Leave bank + apply ───────────────────────────────────────────────── */}
       <div className="grid lg:grid-cols-2 gap-4">
         <Card>
@@ -536,7 +612,7 @@ export default async function AttendancePage({
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <Label htmlFor="leaveStart">From</Label>
-                  <Input id="leaveStart" name="leaveStart" type="date" defaultValue={isoLocal(monthStart)} required />
+                  <Input id="leaveStart" name="leaveStart" type="date" defaultValue={isoLocal(calendarMonthStart)} required />
                 </div>
                 <div>
                   <Label htmlFor="leaveEnd">To</Label>
@@ -555,7 +631,7 @@ export default async function AttendancePage({
                   <span className="font-medium">Half day</span>
                   <span className="block text-xs text-ink-500 mt-0.5">
                     Counts as <strong className="font-medium text-ink-600">0.5</strong> weekday for payroll and paid
-                    leave. Use the same From/To date on a weekday.
+                    leave. Use the same From/To date on a working day (Mon–Sat).
                   </span>
                 </span>
               </label>
@@ -706,7 +782,7 @@ export default async function AttendancePage({
                     <p className="text-sm text-ink-600">{r.reason}</p>
                     <p className="text-xs text-ink-400">
                       {r.markFullDayPresent ? (
-                        <>Proposed: full day present (09:00–18:00 IST after approval)</>
+                        <>Proposed: full day present (10:00–19:30 IST after approval)</>
                       ) : (
                         <>
                           Proposed: {r.requestCheckIn ? formatTime(r.requestCheckIn) : "—"}
@@ -767,7 +843,8 @@ export default async function AttendancePage({
                     )}
                     {r.incompleteMedical && (
                       <p className="text-xs text-ink-500">
-                        Approve is blocked until they attach a certificate link under Attendance → My recent requests.
+                        Approve is blocked until they attach a certificate link under the Leave &amp; regularisation tab → My
+                        recent requests.
                       </p>
                     )}
                     {r.insufficientPaidBalanceForDefault ? (
@@ -832,36 +909,130 @@ export default async function AttendancePage({
           )}
         </div>
       )}
+        </>
+      )}
 
+      {activeTab === "attendance" && (
+        <>
       {/* ── Monthly log ──────────────────────────────────────────────────────── */}
       <div>
-        <h2 className="text-sm font-semibold text-ink-600 mb-3">{FULL_MONTHS[month]} log</h2>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-3">
+          <h2 className="text-sm font-semibold text-ink-600">
+            {FULL_MONTHS[viewMonth - 1]} {viewYear} · Your log
+          </h2>
+          <div className="flex flex-col gap-2 sm:items-end">
+            <Suspense
+              fallback={
+                <div
+                  className="h-9 min-h-[2.25rem] w-full max-w-[22rem] rounded-md bg-ink-100 animate-pulse"
+                  aria-hidden
+                />
+              }
+            >
+              <ReportMonthNav
+                year={viewYear}
+                month={viewMonth}
+                yearMin={2000}
+                yearMax={2100}
+                endSlot={
+                  !isViewingCurrentMonth ? (
+                    <Button variant="ghost" size="sm" className="h-9 text-xs" asChild>
+                      <Link href="/attendance?tab=attendance">This month</Link>
+                    </Button>
+                  ) : null
+                }
+              />
+            </Suspense>
+          </div>
+        </div>
         <Card>
           <CardContent className="pt-4">
             {monthRecords.length === 0 ? (
-              <p className="text-sm text-ink-400 text-center py-8">No attendance yet this month. Check in above!</p>
+              <p className="text-sm text-ink-400 text-center py-8">
+                {isViewingCurrentMonth
+                  ? "No attendance yet this month. Check in above!"
+                  : "No attendance recorded in this month."}
+              </p>
             ) : (
-              <ul className="divide-y divide-ink-100">
-                {monthRecords.map((r) => (
-                  <li key={r.id} className="py-3 flex items-center gap-3 flex-wrap">
-                    <div className="font-medium text-ink-700 w-28 shrink-0">
-                      {formatDate(r.date, { day: "2-digit", month: "short", weekday: "short" })}
-                    </div>
-                    <Badge tone={r.mode === "WFH" ? "sun" : "sky"}>
-                      {modeStyle(r.mode as AttendanceMode).label}
-                    </Badge>
-                    <Badge tone={sourceBadgeTone(r.source)}>{sourceShort(r.source)}</Badge>
-                    <span className="text-sm text-ink-500">
-                      {formatTime(r.checkIn)} → {r.checkOut ? formatTime(r.checkOut) : "—"}
-                    </span>
-                    {r.note && (
-                      <span className="text-xs text-ink-400 italic truncate max-w-xs">
-                        &quot;{r.note}&quot;
+              <>
+                <div className="mb-4 rounded-lg border border-ink-100 bg-ink-50/60 px-3 py-3 space-y-1">
+                  {myLateDaysChrono.length === 0 ? (
+                    <p className="text-sm text-ink-600">
+                      <span className="font-medium text-ink-700">Late policy:</span> no late arrivals this month — on each
+                      working day (Mon–Sat) your check-in was on or before{" "}
+                      <span className="font-medium text-ink-700">10:10 IST</span>, or only Sundays had punches.
+                    </p>
+                  ) : (
+                    <p className="text-sm text-ink-700">
+                      <span className="font-medium">Late arrivals ({myLateDaysChrono.length} working day</span>
+                      {myLateDaysChrono.length === 1 ? "" : "s"}
+                      <span className="font-medium">)</span> — first check-in after{" "}
+                      <span className="font-medium">10:10 IST</span>:{" "}
+                      <span className="text-ink-800">
+                        {myLateDaysChrono.map((r) => formatDate(r.date, { day: "numeric", month: "short", weekday: "short" })).join(" · ")}
                       </span>
-                    )}
-                  </li>
-                ))}
-              </ul>
+                    </p>
+                  )}
+                  <p className="text-xs text-ink-400">
+                    Same rule as payroll: Mon–Sat working days only; Sunday is off. Full-day regularisation uses on-time
+                    punches so those days are not flagged here.
+                  </p>
+                  {myHalfDaysChrono.length === 0 ? (
+                    <p className="text-sm text-ink-600 pt-2 border-t border-ink-100">
+                      <span className="font-medium text-ink-700">Half-day (punch) policy:</span> no days this month with
+                      both punches and hours between {REPORT_MIN_HOURS_FOR_HALF_DAY} and{" "}
+                      {REPORT_HALF_DAY_IF_HOURS_BELOW} (same as payroll).
+                    </p>
+                  ) : (
+                    <p className="text-sm text-ink-700 pt-2 border-t border-ink-100">
+                      <span className="font-medium">Punch half-days ({myHalfDaysChrono.length})</span> —{" "}
+                      <span className="text-ink-800">
+                        {myHalfDaysChrono
+                          .map((r) => formatDate(r.date, { day: "numeric", month: "short", weekday: "short" }))
+                          .join(" · ")}
+                      </span>
+                    </p>
+                  )}
+                </div>
+                <ul className="divide-y divide-ink-100">
+                  {monthRecords.map((r) => {
+                    const late = payrollReportLateFlag(r.checkIn, r.date);
+                    const half = payrollReportHalfDayFlag(r.checkIn, r.checkOut, r.date);
+                    return (
+                      <li key={r.id} className="py-3 flex items-center gap-3 flex-wrap">
+                        <div className="font-medium text-ink-700 w-28 shrink-0">
+                          {formatDate(r.date, { day: "2-digit", month: "short", weekday: "short" })}
+                        </div>
+                        <Badge tone={r.mode === "WFH" ? "sun" : "sky"}>
+                          {modeStyle(r.mode as AttendanceMode).label}
+                        </Badge>
+                        <Badge tone={sourceBadgeTone(r.source)}>{sourceShort(r.source)}</Badge>
+                        {late ? (
+                          <Badge tone="orange" title="Check-in after 10:10 IST on a Mon–Sat working day">
+                            Late
+                          </Badge>
+                        ) : null}
+                        {half ? (
+                          <Badge
+                            tone="sun"
+                            title={`Both punches and worked hours &gt; ${REPORT_MIN_HOURS_FOR_HALF_DAY}h and &lt; ${REPORT_HALF_DAY_IF_HOURS_BELOW}h (payroll rule)`}
+                          >
+                            ½ day
+                          </Badge>
+                        ) : null}
+                        <span className="text-sm text-ink-500">
+                          {formatTime(r.checkIn)} → {r.checkOut ? formatTime(r.checkOut) : "—"}
+                        </span>
+                        {r.note && (
+                          <span className="text-xs text-ink-400 italic truncate max-w-xs">
+                            &quot;{r.note}&quot;
+                          </span>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </>
             )}
           </CardContent>
         </Card>
@@ -935,10 +1106,17 @@ export default async function AttendancePage({
 
           <div>
             <h2 className="text-sm font-semibold text-ink-600 mb-3">
-              Team metrics — {FULL_MONTHS[month]} {year}
+              Team metrics — {FULL_MONTHS[viewMonth - 1]} {viewYear}
             </h2>
             <p className="text-xs text-ink-400 mb-3">
-              Rate = days with a punch ÷ working weekdays so far this month (Mon–Fri). Bio / App / Reg = how those days were recorded.
+              Rate = days with a punch ÷ working weekdays{" "}
+              {isViewingCurrentMonth
+                ? "from the 1st through today (Mon–Sat, Sun off)"
+                : "in this month (Mon–Sat, Sun off)"}
+              . Bio / App / Reg =
+              how those days were recorded. <span className="font-medium text-ink-500">Late</span> /{" "}
+              <span className="font-medium text-ink-500">Half</span> use the same rules as the payroll report (detail
+              export).
             </p>
             <Card>
               <div className="overflow-x-auto">
@@ -948,6 +1126,13 @@ export default async function AttendancePage({
                       <th className="text-left py-3 px-5">Person</th>
                       <th className="text-left py-3 px-5">Cluster</th>
                       <th className="text-center py-3 px-3">Rate</th>
+                      <th className="text-center py-3 px-3">Late</th>
+                      <th
+                        className="text-center py-3 px-3"
+                        title={`Mon–Sat, Sun off: both punches, hours &gt; ${REPORT_MIN_HOURS_FOR_HALF_DAY} and &lt; ${REPORT_HALF_DAY_IF_HOURS_BELOW}`}
+                      >
+                        Half
+                      </th>
                       <th className="text-center py-3 px-3">Present</th>
                       <th className="text-center py-3 px-3">🏢</th>
                       <th className="text-center py-3 px-3">🏠</th>
@@ -967,6 +1152,30 @@ export default async function AttendancePage({
                         </td>
                         <td className="py-3.5 px-5 text-xs text-ink-500">{u.dept ?? "—"}</td>
                         <td className="py-3.5 px-3 text-center font-bold text-sky-700">{u.ratePct}%</td>
+                        <td className="py-3.5 px-3 text-center align-top">
+                          {u.lateDays > 0 ? (
+                            <div className="space-y-0.5">
+                              <span className="font-bold text-orange-700">{u.lateDays}</span>
+                              <div className="text-[10px] text-ink-500 leading-snug max-w-[10rem] mx-auto whitespace-normal">
+                                {u.lateDatesShort}
+                              </div>
+                            </div>
+                          ) : (
+                            <span className="text-ink-400">—</span>
+                          )}
+                        </td>
+                        <td className="py-3.5 px-3 text-center align-top">
+                          {u.halfDays > 0 ? (
+                            <div className="space-y-0.5">
+                              <span className="font-bold text-amber-800">{u.halfDays}</span>
+                              <div className="text-[10px] text-ink-500 leading-snug max-w-[10rem] mx-auto whitespace-normal">
+                                {u.halfDatesShort}
+                              </div>
+                            </div>
+                          ) : (
+                            <span className="text-ink-400">—</span>
+                          )}
+                        </td>
                         <td className="py-3.5 px-3 text-center font-semibold text-ink-700">{u.present}</td>
                         <td className="py-3.5 px-3 text-center text-sky-600">{u.office || "—"}</td>
                         <td className="py-3.5 px-3 text-center text-amber-600">{u.wfh || "—"}</td>
@@ -981,6 +1190,8 @@ export default async function AttendancePage({
             </Card>
           </div>
         </div>
+      )}
+        </>
       )}
     </div>
   );

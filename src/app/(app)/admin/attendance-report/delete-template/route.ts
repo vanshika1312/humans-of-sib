@@ -3,11 +3,9 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { PAYROLL_REPORT_ROLES } from "@/lib/payroll-attendance-report";
 
-const TEMPLATE = [
-  "email,date,check_in_ist,check_out_ist,mode,source,note",
-  "paste-employee-email@example.com,01-04-2026,10:05,19:30,OFFICE,MANUAL,",
-  "paste-employee-email@example.com,02-04-2026,10:20,19:00,WFH,MANUAL,half test",
-].join("\n");
+const TEMPLATE = ["email,date", "paste-employee-email@example.com,01-04-2026", "paste-employee-email@example.com,02-04-2026"].join(
+  "\n",
+);
 
 export async function GET() {
   const session = await auth();
@@ -26,7 +24,7 @@ export async function GET() {
   return new NextResponse(TEMPLATE, {
     headers: {
       "Content-Type": "text/csv; charset=utf-8",
-      "Content-Disposition": 'attachment; filename="attendance-import-template.csv"',
+      "Content-Disposition": 'attachment; filename="attendance-delete-rows-template.csv"',
     },
   });
 }

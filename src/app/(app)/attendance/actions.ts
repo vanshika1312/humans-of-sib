@@ -2,7 +2,11 @@
 
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import { calendarDateFromInput, eachUtcCalendarWorkingDay } from "@/lib/calendar-date";
+import {
+  calendarDateFromInput,
+  eachUtcCalendarWorkingDay,
+  utcCalendarMidnight,
+} from "@/lib/calendar-date";
 import { canApproveForEmployee, type AttendanceApproverContext } from "@/lib/attendance-scope";
 import type { LeaveType, Prisma } from "@/generated/prisma";
 import { getHalfYearPeriod, parseHalfKey, workingDaysByHalfYearForLeave } from "@/lib/leave-policy";
@@ -21,17 +25,12 @@ import {
 } from "@/lib/leave-balance-guard";
 import { redirect } from "next/navigation";
 import { fullDayPresentCheckInOut } from "@/lib/attendance-present-correction";
+import { formatTime } from "@/lib/utils";
 
 function today() {
   const d = new Date();
   d.setHours(0, 0, 0, 0);
   return d;
-}
-
-function stripTime(d: Date) {
-  const x = new Date(d);
-  x.setHours(0, 0, 0, 0);
-  return x;
 }
 
 function combineDateAndTime(dateYmd: string, timeHHMM: string | null): Date | null {
@@ -40,11 +39,6 @@ function combineDateAndTime(dateYmd: string, timeHHMM: string | null): Date | nu
   const [h, mi] = timeHHMM.split(":").map(Number);
   if (!Number.isFinite(y) || !Number.isFinite(h)) return null;
   return new Date(y, m - 1, da, h, mi, 0, 0);
-}
-
-function parseDateOnly(s: string): Date {
-  const [y, m, da] = s.split("-").map(Number);
-  return new Date(y, m - 1, da, 0, 0, 0, 0);
 }
 
 async function loadApproverContext(email: string): Promise<(AttendanceApproverContext & { email: string }) | null> {
@@ -132,6 +126,71 @@ export async function submitCheckOut() {
 
 /** --- Regularisation -------------------------------------------------------- */
 
+export type RegularisationDaySnapshot =
+  | { ok: false }
+  | {
+      ok: true;
+      hasRow: boolean;
+      modeLabel: string | null;
+      sourceLabel: string | null;
+      checkInLabel: string | null;
+      checkOutLabel: string | null;
+      summaryLine: string;
+    };
+
+/** What is already stored for this calendar day (for the current user). */
+export async function getRegularisationDaySnapshot(isoDate: string): Promise<RegularisationDaySnapshot> {
+  const session = await auth();
+  if (!session?.user?.email) return { ok: false };
+  const user = await prisma.user.findUnique({
+    where: { email: session.user.email },
+    select: { id: true },
+  });
+  if (!user) return { ok: false };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(isoDate)) return { ok: false };
+  const d = calendarDateFromInput(isoDate);
+  if (Number.isNaN(d.getTime())) return { ok: false };
+
+  const row = await prisma.attendance.findUnique({
+    where: { userId_date: { userId: user.id, date: d } },
+    select: { mode: true, source: true, checkIn: true, checkOut: true },
+  });
+
+  if (!row) {
+    return {
+      ok: true,
+      hasRow: false,
+      modeLabel: null,
+      sourceLabel: null,
+      checkInLabel: null,
+      checkOutLabel: null,
+      summaryLine: "No attendance logged for this day yet.",
+    };
+  }
+
+  const modeLabel = row.mode === "WFH" ? "Work from home" : "Office";
+  const sourceLabel =
+    row.source === "BIOMETRIC" ? "Biometric" : row.source === "REGULARISED" ? "Regularised" : "App check-in";
+  const checkInLabel = row.checkIn ? formatTime(row.checkIn) : null;
+  const checkOutLabel = row.checkOut ? formatTime(row.checkOut) : null;
+  const punches =
+    checkInLabel && checkOutLabel
+      ? `${checkInLabel} → ${checkOutLabel}`
+      : checkInLabel
+        ? `${checkInLabel} → no checkout recorded`
+        : "No punch times on record";
+
+  return {
+    ok: true,
+    hasRow: true,
+    modeLabel,
+    sourceLabel,
+    checkInLabel,
+    checkOutLabel,
+    summaryLine: `${modeLabel} · ${sourceLabel} · ${punches}`,
+  };
+}
+
 export async function submitRegularisationForm(formData: FormData) {
   const session = await auth();
   if (!session?.user?.email) throw new Error("Unauthorized");
@@ -148,8 +207,8 @@ export async function submitRegularisationForm(formData: FormData) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dateRaw)) return;
   if (reason.length < 4) return;
 
-  const rowDate = parseDateOnly(dateRaw);
-  if (rowDate > today()) return;
+  const rowDate = calendarDateFromInput(dateRaw);
+  if (Number.isNaN(rowDate.getTime()) || rowDate.getTime() > utcCalendarMidnight(new Date()).getTime()) return;
 
   let requestCheckIn: Date | null = null;
   let requestCheckOut: Date | null = null;
@@ -171,6 +230,7 @@ export async function submitRegularisationForm(formData: FormData) {
     },
   });
   revalidatePath("/attendance");
+  revalidatePath("/admin/attendance-report");
 }
 
 export async function reviewRegularisationForm(formData: FormData) {
@@ -205,10 +265,11 @@ export async function reviewRegularisationForm(formData: FormData) {
       },
     });
     revalidatePath("/attendance");
+    revalidatePath("/admin/attendance-report");
     return;
   }
 
-  const d = stripTime(req.date);
+  const d = utcCalendarMidnight(req.date);
   const { checkIn: resolvedCheckIn, checkOut: resolvedCheckOut } = req.markFullDayPresent
     ? fullDayPresentCheckInOut(d)
     : {
@@ -253,6 +314,7 @@ export async function reviewRegularisationForm(formData: FormData) {
   });
 
   revalidatePath("/attendance");
+  revalidatePath("/admin/attendance-report");
 }
 
 /** --- Leave --------------------------------------------------------------- */
@@ -284,13 +346,13 @@ export async function submitLeaveRequestForm(formData: FormData) {
 
   const workingDaysInRange = eachUtcCalendarWorkingDay(sd, ed).length;
   if (isHalfDay && workingDaysInRange !== 1) {
-    redirect("/attendance?leaveApplyError=half_day");
+    redirect("/attendance?tab=requests&leaveApplyError=half_day");
   }
 
   const needMedical =
     type === "SICK" ? await sickLeaveMedicalProofRequired(user.id, sd, ed) : false;
   if (needMedical && !sickLeaveMedicalProofProvided(type, medicalProofUrl)) {
-    redirect("/attendance?leaveApplyError=medical_proof");
+    redirect("/attendance?tab=requests&leaveApplyError=medical_proof");
   }
 
   if (!leaveRequestsAllowInsufficientPaidBalance()) {
@@ -302,7 +364,7 @@ export async function submitLeaveRequestForm(formData: FormData) {
       isHalfDay,
     });
     if (!okBal) {
-      redirect("/attendance?leaveApplyError=insufficient_balance");
+      redirect("/attendance?tab=requests&leaveApplyError=insufficient_balance");
     }
   }
 
@@ -393,7 +455,7 @@ export async function reviewLeaveForm(formData: FormData) {
       medicalProofUrl: lr.medicalProofUrl,
     });
     if (!medicalOk) {
-      redirect("/attendance?leaveApprovalError=medical_proof");
+      redirect("/attendance?tab=requests&leaveApprovalError=medical_proof");
     }
   }
 
@@ -418,7 +480,7 @@ export async function reviewLeaveForm(formData: FormData) {
       debitByHalf: debitSplitForApprove,
     });
     if (!ok) {
-      redirect("/attendance?leaveApprovalError=insufficient_balance");
+      redirect("/attendance?tab=requests&leaveApprovalError=insufficient_balance");
     }
   }
 

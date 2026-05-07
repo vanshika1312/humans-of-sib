@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { calendarDateFromInput } from "@/lib/calendar-date";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -47,8 +48,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "User not found" }, { status: 404 });
   }
 
-  const dateParts = body.date.split("-").map(Number);
-  const rowDate = new Date(dateParts[0], dateParts[1] - 1, dateParts[2], 0, 0, 0, 0);
+  const rowDate = calendarDateFromInput(body.date);
+  if (Number.isNaN(rowDate.getTime())) {
+    return NextResponse.json({ error: "Invalid date" }, { status: 400 });
+  }
   const checkIn = new Date(body.checkIn);
   const checkOut = body.checkOut ? new Date(body.checkOut) : null;
   const mode = body.mode ?? "OFFICE";

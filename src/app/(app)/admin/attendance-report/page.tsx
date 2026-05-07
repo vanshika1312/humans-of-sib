@@ -13,8 +13,11 @@ import { redirect } from "next/navigation";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Download, ChevronLeft, ChevronRight } from "lucide-react";
+import { Download } from "lucide-react";
 import { AttendanceCsvImport } from "./_components/AttendanceCsvImport";
+import { AttendanceCsvDelete } from "./_components/AttendanceCsvDelete";
+import { ReportMonthNav } from "@/components/report-month-nav";
+import { Suspense } from "react";
 
 const MONTHS = [
   "January", "February", "March", "April", "May", "June",
@@ -29,11 +32,6 @@ function clampYear(y: number): number {
 function clampMonth(m: number): number {
   if (!Number.isFinite(m)) return new Date().getMonth() + 1;
   return Math.min(12, Math.max(1, m));
-}
-
-function shiftMonth(year: number, month: number, delta: number): { year: number; month: number } {
-  const u = Date.UTC(year, month - 1 + delta, 1);
-  return { year: new Date(u).getUTCFullYear(), month: new Date(u).getUTCMonth() + 1 };
 }
 
 export default async function AdminAttendanceReportPage(props: {
@@ -54,8 +52,10 @@ export default async function AdminAttendanceReportPage(props: {
   const month = clampMonth(parseInt(sp.month ?? String(now.getMonth() + 1), 10));
 
   const { summaries, details } = await fetchPayrollAttendanceReport(year, month);
-  const prev = shiftMonth(year, month, -1);
-  const next = shiftMonth(year, month, 1);
+  const nowUtc = new Date();
+  const curYear = nowUtc.getUTCFullYear();
+  const curMonth = nowUtc.getUTCMonth() + 1;
+  const isViewingCurrentMonth = year === curYear && month === curMonth;
 
   const totalPresent = summaries.reduce((a, r) => a + r.presentDays, 0);
   const exportBase = `/admin/attendance-report/export?year=${year}&month=${month}`;
@@ -88,12 +88,13 @@ export default async function AdminAttendanceReportPage(props: {
         <CardHeader>
           <CardTitle className="text-base">Import test attendance (CSV)</CardTitle>
           <CardDescription>
-            Upsert punches from a file—then use Prev/Next above to open that month and confirm Late, Half day, and
+            Upsert punches from a file—then pick the month above (or step with arrows) and confirm Late, Half day, and
             Deduction match your expectations.
           </CardDescription>
         </CardHeader>
         <CardContent>
           <AttendanceCsvImport templateHref="/admin/attendance-report/import-template" />
+          <AttendanceCsvDelete deleteTemplateHref="/admin/attendance-report/delete-template" />
         </CardContent>
       </Card>
 
@@ -106,19 +107,29 @@ export default async function AdminAttendanceReportPage(props: {
               · Punch rows: {details.length}. Leave counts are weekdays overlapping this calendar month only.
             </CardDescription>
           </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <Button variant="outline" size="sm" asChild>
-              <Link href={`/admin/attendance-report?year=${prev.year}&month=${prev.month}`}>
-                <ChevronLeft className="size-4" />
-                Prev
-              </Link>
-            </Button>
-            <Button variant="outline" size="sm" asChild>
-              <Link href={`/admin/attendance-report?year=${next.year}&month=${next.month}`}>
-                Next
-                <ChevronRight className="size-4" />
-              </Link>
-            </Button>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-end shrink-0 w-full sm:w-auto">
+            <Suspense
+              fallback={
+                <div
+                  className="h-9 min-h-[2.25rem] w-full sm:w-64 rounded-md bg-ink-100 animate-pulse"
+                  aria-hidden
+                />
+              }
+            >
+              <ReportMonthNav
+                year={year}
+                month={month}
+                yearMin={2020}
+                yearMax={2035}
+                endSlot={
+                  !isViewingCurrentMonth ? (
+                    <Button variant="ghost" size="sm" className="h-9 text-xs shrink-0" asChild>
+                      <Link href="/admin/attendance-report">This month</Link>
+                    </Button>
+                  ) : null
+                }
+              />
+            </Suspense>
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -161,13 +172,13 @@ export default async function AdminAttendanceReportPage(props: {
                   <th className="px-4 py-3 text-center">Unpaid L</th>
                   <th
                     className="px-4 py-3 text-center"
-                    title={`Mon–Fri punch days: check-in (IST) strictly after ${String(REPORT_LATE_AFTER_IST.hour).padStart(2, "0")}:${String(REPORT_LATE_AFTER_IST.minute).padStart(2, "0")}`}
+                    title={`Mon–Sat punch days (Sun off): check-in (IST) strictly after ${String(REPORT_LATE_AFTER_IST.hour).padStart(2, "0")}:${String(REPORT_LATE_AFTER_IST.minute).padStart(2, "0")}`}
                   >
                     Late
                   </th>
                   <th
                     className="px-4 py-3 text-center"
-                    title={`Mon–Fri punch days: both punches, hours ≥ ${REPORT_MIN_HOURS_FOR_HALF_DAY} and &lt; ${REPORT_HALF_DAY_IF_HOURS_BELOW}`}
+                    title={`Mon–Sat punch days (Sun off): both punches, hours ≥ ${REPORT_MIN_HOURS_FOR_HALF_DAY} and &lt; ${REPORT_HALF_DAY_IF_HOURS_BELOW}`}
                   >
                     Half day
                   </th>
@@ -219,9 +230,9 @@ export default async function AdminAttendanceReportPage(props: {
           </div>
           <p className="text-xs text-ink-400">
             Σ appr. leave is the total approved leave weekdays (casual + sick + unpaid + other paid)—not a duplicate of casual. Pending WD is weekdays on status PENDING; Rejected WD is weekdays on status REJECTED (declined by approver). CANCELLED is excluded from both. Menstrual / bereavement / wedding / earned leave weekdays roll into “other paid” in the CSV. Times in detail export use Asia/Kolkata; the date column is <strong className="font-medium text-ink-500">DD-MM-YYYY</strong> (UTC calendar day, matches CSV import).{" "}
-            <strong className="font-medium text-ink-500">Late</strong> counts Mon–Fri punch rows where IST check-in is after{" "}
+            <strong className="font-medium text-ink-500">Late</strong> counts Mon–Sat punch rows (Sun off) where IST check-in is after{" "}
             {String(REPORT_LATE_AFTER_IST.hour).padStart(2, "0")}:{String(REPORT_LATE_AFTER_IST.minute).padStart(2, "0")}.{" "}
-            <strong className="font-medium text-ink-500">Half day</strong> counts Mon–Fri rows with both punches and hours ≥ {REPORT_MIN_HOURS_FOR_HALF_DAY} and &lt; {REPORT_HALF_DAY_IF_HOURS_BELOW}.{" "}
+            <strong className="font-medium text-ink-500">Half day</strong> counts Mon–Sat rows (Sun off) with both punches and hours ≥ {REPORT_MIN_HOURS_FOR_HALF_DAY} and &lt; {REPORT_HALF_DAY_IF_HOURS_BELOW}.{" "}
             <strong className="font-medium text-ink-500">½ from lates</strong> is ⌊Late ÷ {REPORT_LATES_PER_HALF_DAY}⌋ (every {REPORT_LATES_PER_HALF_DAY} lates = one half-day unit).{" "}
             <strong className="font-medium text-ink-500">Deduction</strong> (full-day units) = unpaid leave weekdays + ½ × half-day instances + ½ × ½-from-lates. Paid leave types are not in this total.
           </p>

@@ -14,6 +14,13 @@ export type AttendanceCsvImportResult = {
   errors: string[];
 };
 
+export type AttendanceCsvDeleteResult = {
+  deleted: number;
+  skipped: number;
+  missing: number;
+  errors: string[];
+};
+
 const ATTENDANCE_MODES = new Set<AttendanceMode>(["OFFICE", "WFH"]);
 const ATTENDANCE_SOURCES = new Set<AttendanceSource>(["MANUAL", "BIOMETRIC", "REGULARISED"]);
 
@@ -227,4 +234,97 @@ export async function importAttendanceTestCsv(
   revalidatePath("/attendance");
 
   return { imported, skipped, errors };
+}
+
+/** Remove attendance rows matching employee email + calendar day (same DD-MM-YYYY rules as import). CEO/Admin/HR only. */
+export async function deleteAttendanceRowsFromCsv(
+  _prev: AttendanceCsvDeleteResult,
+  formData: FormData,
+): Promise<AttendanceCsvDeleteResult> {
+  const gate = await assertPayrollReportAccess();
+  if (!gate.ok) return { deleted: 0, skipped: 0, missing: 0, errors: [gate.error] };
+
+  const file = formData.get("file") as File | null;
+  if (!file || file.size === 0) return { deleted: 0, skipped: 0, missing: 0, errors: ["No file uploaded."] };
+
+  const defaultEmail = String(formData.get("defaultEmail") ?? "")
+    .trim()
+    .toLowerCase();
+
+  const text = await file.text();
+  const parsed = Papa.parse<Record<string, unknown>>(text, {
+    header: true,
+    skipEmptyLines: "greedy",
+    transformHeader: (h) => h.trim().toLowerCase().replace(/\s+/g, "_"),
+  });
+
+  if (parsed.errors.length > 0) {
+    return {
+      deleted: 0,
+      skipped: 0,
+      missing: 0,
+      errors: [`CSV parse error: ${parsed.errors[0]?.message ?? "unknown"}`],
+    };
+  }
+
+  const errors: string[] = [];
+  let deleted = 0;
+  let skipped = 0;
+  let missing = 0;
+
+  const userCache = new Map<string, string | null>();
+  async function resolveUserId(emailRaw: string): Promise<string | null> {
+    const email = emailRaw.trim().toLowerCase();
+    if (!email) return null;
+    if (userCache.has(email)) return userCache.get(email)!;
+    const u = await prisma.user.findUnique({ where: { email }, select: { id: true } });
+    const id = u?.id ?? null;
+    userCache.set(email, id);
+    return id;
+  }
+
+  for (let i = 0; i < parsed.data.length; i++) {
+    const rowNum = i + 2;
+    const row = parsed.data[i];
+
+    const email = cell(row, "email").toLowerCase() || defaultEmail;
+    const dateStr = cell(row, "date");
+
+    if (!email && !dateStr) {
+      skipped++;
+      continue;
+    }
+
+    if (!email) {
+      errors.push(`Row ${rowNum}: missing email (add an email column or set Default employee email below).`);
+      skipped++;
+      continue;
+    }
+
+    const parsedDate = parseAttendanceCsvDate(dateStr);
+    if (!parsedDate) {
+      errors.push(`Row ${rowNum}: invalid or missing date (use DD-MM-YYYY, e.g. 05-04-2026).`);
+      skipped++;
+      continue;
+    }
+    const { dateOnly } = parsedDate;
+
+    const userId = await resolveUserId(email);
+    if (!userId) {
+      errors.push(`Row ${rowNum}: no user found for "${email}".`);
+      skipped++;
+      continue;
+    }
+
+    const res = await prisma.attendance.deleteMany({
+      where: { userId, date: dateOnly },
+    });
+    if (res.count === 0) missing++;
+    else deleted += res.count;
+  }
+
+  revalidatePath("/admin/attendance-report");
+  revalidatePath("/attendance");
+
+  return { deleted, skipped, missing, errors };
 }

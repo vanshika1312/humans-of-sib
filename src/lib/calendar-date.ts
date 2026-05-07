@@ -30,6 +30,11 @@ export function formatCalendarDate(d: Date | string | null | undefined): string 
   }).format(date);
 }
 
+/** Monday–Saturday are working days; Sunday is off (UTC calendar, matches @db.Date). */
+export function isUtcCalendarWorkingDay(d: Date): boolean {
+  return utcCalendarMidnight(d).getUTCDay() !== 0;
+}
+
 /** Month is 1–12. UTC calendar bounds matching Postgres DATE semantics used for leave/attendance. */
 export function utcMonthBounds(year: number, month: number): { start: Date; end: Date } {
   const start = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0, 0));
@@ -37,6 +42,7 @@ export function utcMonthBounds(year: number, month: number): { start: Date; end:
   return { start, end };
 }
 
+/** Count of Mon–Sat days in the UTC calendar month (Sunday excluded). */
 export function workingWeekdaysInUtcMonth(year: number, month: number): number {
   const { start, end } = utcMonthBounds(year, month);
   return workingDaysInclusiveUtcCalendar(start, end);
@@ -47,8 +53,7 @@ export function workingDaysInclusiveUtcCalendar(start: Date, end: Date): number 
   const e = utcCalendarMidnight(end);
   let n = 0;
   for (let d = new Date(s); d.getTime() <= e.getTime(); d.setUTCDate(d.getUTCDate() + 1)) {
-    const wd = d.getUTCDay();
-    if (wd !== 0 && wd !== 6) n++;
+    if (isUtcCalendarWorkingDay(d)) n++;
   }
   return n;
 }
@@ -56,18 +61,17 @@ export function workingDaysInclusiveUtcCalendar(start: Date, end: Date): number 
 export function nextUtcWorkingDayAfter(date: Date): Date {
   const d = utcCalendarMidnight(date);
   d.setUTCDate(d.getUTCDate() + 1);
-  while (d.getUTCDay() === 0 || d.getUTCDay() === 6) d.setUTCDate(d.getUTCDate() + 1);
+  while (!isUtcCalendarWorkingDay(d)) d.setUTCDate(d.getUTCDate() + 1);
   return d;
 }
 
-/** Mon–Fri on the UTC calendar from start through end (inclusive). */
+/** Mon–Sat on the UTC calendar from start through end (inclusive). */
 export function eachUtcCalendarWorkingDay(start: Date, end: Date): Date[] {
   const out: Date[] = [];
   const s = utcCalendarMidnight(start);
   const e = utcCalendarMidnight(end);
   for (let d = new Date(s); d.getTime() <= e.getTime(); d.setUTCDate(d.getUTCDate() + 1)) {
-    const wd = d.getUTCDay();
-    if (wd !== 0 && wd !== 6) out.push(new Date(d));
+    if (isUtcCalendarWorkingDay(d)) out.push(new Date(d));
   }
   return out;
 }

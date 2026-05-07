@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import {
+  isUtcCalendarWorkingDay,
   utcCalendarMidnight,
   utcMonthBounds,
   workingDaysInclusiveUtcCalendar,
@@ -11,13 +12,14 @@ export const PAYROLL_REPORT_ROLES = ["CEO", "ADMIN", "HR"] as const;
 const IST = "Asia/Kolkata";
 
 /**
- * Attendance report — late / half-day counts (tune when payroll deduction policy is wired in).
- * Late: first punch on a working day is strictly after this IST clock time.
- * Half day: both punches exist, duration ≥ {@link REPORT_MIN_HOURS_FOR_HALF_DAY} and strictly below {@link REPORT_HALF_DAY_IF_HOURS_BELOW}.
+ * Attendance report — late / half-day counts (office window 10:00–19:30 IST).
+ * Working week: **Monday–Saturday** (Sunday off), UTC calendar day on the stored date.
+ * Late: first punch on a working day is strictly after this IST time (10:10 → on-time through 10:10, late from 10:11).
+ * Half day: both punches exist, duration ≥ {@link REPORT_MIN_HOURS_FOR_HALF_DAY} and strictly below half of office hours (9.5h → {@link REPORT_HALF_DAY_IF_HOURS_BELOW}h).
  * For payroll deduction: every {@link REPORT_LATES_PER_HALF_DAY} late instances count as one additional half-day unit.
  */
-export const REPORT_LATE_AFTER_IST = { hour: 10, minute: 15 } as const;
-export const REPORT_HALF_DAY_IF_HOURS_BELOW = 4.5;
+export const REPORT_LATE_AFTER_IST = { hour: 10, minute: 10 } as const;
+export const REPORT_HALF_DAY_IF_HOURS_BELOW = 4.75;
 export const REPORT_MIN_HOURS_FOR_HALF_DAY = 0.25;
 export const REPORT_LATES_PER_HALF_DAY = 3;
 
@@ -39,16 +41,14 @@ function istClockMinutes(d: Date): number {
 
 export function payrollReportLateFlag(checkIn: Date | null, date: Date): boolean {
   if (!checkIn) return false;
-  const wd = utcCalendarMidnight(date).getUTCDay();
-  if (wd === 0 || wd === 6) return false;
+  if (!isUtcCalendarWorkingDay(date)) return false;
   const cutoff = REPORT_LATE_AFTER_IST.hour * 60 + REPORT_LATE_AFTER_IST.minute;
   return istClockMinutes(checkIn) > cutoff;
 }
 
 export function payrollReportHalfDayFlag(checkIn: Date | null, checkOut: Date | null, date: Date): boolean {
   if (!checkIn || !checkOut) return false;
-  const wd = utcCalendarMidnight(date).getUTCDay();
-  if (wd === 0 || wd === 6) return false;
+  if (!isUtcCalendarWorkingDay(date)) return false;
   const h = (checkOut.getTime() - checkIn.getTime()) / 3_600_000;
   return h >= REPORT_MIN_HOURS_FOR_HALF_DAY && h < REPORT_HALF_DAY_IF_HOURS_BELOW;
 }
@@ -216,7 +216,7 @@ export async function fetchPayrollAttendanceReport(year: number, month: number):
       status: "APPROVED",
       AND: [{ startDate: { lte: monthEnd } }, { endDate: { gte: monthStart } }],
     },
-    select: { userId: true, type: true, startDate: true, endDate: true },
+    select: { userId: true, type: true, startDate: true, endDate: true, isHalfDay: true },
   });
 
   const leavesPending = await prisma.leaveRequest.findMany({
@@ -224,7 +224,7 @@ export async function fetchPayrollAttendanceReport(year: number, month: number):
       status: "PENDING",
       AND: [{ startDate: { lte: monthEnd } }, { endDate: { gte: monthStart } }],
     },
-    select: { userId: true, startDate: true, endDate: true },
+    select: { userId: true, startDate: true, endDate: true, isHalfDay: true },
   });
 
   const leavesRejected = await prisma.leaveRequest.findMany({
@@ -232,7 +232,7 @@ export async function fetchPayrollAttendanceReport(year: number, month: number):
       status: "REJECTED",
       AND: [{ startDate: { lte: monthEnd } }, { endDate: { gte: monthStart } }],
     },
-    select: { userId: true, startDate: true, endDate: true },
+    select: { userId: true, startDate: true, endDate: true, isHalfDay: true },
   });
 
   const extraIds = new Set<string>();

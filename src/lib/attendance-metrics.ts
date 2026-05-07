@@ -1,4 +1,4 @@
-/** Working weekdays Mon–Fri between two calendar dates (inclusive). */
+/** Working days Mon–Sat (Sunday off), local calendar, between two dates (inclusive). */
 export function workingDaysInclusive(start: Date, end: Date): number {
   const s = new Date(start);
   s.setHours(0, 0, 0, 0);
@@ -7,7 +7,7 @@ export function workingDaysInclusive(start: Date, end: Date): number {
   let n = 0;
   for (let d = new Date(s); d.getTime() <= e.getTime(); d.setDate(d.getDate() + 1)) {
     const day = d.getDay();
-    if (day !== 0 && day !== 6) n++;
+    if (day !== 0) n++;
   }
   return n;
 }

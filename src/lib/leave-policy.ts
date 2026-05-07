@@ -87,7 +87,7 @@ export function sickRemaining(opts: {
   return Math.max(0, sickEntitledPerHalf(opts.probationEndsAt, opts.refDate) - opts.sickUsed);
 }
 
-/** Mon–Fri dates from start through end (inclusive), using UTC calendar days (leave @db.Date ranges). */
+/** Mon–Sat dates from start through end (inclusive), using UTC calendar days (leave @db.Date ranges). */
 export function eachWorkingDay(start: Date, end: Date): Date[] {
   return eachUtcCalendarWorkingDay(start, end);
 }
