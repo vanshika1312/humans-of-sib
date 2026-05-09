@@ -25,6 +25,11 @@ export function formatTime(d: Date | string | null | undefined) {
   }).format(date);
 }
 
+/** Full calendar days since a past instant (for tenure labels on the server). */
+export function calendarDaysSincePastDate(past: Date) {
+  return Math.floor((Date.now() - past.getTime()) / (1000 * 60 * 60 * 24));
+}
+
 export function relativeTime(d: Date | string) {
   const date = typeof d === "string" ? new Date(d) : d;
   const diff = Date.now() - date.getTime();

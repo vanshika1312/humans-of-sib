@@ -32,7 +32,7 @@ const nav = [
     { href: "/journey", label: "My Journey", icon: Compass, comingSoon: true },
   ]},
   { group: "Community", items: [
-    { href: "/people", label: "People", icon: Users, comingSoon: true },
+    { href: "/people", label: "People", icon: Users },
     { href: "/wins", label: "Wins Wall", icon: Trophy, comingSoon: true },
     { href: "/birthdays", label: "Celebrations", icon: Cake, comingSoon: true },
     { href: "/feedback/ceo", label: "Direct to CEO", icon: Megaphone, comingSoon: true },

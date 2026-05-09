@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Avatar } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { UsersRound } from "lucide-react";
+import { displayName } from "@/lib/user-display-name";
 
 export async function TeamSpotlight() {
   const members = await prisma.user.findMany({
@@ -11,6 +12,8 @@ export async function TeamSpotlight() {
     select: {
       id: true,
       name: true,
+      firstName: true,
+      lastName: true,
       image: true,
       title: true,
       department: { select: { name: true, emoji: true } },
@@ -33,26 +36,29 @@ export async function TeamSpotlight() {
         </Link>
       </CardHeader>
       <CardContent className="space-y-2">
-        {members.map((m) => (
-          <Link
-            key={m.id}
-            href={`/people/${m.id}`}
-            className="flex items-center gap-3 p-2 rounded-lg hover:bg-ink-50 transition-colors"
-          >
-            <Avatar src={m.image} name={m.name} size="sm" />
-            <div className="flex-1 min-w-0">
-              <div className="text-sm font-medium text-ink-700 truncate">{m.name}</div>
-              {m.title && (
-                <div className="text-xs text-ink-400 truncate">{m.title}</div>
+        {members.map((m) => {
+          const dn = displayName(m);
+          return (
+            <Link
+              key={m.id}
+              href={`/people/${m.id}`}
+              className="flex items-center gap-3 p-2 rounded-lg hover:bg-ink-50 transition-colors"
+            >
+              <Avatar src={m.image} name={dn} size="sm" />
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium text-ink-700 truncate">{dn}</div>
+                {m.title && (
+                  <div className="text-xs text-ink-400 truncate">{m.title}</div>
+                )}
+              </div>
+              {m.department && (
+                <Badge tone="sky" className="shrink-0 text-[10px]">
+                  {m.department.emoji} {m.department.name}
+                </Badge>
               )}
-            </div>
-            {m.department && (
-              <Badge tone="sky" className="shrink-0 text-[10px]">
-                {m.department.emoji} {m.department.name}
-              </Badge>
-            )}
-          </Link>
-        ))}
+            </Link>
+          );
+        })}
       </CardContent>
     </Card>
   );

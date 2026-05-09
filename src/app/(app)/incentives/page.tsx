@@ -4,7 +4,6 @@ import { prisma } from "@/lib/prisma";
 import { PageHeader } from "@/components/ui/page-header";
 import { CounsellorView } from "./_components/CounsellorView";
 import { SalesHeadView } from "./_components/SalesHeadView";
-import { AccountsView } from "./_components/AccountsView";
 
 type SearchParams = Promise<{
   tab?: string;
@@ -42,20 +41,26 @@ export default async function IncentivesPage({ searchParams }: { searchParams: S
         emoji="💰"
         subtitle={
           isAccountsManager
-            ? "Review locked sheets, approve payouts, and track disbursements."
+            ? "Run monthly sheets like sales heads, approve locked payouts, and track disbursements."
             : isSalesHead
             ? "Track your team's revenue, adjust, and lock monthly incentive sheets."
             : "View your estimated incentive for the month."
         }
       />
 
-      {isAccountsManager ? (
+      {isAccountsManager || isSalesHead ? (
         <Suspense fallback={<Skeleton />}>
-          <AccountsView />
-        </Suspense>
-      ) : isSalesHead ? (
-        <Suspense fallback={<Skeleton />}>
-          <SalesHeadView year={year} month={month} tab={tab} historyYear={historyYear} historyMonth={historyMonth} userName={me.name ?? "Sales Head"} cluster={cluster} team={team} />
+          <SalesHeadView
+            year={year}
+            month={month}
+            tab={tab}
+            historyYear={historyYear}
+            historyMonth={historyMonth}
+            userName={me.name ?? (isSalesHead ? "Sales Head" : "Team")}
+            cluster={cluster}
+            team={team}
+            showApprovalsTab={isAccountsManager}
+          />
         </Suspense>
       ) : (
         <Suspense fallback={<Skeleton />}>

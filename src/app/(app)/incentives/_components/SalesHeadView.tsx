@@ -24,6 +24,7 @@ import {
 } from "../actions";
 import { Input, Label } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { AccountsView } from "./AccountsView";
 
 const MONTHS      = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const FULL_MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
@@ -103,11 +104,13 @@ function groupByCluster(sheets: SheetWithUser[]): Record<string, SheetWithUser[]
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export async function SalesHeadView({
-  year, month, tab, historyYear, historyMonth, userName, cluster, team,
+  year, month, tab, historyYear, historyMonth, userName, cluster, team, showApprovalsTab = false,
 }: {
   year: number; month: number; tab: string;
   historyYear?: number; historyMonth?: number;
   userName: string; cluster: string; team: string;
+  /** ADMIN / HR / CEO: extra tab with locked-sheet approval + disbursement queue */
+  showApprovalsTab?: boolean;
 }) {
   const { period, sheets, allSalesUsers, slabs, eligibilityOptions } = await fetchMonthData(year, month);
 
@@ -128,12 +131,17 @@ export async function SalesHeadView({
     new Set(allSalesUsers.map((u) => u.city?.name).filter((c): c is string => !!c))
   ).sort();
 
-  const TABS = [
+  const BASE_TABS = [
     { id: "live",    label: "Live View" },
     { id: "review",  label: "Month-End Review" },
     { id: "history", label: "History" },
     { id: "payment", label: "Payment Status" },
   ];
+  const tabs = showApprovalsTab
+    ? [...BASE_TABS, { id: "approvals", label: "Payout approvals" }]
+    : BASE_TABS;
+  const tabIds = new Set(tabs.map((t) => t.id));
+  const effectiveTab = tabIds.has(tab) ? tab : "live";
 
   const sendSummary: SendSummary = {
     year,
@@ -149,12 +157,12 @@ export async function SalesHeadView({
       {/* Tab bar + month selector + actions */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-3 flex-wrap">
-          <TabNav tabs={TABS} active={tab} />
-          <MonthSelector year={year} month={month} />
+          <TabNav tabs={tabs} active={effectiveTab} />
+          {effectiveTab !== "approvals" && <MonthSelector year={year} month={month} />}
         </div>
 
         {/* Tab-level actions (Live View only) */}
-        {tab === "live" && (
+        {effectiveTab === "live" && (
           <div className="flex items-center gap-2">
             {period?.sheetUrl && (
               <a
@@ -190,10 +198,11 @@ export async function SalesHeadView({
         )}
       </div>
 
-      {tab === "live"    && <LiveView sheets={sheets} noRevenueYet={noRevenueYet} slabs={slabs} year={year} month={month} period={period} totalRevenue={totalRevenue} totalPayout={totalPayout} avgIncentive={avgIncentive} eligibleCount={eligibleCount} allLocked={allLocked} eligibilityOptions={eligibilityOptions} cluster={cluster} allClusters={allClusters} team={team} allTeams={allTeams} />}
-      {tab === "review"  && <ReviewTab sheets={sheets} allSalesUsers={allSalesUsers} noRevenueYet={noRevenueYet} slabs={slabs} year={year} month={month} period={period} allLocked={allLocked} />}
-      {tab === "history" && <HistoryView currentYear={year} currentMonth={month} historyYear={historyYear} historyMonth={historyMonth} />}
-      {tab === "payment" && <PaymentStatusView sheets={sheets} year={year} month={month} cluster={cluster} allClusters={allClusters} team={team} allTeams={allTeams} />}
+      {effectiveTab === "live"    && <LiveView sheets={sheets} noRevenueYet={noRevenueYet} slabs={slabs} year={year} month={month} period={period} totalRevenue={totalRevenue} totalPayout={totalPayout} avgIncentive={avgIncentive} eligibleCount={eligibleCount} allLocked={allLocked} eligibilityOptions={eligibilityOptions} cluster={cluster} allClusters={allClusters} team={team} allTeams={allTeams} />}
+      {effectiveTab === "review"  && <ReviewTab sheets={sheets} allSalesUsers={allSalesUsers} noRevenueYet={noRevenueYet} slabs={slabs} year={year} month={month} period={period} allLocked={allLocked} />}
+      {effectiveTab === "history" && <HistoryView currentYear={year} currentMonth={month} historyYear={historyYear} historyMonth={historyMonth} />}
+      {effectiveTab === "payment" && <PaymentStatusView sheets={sheets} year={year} month={month} cluster={cluster} allClusters={allClusters} team={team} allTeams={allTeams} />}
+      {effectiveTab === "approvals" && showApprovalsTab && <AccountsView />}
     </div>
   );
 }

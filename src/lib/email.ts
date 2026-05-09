@@ -357,3 +357,46 @@ export async function sendWeeklyPerformanceEmail({
     html,
   });
 }
+
+export async function sendEmployeeOnboardingInvite({
+  to,
+  employeeCode,
+  firstName,
+  inviteUrl,
+}: {
+  to: string;
+  employeeCode: string;
+  firstName: string;
+  inviteUrl: string;
+}) {
+  const html = `<!DOCTYPE html>
+<html><body style="margin:0;padding:0;font-family:system-ui,-apple-system,sans-serif;background:#f4f4f5">
+  <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="padding:32px 16px">
+    <tr><td align="center">
+      <table width="100%" style="max-width:480px;background:#fff;border-radius:12px;overflow:hidden;border:1px solid #e5e7eb">
+        <tr><td style="padding:28px 28px 8px">
+          <p style="margin:0;font-size:18px;font-weight:700;color:#111827">Welcome to Humans of SIB</p>
+          <p style="margin:12px 0 0;font-size:14px;color:#6b7280;line-height:1.5">
+            Hi ${firstName}, your profile has been set up. Your employee ID is <strong>${employeeCode}</strong>.
+            Complete your details to access the workspace — this link expires in 14 days.
+          </p>
+        </td></tr>
+        <tr><td style="padding:8px 28px 28px">
+          <a href="${inviteUrl}" style="display:inline-block;background:#0ea5e9;color:#fff;text-decoration:none;padding:12px 22px;border-radius:8px;font-size:14px;font-weight:600">
+            Complete your onboarding
+          </a>
+          <p style="margin:16px 0 0;font-size:12px;color:#9ca3af;word-break:break-all">
+            If the button doesn’t work, copy this link:<br />${inviteUrl}
+          </p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>`;
+
+  await sendHtmlEmail({
+    to,
+    subject: "Complete your Humans of SIB onboarding",
+    html,
+  });
+}

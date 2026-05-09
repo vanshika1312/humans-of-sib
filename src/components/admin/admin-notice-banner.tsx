@@ -5,7 +5,7 @@ export function AdminNoticeBanner({ code }: { code?: string }) {
   const msg = ADMIN_MUTATION_MESSAGES[code];
   if (!msg) return null;
 
-  const isSoft = code === "salary_create_blocked";
+  const isSoft = ["salary_create_blocked", "invite_failed", "invite_resent"].includes(code);
 
   return (
     <div

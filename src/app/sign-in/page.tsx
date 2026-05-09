@@ -5,12 +5,13 @@ import { redirect } from "next/navigation";
 export default async function SignInPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string; callbackUrl?: string }>;
+  searchParams: Promise<{ error?: string; callbackUrl?: string; notice?: string }>;
 }) {
   const session = await auth();
   if (session?.user) redirect("/home");
   const params = await searchParams;
   const error = params.error;
+  const notice = params.notice;
   const callbackUrl = params.callbackUrl || "/home";
 
   return (
@@ -42,12 +43,23 @@ export default async function SignInPage({
             Use your <span className="font-medium text-ink-600">@skillinabox.in</span> Google account.
           </p>
 
+          {notice === "onboarding_done" && (
+            <div className="mt-5 rounded-md bg-emerald-50 text-emerald-800 text-sm px-4 py-3">
+              You&apos;re all set. Sign in with your <span className="font-medium">@skillinabox.in</span> Google
+              account to open the app.
+            </div>
+          )}
+
           {error && (
             <div className="mt-5 rounded-md bg-red-50 text-red-700 text-sm px-4 py-3">
               {error === "domain"
                 ? "Only @skillinabox.in emails can access Humans of SIB."
                 : error === "not_registered"
                 ? "You haven't been added to Humans of SIB yet. Ask HR to set up your account."
+                : error === "pending_onboarding"
+                ? "Finish your profile using the secure link HR emailed you. After that you can sign in with Google."
+                : error === "invalid_invite"
+                ? "That onboarding link is invalid or has expired."
                 : "Sign-in failed. Please try again."}
             </div>
           )}

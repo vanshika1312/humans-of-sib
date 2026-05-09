@@ -55,55 +55,55 @@ export function ReportMonthNav({ year, month, yearMin = 2020, yearMax = 2035, en
   const prevMonth = shiftMonth(year, month, -1);
   const nextMonth = shiftMonth(year, month, 1);
 
+  const trailing = typeof endSlot === "number" ? null : endSlot;
+
   return (
-    <div className="flex flex-wrap items-center gap-2">
+    <div className="inline-flex max-w-full flex-nowrap items-center gap-2 overflow-x-auto sm:overflow-visible">
       <Button
         type="button"
         variant="outline"
         size="sm"
-        className="h-9 px-2.5"
+        className="h-9 shrink-0 px-2.5"
         onClick={() => go(prevMonth.year, prevMonth.month)}
         aria-label="Previous month"
       >
         <ChevronLeft className="size-4" />
       </Button>
-      <div className="flex items-center gap-2">
-        <Select
-          aria-label="Month"
-          className="h-9 min-w-[8.5rem] text-sm shrink-0"
-          value={String(month)}
-          onChange={(e) => go(year, Number(e.target.value))}
-        >
-          {MONTH_NAMES.map((name, i) => (
-            <option key={name} value={i + 1}>
-              {name}
-            </option>
-          ))}
-        </Select>
-        <Select
-          aria-label="Year"
-          className="h-9 min-w-[6rem] w-[6rem] text-sm shrink-0 tabular-nums"
-          value={String(year)}
-          onChange={(e) => go(Number(e.target.value), month)}
-        >
-          {yearOptions.map((y) => (
-            <option key={y} value={y}>
-              {y}
-            </option>
-          ))}
-        </Select>
-      </div>
+      <Select
+        aria-label="Month"
+        className="h-9 w-auto min-w-[8.5rem] shrink-0 bg-none pr-2 text-sm appearance-auto"
+        value={String(month)}
+        onChange={(e) => go(year, Number(e.target.value))}
+      >
+        {MONTH_NAMES.map((name, i) => (
+          <option key={name} value={i + 1}>
+            {name}
+          </option>
+        ))}
+      </Select>
+      <Select
+        aria-label="Year"
+        className="h-9 w-[6rem] min-w-[6rem] shrink-0 bg-none pr-2 text-sm tabular-nums appearance-auto"
+        value={String(year)}
+        onChange={(e) => go(Number(e.target.value), month)}
+      >
+        {yearOptions.map((y) => (
+          <option key={y} value={y}>
+            {y}
+          </option>
+        ))}
+      </Select>
       <Button
         type="button"
         variant="outline"
         size="sm"
-        className="h-9 px-2.5"
+        className="h-9 shrink-0 px-2.5"
         onClick={() => go(nextMonth.year, nextMonth.month)}
         aria-label="Next month"
       >
         <ChevronRight className="size-4" />
       </Button>
-      {endSlot}
+      {trailing ? <span className="inline-flex shrink-0 items-center">{trailing}</span> : null}
     </div>
   );
 }

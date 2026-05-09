@@ -38,13 +38,13 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       if (token.email && (!token.uid || trigger === "update")) {
         const dbUser = await prisma.user.findUnique({
           where: { email: token.email },
-          select: { id: true, role: true, departmentId: true },
+          select: { id: true, role: true, departmentId: true, invitationPending: true },
         });
         if (dbUser) {
           token.uid = dbUser.id;
           token.role = dbUser.role;
           token.departmentId = dbUser.departmentId;
-          token.approved = true;
+          token.approved = !dbUser.invitationPending;
         } else {
           token.approved = false;
         }
@@ -56,6 +56,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         session.user.id = (token.uid as string) || session.user.id;
         (session.user as any).role = token.role;
         (session.user as any).departmentId = token.departmentId;
+        (session.user as any).approved = token.approved;
       }
       return session;
     },

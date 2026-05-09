@@ -8,6 +8,7 @@ import { Avatar } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatDate } from "@/lib/utils";
+import { displayName } from "@/lib/user-display-name";
 import { Users, Building2, MapPin, IndianRupee, UserPlus } from "lucide-react";
 import { AdminNoticeBanner } from "@/components/admin/admin-notice-banner";
 
@@ -25,7 +26,7 @@ export default async function AdminPage({
 
   const [users, depts, cities] = await Promise.all([
     prisma.user.findMany({
-      orderBy: [{ status: "asc" }, { name: "asc" }],
+      orderBy: [{ status: "asc" }, { firstName: "asc" }, { lastName: "asc" }],
       include: {
         department: true,
         city: true,
@@ -107,14 +108,22 @@ export default async function AdminPage({
                 </tr>
               </thead>
               <tbody className="divide-y divide-ink-100">
-                {users.map((u) => (
+                {users.map((u) => {
+                  const ud = displayName(u);
+                  return (
                   <tr key={u.id} className="hover:bg-ink-50/50 transition-colors">
                     <td className="px-5 py-3">
                       <div className="flex items-center gap-3">
-                        <Avatar src={u.image} name={u.name} size="sm" />
+                        <Avatar src={u.image} name={ud} size="sm" />
                         <div>
-                          <div className="font-medium text-ink-700">{u.name || "—"}</div>
+                          <div className="font-medium text-ink-700">{ud}</div>
                           <div className="text-xs text-ink-400">{u.email}</div>
+                          {u.invitationPending && (
+                            <div className="text-[10px] font-medium text-amber-700">Awaiting onboarding</div>
+                          )}
+                          {u.employeeCode && (
+                            <div className="text-[10px] text-ink-400">{u.employeeCode}</div>
+                          )}
                         </div>
                       </div>
                     </td>
@@ -146,7 +155,8 @@ export default async function AdminPage({
                       </Link>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>

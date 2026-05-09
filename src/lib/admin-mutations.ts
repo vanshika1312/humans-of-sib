@@ -64,4 +64,8 @@ export const ADMIN_MUTATION_MESSAGES: Record<string, string> = {
   invalid_status_payload: "That status wasn’t recognized. Reload and try again.",
   salary_create_blocked: "Salary wasn’t saved (needs CEO or Workspace Admin). Profile was created.",
   last_admin_blocked: "Can’t remove the last Workspace Admin — add or promote another Admin first.",
+  invite_failed:
+    "The onboarding email could not be sent (check RESEND / BREVO and NEXT_PUBLIC_APP_URL). Use Resend invite on the member’s edit page.",
+  invite_resent: "A new onboarding email was sent.",
+  missing_name_or_email: "First name, last name, and official email are required.",
 };

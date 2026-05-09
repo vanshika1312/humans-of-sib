@@ -32,6 +32,21 @@ enum EmployeeStatus {
   EXITED
 }
 
+enum Gender {
+  MALE
+  FEMALE
+  NON_BINARY
+  PREFER_NOT_TO_SAY
+}
+
+model OrgCounter {
+  /// Single row used to issue sequential employee IDs (SIB-00001, …).
+  id               String @id @default("singleton")
+  nextEmployeeSeq  Int    @default(1)
+
+  updatedAt DateTime @updatedAt
+}
+
 model City {
   id        String   @id @default(cuid())
   name      String   @unique
@@ -57,21 +72,51 @@ model Department {
 
 model User {
   id            String          @id @default(cuid())
+  /// Official (work) email — sign-in; set by HR.
   email         String          @unique
+  /// Display / legacy full name; kept in sync with first + last when those are set.
   name          String?
+  firstName     String?
+  lastName      String?
+  /// Personal email (employee enters during onboarding).
+  personalEmail String?
+
+  employeeCode  String?         @unique
+
   image         String?
   title         String?
   bio           String?
   phone         String?
+  /// Full postal / residential address (employee / HR; visibility is role-gated).
+  residentialAddress String?    @db.Text
+  emergencyContactName     String?
+  emergencyContactPhone    String?
+  emergencyContactRelation String?
+  fatherName    String?
+  motherName    String?
+
+  /// Tax IDs — visible only to HR/CEO/Admin and the employee themselves on People.
+  pan           String?
+  aadhar        String?
+
+  gender        Gender?
+
   role          Role            @default(EMPLOYEE)
   status        EmployeeStatus  @default(ACTIVE)
   joinedAt      DateTime        @default(now())
+  dateOfLeaving DateTime?       @db.Date
   /// Last day of probation (inclusive). Paid casual/sick accrue only after this date passes. Null = not tracking probation (legacy employees treated as confirmed).
   probationEndsAt DateTime?
 
+  /// Date of birth (employee fills).
   birthday      DateTime?
   emailVerified DateTime?
   lastSignInAt  DateTime?
+
+  /// After HR creates the user, the employee must finish self-service before app access.
+  invitationPending         Boolean   @default(false)
+  onboardingInviteToken     String?   @unique
+  onboardingInviteExpiresAt DateTime?
 
   // Org
   departmentId  String?
