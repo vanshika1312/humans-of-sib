@@ -1,11 +1,11 @@
 import { Resend } from "resend";
 
-const FROM = process.env.EMAIL_FROM ?? "Humans of SIB <no-reply@humansofsib.com>";
+const FROM = (process.env.EMAIL_FROM ?? "Humans of SIB <no-reply@humansofsib.com>").trim();
 const BASE_URL = process.env.NEXT_PUBLIC_APP_URL ?? "https://humansofsib.com";
 
 /** `resend` (default) or `brevo` — https://developers.brevo.com/reference/send-transac-email */
 function emailProvider(): "resend" | "brevo" {
-  const p = (process.env.EMAIL_PROVIDER ?? "resend").toLowerCase();
+  const p = (process.env.EMAIL_PROVIDER ?? "resend").trim().toLowerCase();
   return p === "brevo" ? "brevo" : "resend";
 }
 
@@ -15,11 +15,24 @@ function parseFromHeader(from: string): { name?: string; email: string } {
   return { email: from.trim() };
 }
 
+/** Trim + strip a single pair of surrounding quotes (common .env mistake). */
+function normalizeEnvSecret(value: string | undefined): string | undefined {
+  if (value == null) return undefined;
+  let s = value.trim();
+  if (
+    (s.startsWith('"') && s.endsWith('"')) ||
+    (s.startsWith("'") && s.endsWith("'"))
+  ) {
+    s = s.slice(1, -1).trim();
+  }
+  return s || undefined;
+}
+
 async function sendHtmlEmail(params: { to: string; subject: string; html: string }) {
   const provider = emailProvider();
   if (provider === "brevo") {
-    const key = process.env.BREVO_API_KEY;
-    if (!key?.trim()) throw new Error("BREVO_API_KEY is required when EMAIL_PROVIDER=brevo");
+    const key = normalizeEnvSecret(process.env.BREVO_API_KEY);
+    if (!key) throw new Error("BREVO_API_KEY is required when EMAIL_PROVIDER=brevo");
     const sender = parseFromHeader(FROM);
     const res = await fetch("https://api.brevo.com/v3/smtp/email", {
       method: "POST",
@@ -36,14 +49,22 @@ async function sendHtmlEmail(params: { to: string; subject: string; html: string
       }),
     });
     if (!res.ok) {
-      const detail = await res.text().catch(() => "");
-      throw new Error(`Brevo transactional send failed (${res.status}): ${detail.slice(0, 500)}`);
+      const raw = await res.text().catch(() => "");
+      let detail = raw.slice(0, 500);
+      try {
+        const j = JSON.parse(raw) as { message?: string; error?: { message?: string } };
+        const m = j.message ?? j.error?.message;
+        if (m) detail = m;
+      } catch {
+        /* keep raw */
+      }
+      throw new Error(`Brevo transactional send failed (${res.status}): ${detail}`);
     }
     return;
   }
 
-  const key = process.env.RESEND_API_KEY;
-  if (!key?.trim()) throw new Error("RESEND_API_KEY is required when EMAIL_PROVIDER is resend or unset");
+  const key = normalizeEnvSecret(process.env.RESEND_API_KEY);
+  if (!key) throw new Error("RESEND_API_KEY is required when EMAIL_PROVIDER is resend or unset");
   const resend = new Resend(key);
   await resend.emails.send({
     from: FROM,

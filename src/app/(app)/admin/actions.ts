@@ -95,6 +95,7 @@ export async function createMember(fd: FormData) {
   let notice: string | undefined;
   const salaryN = salary?.trim() ? parseInt(salary, 10) : NaN;
 
+  let mailError: string | undefined;
   try {
     await sendEmployeeOnboardingInvite({
       to: user.email,
@@ -102,7 +103,9 @@ export async function createMember(fd: FormData) {
       firstName: user.firstName!,
       inviteUrl: `${baseUrl}/onboarding/${inviteSecret}`,
     });
-  } catch {
+  } catch (err) {
+    console.error("[Humans of SIB] onboarding invite email failed", err);
+    mailError = (err instanceof Error ? err.message : String(err)).slice(0, 1200);
     notice = "invite_failed";
   }
 
@@ -119,7 +122,11 @@ export async function createMember(fd: FormData) {
     }
   }
 
-  redirect(notice ? `/admin?notice=${encodeURIComponent(notice)}` : "/admin");
+  const qs = new URLSearchParams();
+  if (notice) qs.set("notice", notice);
+  if (mailError) qs.set("mailError", mailError);
+  const tail = qs.toString();
+  redirect(tail ? `/admin?${tail}` : "/admin");
 }
 
 export async function resendOnboardingInvite(userId: string) {
@@ -159,8 +166,14 @@ export async function resendOnboardingInvite(userId: string) {
       firstName: member.firstName ?? member.name?.split(/\s+/)[0] ?? "there",
       inviteUrl: `${baseUrl}/onboarding/${inviteSecret}`,
     });
-  } catch {
-    redirect(`/admin/team/${userId}?notice=${encodeURIComponent("invite_failed")}`);
+  } catch (err) {
+    console.error("[Humans of SIB] resend onboarding email failed", err);
+    const mailError = (err instanceof Error ? err.message : String(err)).slice(0, 1200);
+    const qs = new URLSearchParams({
+      notice: "invite_failed",
+      mailError,
+    });
+    redirect(`/admin/team/${userId}?${qs.toString()}`);
   }
 
   redirect(`/admin/team/${userId}?notice=${encodeURIComponent("invite_resent")}`);

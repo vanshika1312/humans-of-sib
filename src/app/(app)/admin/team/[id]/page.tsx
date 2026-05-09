@@ -10,6 +10,7 @@ import { Input, Select, Label, Textarea } from "@/components/ui/input";
 import { updateMember, resendOnboardingInvite } from "../../actions";
 import { AdminNoticeBanner } from "@/components/admin/admin-notice-banner";
 import { displayName } from "@/lib/user-display-name";
+import { firstSearchParam } from "@/lib/search-param";
 
 const ADMIN_ROLES = ["CEO", "ADMIN", "HR"];
 
@@ -29,10 +30,14 @@ export default async function EditMemberPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ notice?: string }>;
+  searchParams: Promise<{ notice?: string | string[]; mailError?: string | string[] }>;
 }) {
   const { id } = await params;
-  const { notice } = await searchParams;
+  const sp = await searchParams;
+  const notice = firstSearchParam(sp.notice);
+  const mailError = firstSearchParam(sp.mailError);
+  const mailDetail =
+    notice === "invite_failed" && mailError ? mailError : undefined;
   const session = await auth();
   const me = await prisma.user.findUnique({ where: { email: session!.user!.email! } });
   if (!me || !ADMIN_ROLES.includes(me.role)) redirect("/home");
@@ -66,7 +71,7 @@ export default async function EditMemberPage({
 
   return (
     <div className="max-w-2xl mx-auto">
-      <AdminNoticeBanner code={notice} />
+      <AdminNoticeBanner code={notice} detail={mailDetail} />
 
       <PageHeader title="Edit Member" emoji="✏️" subtitle={`Editing ${dn}`} />
 
