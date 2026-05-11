@@ -12,6 +12,8 @@ import { updateJobPosting, createApplication } from "../../actions";
 import { firstSearchParam } from "@/lib/search-param";
 import { HIRING_JOB_STATUSES, JOB_STATUS_LABEL } from "@/lib/hiring-copy";
 import type { HiringJobStatus } from "@/generated/prisma";
+import { WORK_ARRANGEMENT_LABEL, WORK_ARRANGEMENT_OPTIONS } from "@/lib/hiring-job-copy";
+import { formatCalendarDate, utcCalendarDateToInputValue } from "@/lib/calendar-date";
 
 type Props = {
   params: Promise<{ jobId: string }>;
@@ -61,11 +63,18 @@ export default async function HiringJobDetailPage(props: Props) {
   const bench = allCandidates.filter((c) => !appliedCandidateIds.has(c.id));
   const editAction = updateJobPosting.bind(null, jobId);
 
+  const headerBits = [
+    job.workArrangement ? WORK_ARRANGEMENT_LABEL[job.workArrangement] : null,
+    job.location,
+    job.employmentType,
+    job.openings > 0 ? `${job.openings} opening${job.openings === 1 ? "" : "s"}` : null,
+  ].filter(Boolean);
+
   return (
     <div className="space-y-8 max-w-4xl mx-auto">
       <PageHeader
         title={job.title}
-        subtitle={[job.employmentType, job.location].filter(Boolean).join(" · ") || "Job posting"}
+        subtitle={headerBits.length ? headerBits.join(" · ") : "Job posting"}
         action={
           <div className="flex flex-wrap gap-2">
             <Link href="/hiring/jobs">
@@ -107,6 +116,33 @@ export default async function HiringJobDetailPage(props: Props) {
         </div>
       )}
 
+      <Card className="border-sky-100/80 bg-gradient-to-br from-sky-50/50 to-white">
+        <CardHeader className="border-b border-ink-100 pb-4">
+          <CardTitle className="text-base">Posting summary</CardTitle>
+          <CardDescription>Visible on this job record; edit everything below.</CardDescription>
+        </CardHeader>
+        <CardContent className="pt-5 grid gap-4 sm:grid-cols-2 text-sm">
+          <SummaryRow label="Department" value={job.department ? `${job.department.emoji ?? ""} ${job.department.name}`.trim() : "—"} />
+          <SummaryRow
+            label="Work arrangement"
+            value={job.workArrangement ? WORK_ARRANGEMENT_LABEL[job.workArrangement] : "—"}
+          />
+          <SummaryRow label="City / region" value={job.location || "—"} />
+          <SummaryRow label="Employment type" value={job.employmentType || "—"} />
+          <SummaryRow label="Experience required" value={job.experienceRequired || "—"} />
+          <SummaryRow label="Salary range" value={job.salaryRange || "—"} />
+          <SummaryRow label="Openings" value={String(job.openings)} />
+          <SummaryRow
+            label="Application deadline"
+            value={job.applicationDeadline ? formatCalendarDate(job.applicationDeadline) : "—"}
+          />
+          <div className="sm:col-span-2">
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-ink-400">Skills required</div>
+            <p className="text-ink-700 mt-1 whitespace-pre-wrap">{job.skillsRequired || "—"}</p>
+          </div>
+        </CardContent>
+      </Card>
+
       {job.description && (
         <div className="rounded-xl border border-ink-100 bg-white p-5 text-sm text-ink-600 leading-relaxed whitespace-pre-wrap">
           {job.description}
@@ -119,15 +155,15 @@ export default async function HiringJobDetailPage(props: Props) {
           <CardDescription>Role details stay in sync wherever recruiters view them.</CardDescription>
         </CardHeader>
         <CardContent className="pt-6">
-          <form action={editAction} className="space-y-4">
+          <form action={editAction} className="space-y-5">
             <div>
-              <Label htmlFor="title">Title</Label>
+              <Label htmlFor="title">Job title</Label>
               <Input id="title" name="title" required defaultValue={job.title} className="mt-1.5" />
             </div>
             <div>
               <Label htmlFor="departmentId">Department</Label>
               <Select id="departmentId" name="departmentId" defaultValue={job.departmentId ?? ""} className="mt-1.5">
-                <option value="">— Any / TBD —</option>
+                <option value="">— Select department —</option>
                 {departments.map((d) => (
                   <option key={d.id} value={d.id}>
                     {(d.emoji ? `${d.emoji} ` : "") + d.name}
@@ -135,6 +171,31 @@ export default async function HiringJobDetailPage(props: Props) {
                 ))}
               </Select>
             </div>
+
+            <div className="rounded-xl border border-ink-100 bg-ink-50/40 p-4 space-y-4">
+              <div className="text-xs font-semibold uppercase tracking-wider text-ink-500">Location</div>
+              <div>
+                <Label htmlFor="workArrangement">Work arrangement</Label>
+                <Select
+                  id="workArrangement"
+                  name="workArrangement"
+                  required
+                  defaultValue={job.workArrangement ?? "HYBRID"}
+                  className="mt-1.5"
+                >
+                  {WORK_ARRANGEMENT_OPTIONS.map(({ value, label }) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              <div>
+                <Label htmlFor="location">City / region</Label>
+                <Input id="location" name="location" defaultValue={job.location ?? ""} className="mt-1.5" />
+              </div>
+            </div>
+
             <div className="grid sm:grid-cols-2 gap-4">
               <div>
                 <Label htmlFor="employmentType">Employment type</Label>
@@ -146,12 +207,64 @@ export default async function HiringJobDetailPage(props: Props) {
                 />
               </div>
               <div>
-                <Label htmlFor="location">Location</Label>
-                <Input id="location" name="location" defaultValue={job.location ?? ""} className="mt-1.5" />
+                <Label htmlFor="openings">Number of openings</Label>
+                <Input
+                  id="openings"
+                  name="openings"
+                  type="number"
+                  min={1}
+                  max={500}
+                  defaultValue={job.openings}
+                  className="mt-1.5"
+                />
               </div>
             </div>
+
+            <div className="grid sm:grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="experienceRequired">Experience required</Label>
+                <Input
+                  id="experienceRequired"
+                  name="experienceRequired"
+                  defaultValue={job.experienceRequired ?? ""}
+                  className="mt-1.5"
+                />
+              </div>
+              <div>
+                <Label htmlFor="salaryRange">Salary range</Label>
+                <Input id="salaryRange" name="salaryRange" defaultValue={job.salaryRange ?? ""} className="mt-1.5" />
+              </div>
+            </div>
+
             <div>
-              <Label htmlFor="status">Status</Label>
+              <Label htmlFor="skillsRequired">Skills required</Label>
+              <Textarea
+                id="skillsRequired"
+                name="skillsRequired"
+                rows={4}
+                defaultValue={job.skillsRequired ?? ""}
+                className="mt-1.5"
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="description">Job description</Label>
+              <Textarea id="description" name="description" rows={8} defaultValue={job.description ?? ""} className="mt-1.5" />
+            </div>
+
+            <div>
+              <Label htmlFor="applicationDeadline">Application deadline</Label>
+              <Input
+                id="applicationDeadline"
+                name="applicationDeadline"
+                type="date"
+                defaultValue={utcCalendarDateToInputValue(job.applicationDeadline)}
+                className="mt-1.5 max-w-[240px]"
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="status">Posting status</Label>
               <Select id="status" name="status" defaultValue={job.status} className="mt-1.5">
                 {HIRING_JOB_STATUSES.map((s) => (
                   <option key={s} value={s}>
@@ -159,10 +272,6 @@ export default async function HiringJobDetailPage(props: Props) {
                   </option>
                 ))}
               </Select>
-            </div>
-            <div>
-              <Label htmlFor="description">Description</Label>
-              <Textarea id="description" name="description" rows={6} defaultValue={job.description ?? ""} className="mt-1.5" />
             </div>
             <Button type="submit" variant="primary">
               Save changes
@@ -249,6 +358,15 @@ export default async function HiringJobDetailPage(props: Props) {
           </div>
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+function SummaryRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <div className="text-[11px] font-semibold uppercase tracking-wider text-ink-400">{label}</div>
+      <div className="text-ink-700 mt-0.5">{value}</div>
     </div>
   );
 }

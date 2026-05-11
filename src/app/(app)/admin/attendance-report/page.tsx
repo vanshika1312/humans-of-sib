@@ -137,7 +137,7 @@ export default async function AdminAttendanceReportPage(props: {
             <div className="rounded-lg border border-ink-100 bg-ink-50/50 px-4 py-3">
               <div className="text-xs font-semibold text-ink-400 uppercase tracking-wide">Σ Present days</div>
               <div className="text-xl font-bold text-ink-800">{totalPresent}</div>
-              <div className="text-[11px] text-ink-400 mt-1">Across everyone (rows with a punch)</div>
+              <div className="text-[11px] text-ink-400 mt-1">Days with a check-in/out (excludes absence-only Bio rows)</div>
             </div>
             <div className="rounded-lg border border-ink-100 bg-ink-50/50 px-4 py-3">
               <div className="text-xs font-semibold text-ink-400 uppercase tracking-wide">Summary CSV</div>
@@ -145,7 +145,7 @@ export default async function AdminAttendanceReportPage(props: {
             </div>
             <div className="rounded-lg border border-ink-100 bg-ink-50/50 px-4 py-3">
               <div className="text-xs font-semibold text-ink-400 uppercase tracking-wide">Detail CSV</div>
-              <div className="text-sm text-ink-600 mt-1">One row per punch with DD-MM-YYYY, IST times, and hours (when checkout exists).</div>
+              <div className="text-sm text-ink-600 mt-1">One row per attendance row: DD-MM-YYYY, IST times, hours, biometric device code (when sent), note.</div>
             </div>
           </div>
 

@@ -92,3 +92,14 @@ export function utcCalendarDateWithIstClock(dateUtcMidnight: Date, hour: number,
   if (Number.isNaN(ms)) return new Date(NaN);
   return new Date(ms);
 }
+
+/** For `<input type="date" defaultValue={…}>` from a Postgres @db.Date (UTC calendar). */
+export function utcCalendarDateToInputValue(d: Date | string | null | undefined): string {
+  if (!d) return "";
+  const date = typeof d === "string" ? new Date(d) : d;
+  if (Number.isNaN(date.getTime())) return "";
+  const y = date.getUTCFullYear();
+  const m = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const da = String(date.getUTCDate()).padStart(2, "0");
+  return `${y}-${m}-${da}`;
+}

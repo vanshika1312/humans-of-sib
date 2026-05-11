@@ -113,12 +113,29 @@ export default async function NewRequisitionPage(props: Props) {
         </div>
 
         <div>
+          <Label htmlFor="skillsRequired">Skills &amp; qualifications required</Label>
+          <Textarea
+            id="skillsRequired"
+            name="skillsRequired"
+            rows={4}
+            placeholder="Degrees, certifications, tools, years of experience, soft skills…"
+            className="mt-1.5"
+          />
+        </div>
+
+        <div>
+          <Label htmlFor="proposedDeadline">Proposed deadline</Label>
+          <Input id="proposedDeadline" name="proposedDeadline" type="date" className="mt-1.5 max-w-[220px]" />
+          <p className="text-xs text-ink-400 mt-1.5">Target date by which you aim to have this role filled or interviews completed.</p>
+        </div>
+
+        <div>
           <Label htmlFor="description">Role summary</Label>
           <Textarea
             id="description"
             name="description"
             rows={5}
-            placeholder="What they'll own, seniority, must-have skills, reporting line."
+            placeholder="Scope, seniority, reporting line — use Skills &amp; qualifications for must-haves."
             className="mt-1.5"
           />
         </div>

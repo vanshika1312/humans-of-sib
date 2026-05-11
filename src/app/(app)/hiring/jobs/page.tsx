@@ -4,6 +4,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import type { HiringJobStatus } from "@/generated/prisma";
+import { WORK_ARRANGEMENT_LABEL } from "@/lib/hiring-job-copy";
 
 export default async function HiringJobsPage() {
   const jobs = await prisma.hiringJob.findMany({
@@ -42,6 +43,7 @@ export default async function HiringJobsPage() {
                 <th className="px-5 py-3">Role</th>
                 <th className="px-5 py-3">Team</th>
                 <th className="px-5 py-3">Location</th>
+                <th className="px-5 py-3 text-right tabular-nums">Openings</th>
                 <th className="px-5 py-3">Status</th>
                 <th className="px-5 py-3 text-right">Pipeline</th>
               </tr>
@@ -49,7 +51,7 @@ export default async function HiringJobsPage() {
             <tbody className="divide-y divide-ink-100">
               {jobs.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-5 py-16 text-center text-ink-500">
+                  <td colSpan={6} className="px-5 py-16 text-center text-ink-500">
                     No postings yet.{" "}
                     <Link href="/hiring/jobs/new" className="font-semibold text-sky-700 hover:underline">
                       Create the first job
@@ -77,7 +79,14 @@ export default async function HiringJobsPage() {
                         <span className="text-ink-400">—</span>
                       )}
                     </td>
-                    <td className="px-5 py-3 text-ink-600">{j.location || <span className="text-ink-400">—</span>}</td>
+                    <td className="px-5 py-3 text-ink-600">
+                      <span className="block">
+                        {[j.workArrangement ? WORK_ARRANGEMENT_LABEL[j.workArrangement] : null, j.location]
+                          .filter(Boolean)
+                          .join(" · ") || "—"}
+                      </span>
+                    </td>
+                    <td className="px-5 py-3 text-right tabular-nums text-ink-600">{j.openings}</td>
                     <td className="px-5 py-3">
                       <StatusBadge status={j.status} />
                     </td>

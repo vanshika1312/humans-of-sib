@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { attendanceRowCountsAsPresentDay } from "@/lib/biometric-attendance";
 import {
   isUtcCalendarWorkingDay,
   utcCalendarMidnight,
@@ -137,6 +138,7 @@ export interface PayrollAttendanceDetailRow {
   mode: string;
   source: string;
   note: string | null;
+  biometricCode: string | null;
   late: boolean;
   halfDay: boolean;
 }
@@ -297,9 +299,12 @@ export async function fetchPayrollAttendanceReport(year: number, month: number):
   for (const row of attendanceRows) {
     const s = summaryMap.get(row.userId);
     if (s) {
-      s.presentDays += 1;
-      if (row.mode === "OFFICE") s.officeDays += 1;
-      else if (row.mode === "WFH") s.wfhDays += 1;
+      const countsPresent = attendanceRowCountsAsPresentDay(row);
+      if (countsPresent) {
+        s.presentDays += 1;
+        if (row.mode === "OFFICE") s.officeDays += 1;
+        else if (row.mode === "WFH") s.wfhDays += 1;
+      }
       if (row.source === "MANUAL") s.sourceManual += 1;
       else if (row.source === "BIOMETRIC") s.sourceBiometric += 1;
       else if (row.source === "REGULARISED") s.sourceRegularised += 1;
@@ -323,6 +328,7 @@ export async function fetchPayrollAttendanceReport(year: number, month: number):
       mode: row.mode,
       source: row.source,
       note: row.note,
+      biometricCode: row.biometricCode,
       late: payrollReportLateFlag(row.checkIn, row.date),
       halfDay: payrollReportHalfDayFlag(row.checkIn, row.checkOut, row.date),
     });
@@ -444,6 +450,7 @@ export function buildPayrollDetailCsv(rows: PayrollAttendanceDetailRow[]): strin
     "hours",
     "mode",
     "source",
+    "biometric_code",
     "note",
     "late",
     "half_day",
@@ -462,6 +469,7 @@ export function buildPayrollDetailCsv(rows: PayrollAttendanceDetailRow[]): strin
       csvEscape(hoursWorkedLabel(r.checkIn, r.checkOut)),
       csvEscape(r.mode),
       csvEscape(r.source),
+      csvEscape(r.biometricCode),
       csvEscape(r.note),
       r.late ? "yes" : "no",
       r.halfDay ? "yes" : "no",

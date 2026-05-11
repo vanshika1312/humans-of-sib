@@ -12,6 +12,9 @@ import {
   isApplicationStage,
   isJobStatus,
 } from "@/lib/hiring-copy";
+import { calendarDateFromInput, formatCalendarDate } from "@/lib/calendar-date";
+import { isWorkArrangement } from "@/lib/hiring-job-copy";
+import type { HiringJobWorkArrangement } from "@/generated/prisma";
 
 const HR_GATE = ["CEO", "ADMIN", "HR"];
 
@@ -39,6 +42,27 @@ function invalidateHiring(jobId?: string) {
   if (jobId) revalidatePath(`/hiring/jobs/${jobId}`);
 }
 
+function openingsFromForm(fd: FormData): number {
+  const n = Number(fd.get("openings"));
+  if (!Number.isFinite(n)) return 1;
+  return Math.min(500, Math.max(1, Math.floor(n)));
+}
+
+function applicationDeadlineFromForm(fd: FormData): { deadline: Date | null; invalid: boolean } {
+  const raw = String(fd.get("applicationDeadline") || "").trim();
+  if (!raw) return { deadline: null, invalid: false };
+  const d = calendarDateFromInput(raw);
+  if (Number.isNaN(d.getTime())) return { deadline: null, invalid: true };
+  return { deadline: d, invalid: false };
+}
+
+function workArrangementFromForm(fd: FormData): HiringJobWorkArrangement | "INVALID" | "MISSING" {
+  const raw = String(fd.get("workArrangement") || "").trim();
+  if (!raw) return "MISSING";
+  if (!isWorkArrangement(raw)) return "INVALID";
+  return raw;
+}
+
 export async function createJob(formData: FormData) {
   const me = await requireHiringUser();
   const title = String(formData.get("title") || "").trim();
@@ -50,6 +74,26 @@ export async function createJob(formData: FormData) {
   const employmentType = nu(String(formData.get("employmentType")));
   const location = nu(String(formData.get("location")));
 
+  const wa = workArrangementFromForm(formData);
+  if (wa === "MISSING") {
+    redirect(
+      "/hiring/jobs/new?error=" +
+        encodeURIComponent("Select whether the role is remote, hybrid, or on-site."),
+    );
+  }
+  if (wa === "INVALID") {
+    redirect("/hiring/jobs/new?error=" + encodeURIComponent("Invalid work arrangement."));
+  }
+
+  const { deadline, invalid: deadlineInvalid } = applicationDeadlineFromForm(formData);
+  if (deadlineInvalid) {
+    redirect(
+      "/hiring/jobs/new?error=" + encodeURIComponent("Application deadline must be a valid date."),
+    );
+  }
+
+  const openings = openingsFromForm(formData);
+
   try {
     const job = await prisma.hiringJob.create({
       data: {
@@ -57,6 +101,12 @@ export async function createJob(formData: FormData) {
         description,
         employmentType,
         location,
+        workArrangement: wa,
+        experienceRequired: nu(String(formData.get("experienceRequired"))),
+        salaryRange: nu(String(formData.get("salaryRange"))),
+        skillsRequired: nu(String(formData.get("skillsRequired"))),
+        applicationDeadline: deadline,
+        openings,
         departmentId: departmentIdRaw || null,
         status,
         createdById: me.id,
@@ -82,6 +132,26 @@ export async function updateJobPosting(jobId: string, formData: FormData) {
   const employmentType = nu(String(formData.get("employmentType")));
   const location = nu(String(formData.get("location")));
 
+  const wa = workArrangementFromForm(formData);
+  if (wa === "MISSING") {
+    redirect(
+      `/hiring/jobs/${jobId}?error=` +
+        encodeURIComponent("Select whether the role is remote, hybrid, or on-site."),
+    );
+  }
+  if (wa === "INVALID") {
+    redirect(`/hiring/jobs/${jobId}?error=` + encodeURIComponent("Invalid work arrangement."));
+  }
+
+  const { deadline, invalid: deadlineInvalid } = applicationDeadlineFromForm(formData);
+  if (deadlineInvalid) {
+    redirect(
+      `/hiring/jobs/${jobId}?error=` + encodeURIComponent("Application deadline must be a valid date."),
+    );
+  }
+
+  const openings = openingsFromForm(formData);
+
   try {
     await prisma.hiringJob.update({
       where: { id: jobId },
@@ -90,6 +160,12 @@ export async function updateJobPosting(jobId: string, formData: FormData) {
         description,
         employmentType,
         location,
+        workArrangement: wa,
+        experienceRequired: nu(String(formData.get("experienceRequired"))),
+        salaryRange: nu(String(formData.get("salaryRange"))),
+        skillsRequired: nu(String(formData.get("skillsRequired"))),
+        applicationDeadline: deadline,
+        openings,
         departmentId: departmentIdRaw || null,
         status,
       },
@@ -186,6 +262,8 @@ function requisitionJobDescriptionBlock(args: {
   requesterName: string | null;
   requesterEmail: string;
   justification: string | null;
+  skillsRequired: string | null;
+  proposedDeadlineLabel: string | null;
 }) {
   const lines = [
     "",
@@ -194,6 +272,12 @@ function requisitionJobDescriptionBlock(args: {
     `Requested by: ${args.requesterName || "—"} · ${args.requesterEmail}`,
     `Business case: ${args.justification || "—"}`,
   ];
+  if (args.skillsRequired?.trim()) {
+    lines.push("", "Skills & qualifications:", args.skillsRequired.trim());
+  }
+  if (args.proposedDeadlineLabel) {
+    lines.push(`Proposed deadline: ${args.proposedDeadlineLabel}`);
+  }
   return lines.join("\n");
 }
 
@@ -212,12 +296,18 @@ export async function approveHiringRequisition(requisitionId: string) {
     redirect("/hiring?reqError=" + encodeURIComponent("This request was already handled."));
   }
 
+  const proposedDeadlineLabel = req.proposedDeadline
+    ? formatCalendarDate(req.proposedDeadline)
+    : null;
+
   const baseDesc = req.description?.trim() ?? "";
   const suffix = requisitionJobDescriptionBlock({
     positions: req.positions,
     requesterName: req.requestedBy.name,
     requesterEmail: req.requestedBy.email,
     justification: req.justification,
+    skillsRequired: req.skillsRequired,
+    proposedDeadlineLabel,
   });
   const description = baseDesc ? `${baseDesc}\n${suffix}` : suffix.trimStart();
 
@@ -232,6 +322,9 @@ export async function approveHiringRequisition(requisitionId: string) {
           departmentId: req.departmentId,
           status: "DRAFT",
           createdById: me.id,
+          skillsRequired: req.skillsRequired,
+          applicationDeadline: req.proposedDeadline,
+          openings: req.positions,
         },
       });
       await tx.hiringRequisition.update({

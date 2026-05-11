@@ -222,6 +222,12 @@ enum HiringJobStatus {
   CLOSED
 }
 
+enum HiringJobWorkArrangement {
+  ON_SITE
+  REMOTE
+  HYBRID
+}
+
 enum HiringApplicationStage {
   APPLIED
   SCREENING
@@ -243,7 +249,14 @@ model HiringJob {
   title          String           @db.VarChar(280)
   description    String?          @db.Text
   employmentType String?          @db.VarChar(80)
+  /// City / region; pair with workArrangement (On-site / Hybrid typically include a city).
   location       String?          @db.VarChar(200)
+  workArrangement HiringJobWorkArrangement?
+  experienceRequired String?      @db.VarChar(200)
+  salaryRange    String?          @db.VarChar(120)
+  skillsRequired String?          @db.Text
+  applicationDeadline DateTime?   @db.Date
+  openings       Int             @default(1)
   departmentId   String?
   department     Department?      @relation(fields: [departmentId], references: [id], onDelete: SetNull)
   status         HiringJobStatus  @default(DRAFT)
@@ -268,6 +281,8 @@ model HiringRequisition {
   location       String?                  @db.VarChar(200)
   positions      Int                      @default(1)
   justification  String?                  @db.Text
+  skillsRequired String?                  @db.Text
+  proposedDeadline DateTime?              @db.Date
   departmentId   String?
   department     Department?              @relation(fields: [departmentId], references: [id], onDelete: SetNull)
 
@@ -483,6 +498,16 @@ enum AttendanceSource {
   REGULARISED
 }
 
+/// Normalized punch/day classification from biometric hardware (vendor codes P/A/LT/EL/MO/MI mapped in the webhook).
+enum BiometricAttendanceCode {
+  PRESENT
+  ABSENT
+  LATE_ARRIVAL
+  EARLY_LEAVE
+  MISSED_OUT
+  MISSED_IN
+}
+
 model Attendance {
   id        String           @id @default(cuid())
   userId    String
@@ -493,6 +518,8 @@ model Attendance {
   location  String?
   note      String?
   source    AttendanceSource @default(MANUAL)
+  /// Device-reported status for this calendar day (BIOMETRIC rows only in practice).
+  biometricCode BiometricAttendanceCode?
   /// Idempotency key from biometric vendor (nullable).
   externalRef String?
 

@@ -10,6 +10,7 @@ import { Avatar } from "@/components/ui/avatar";
 import { Label, Textarea } from "@/components/ui/input";
 import { approveHiringRequisition, rejectHiringRequisition } from "./actions";
 import { firstSearchParam } from "@/lib/search-param";
+import { formatCalendarDate } from "@/lib/calendar-date";
 
 export default async function HiringOverviewPage(props: {
   searchParams: Promise<{ reqApproved?: string; reqRejected?: string; reqError?: string }>;
@@ -153,6 +154,18 @@ export default async function HiringOverviewPage(props: {
                         </div>
                         {r.justification && (
                           <p className="text-[11px] text-ink-500 mt-2 leading-snug line-clamp-3">{r.justification}</p>
+                        )}
+                        {r.skillsRequired && (
+                          <p className="text-[11px] text-ink-600 mt-2 leading-snug line-clamp-4">
+                            <span className="font-semibold text-ink-500">Skills: </span>
+                            {r.skillsRequired}
+                          </p>
+                        )}
+                        {r.proposedDeadline && (
+                          <div className="text-[11px] text-ink-500 mt-1.5">
+                            <span className="font-semibold text-ink-500">Proposed deadline: </span>
+                            {formatCalendarDate(r.proposedDeadline)}
+                          </div>
                         )}
                       </td>
                       <td className="px-4 py-3 text-ink-600">

@@ -519,9 +519,13 @@ export default async function AttendancePage({
             <div className="flex-1 min-w-[220px] space-y-2">
               <h2 className="font-semibold text-ink-700">Biometric integration</h2>
               <p className="text-sm text-ink-500">
-                Push punches from your attendance hardware into Humans of SIB via a secure webhook.
-                Each event upserts the employee&apos;s row for that calendar day with source{" "}
-                <span className="font-medium text-ink-600">Bio</span>.
+                Push punches from your attendance hardware via a secure webhook (
+                <span className="font-medium text-ink-600">Authorization: Bearer …</span>). Send{" "}
+                <code className="text-xs bg-ink-100 px-1 rounded">email</code>,{" "}
+                <code className="text-xs bg-ink-100 px-1 rounded">date</code>, optional{" "}
+                <code className="text-xs bg-ink-100 px-1 rounded">code</code> (P present, A absent, LT late, EL early
+                leave, MO missed out, MI missed in), and times as needed. Absent days get a note from approved / pending
+                / rejected leave or &quot;Uninformed absence&quot;.
               </p>
               <div className="flex flex-wrap gap-2 items-center">
                 <Badge tone={biometricConfigured ? "green" : "ink"}>

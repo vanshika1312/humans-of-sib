@@ -8,6 +8,7 @@ import {
   canPickDepartmentOnRequisition,
   canSubmitJobRequisition,
 } from "@/lib/hiring-requisition-access";
+import { calendarDateFromInput } from "@/lib/calendar-date";
 
 async function requireRequisitionSubmitter() {
   const session = await auth();
@@ -57,6 +58,18 @@ export async function submitJobRequisition(formData: FormData) {
     ? Math.min(99, Math.max(1, Math.floor(positionsRaw)))
     : 1;
 
+  let proposedDeadline: Date | null = null;
+  const deadlineRaw = String(formData.get("proposedDeadline") || "").trim();
+  if (deadlineRaw) {
+    const d = calendarDateFromInput(deadlineRaw);
+    if (Number.isNaN(d.getTime())) {
+      redirect(
+        "/requisitions/new?error=" + encodeURIComponent("Proposed deadline must be a valid date."),
+      );
+    }
+    proposedDeadline = d;
+  }
+
   await prisma.hiringRequisition.create({
     data: {
       title,
@@ -64,6 +77,8 @@ export async function submitJobRequisition(formData: FormData) {
       employmentType: nu(String(formData.get("employmentType"))),
       location: nu(String(formData.get("location"))),
       justification: nu(String(formData.get("justification"))),
+      skillsRequired: nu(String(formData.get("skillsRequired"))),
+      proposedDeadline,
       positions,
       departmentId,
       requestedByUserId: me.id,

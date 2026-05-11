@@ -8,6 +8,7 @@ import { formatDate } from "@/lib/utils";
 import { cancelOwnJobRequisition } from "./actions";
 import { firstSearchParam } from "@/lib/search-param";
 import type { HiringRequisitionStatus } from "@/generated/prisma";
+import { formatCalendarDate } from "@/lib/calendar-date";
 
 type Props = {
   searchParams: Promise<{
@@ -103,6 +104,11 @@ export default async function MyRequisitionsPage(props: Props) {
                     <div className="font-medium text-ink-700">{r.title}</div>
                     <div className="text-xs text-ink-400 mt-0.5">
                       {r.positions} seat{r.positions === 1 ? "" : "s"}
+                      {r.proposedDeadline && (
+                        <span className="block mt-1 text-ink-500">
+                          Target fill: {formatCalendarDate(r.proposedDeadline)}
+                        </span>
+                      )}
                     </div>
                   </td>
                   <td className="px-4 py-3 text-ink-600">
