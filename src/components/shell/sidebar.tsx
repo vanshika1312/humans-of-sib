@@ -18,12 +18,14 @@ import {
   FileText,
   Cake,
   Sparkles,
+  ClipboardPen,
   DoorOpen,
   Gem,
   Megaphone,
   Shield,
   Briefcase,
   Table2,
+  UserSearch,
 } from "lucide-react";
 
 const nav = [
@@ -45,6 +47,12 @@ const nav = [
     { href: "/one-on-one", label: "1-on-1s", icon: Users, comingSoon: true },
     { href: "/trainings", label: "Trainings", icon: GraduationCap, comingSoon: true },
     { href: "/incentives", label: "Incentives", icon: Gift },
+    {
+      href: "/requisitions",
+      label: "Job requisition",
+      icon: ClipboardPen,
+      roles: ["DEPT_HEAD", "MANAGER", "CEO", "ADMIN", "HR"],
+    },
   ]},
   { group: "Me", items: [
     { href: "/documents", label: "Documents", icon: FileText, comingSoon: true },
@@ -81,8 +89,17 @@ export function Sidebar({ onNavigate, role }: { onNavigate?: () => void; role?: 
               {section.group}
             </div>
             <ul className="space-y-0.5">
-              {section.items.map(({ href, label, icon: Icon, comingSoon }) => {
-                const active = pathname === href || (href !== "/home" && pathname.startsWith(href));
+              {section.items
+                .filter((item) => {
+                  const restricted = (item as { roles?: readonly string[] }).roles;
+                  if (restricted?.length) return Boolean(role && restricted.includes(role));
+                  return true;
+                })
+                .map(({ href, label, icon: Icon, comingSoon }) => {
+                const active =
+                  pathname === href ||
+                  (href !== "/home" && href !== "/requisitions" && pathname.startsWith(href)) ||
+                  (href === "/requisitions" && pathname.startsWith("/requisitions"));
                 if (comingSoon) {
                   return (
                     <li key={href}>
@@ -155,6 +172,21 @@ export function Sidebar({ onNavigate, role }: { onNavigate?: () => void; role?: 
                 >
                   <Table2 className="size-4" />
                   Attendance report
+                </Link>
+              </li>
+              <li>
+                <Link
+                  href="/hiring"
+                  onClick={onNavigate}
+                  className={cn(
+                    "flex items-center gap-2.5 px-3 py-2 rounded-md text-sm font-medium transition-colors",
+                    pathname === "/hiring" || pathname.startsWith("/hiring/")
+                      ? "bg-sky-50 text-sky-700"
+                      : "text-ink-500 hover:text-ink-700 hover:bg-ink-50",
+                  )}
+                >
+                  <UserSearch className="size-4" />
+                  Hiring
                 </Link>
               </li>
               <li>

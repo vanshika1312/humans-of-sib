@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Avatar } from "@/components/ui/avatar";
 import { cn, formatDate } from "@/lib/utils";
-import { Building2, CalendarClock, ClipboardList, FileSpreadsheet, KeyRound, UserPlus } from "lucide-react";
+import { Building2, CalendarClock, ClipboardList, ClipboardPen, FileSpreadsheet, KeyRound, UserPlus, Contact } from "lucide-react";
 
 type RecentUser = {
   id: string;
@@ -76,6 +76,8 @@ export function RecruitmentSidebar({ recent }: { recent: RecentUser[] }) {
 
 function Shortcuts() {
   const items = [
+    { href: "/requisitions/new", label: "Request headcount", Icon: ClipboardPen, desc: "Job requisition → HR approval" },
+    { href: "/hiring", label: "Hiring (ATS)", Icon: Contact, desc: "Jobs, candidates, pipeline" },
     { href: "/recruitment#daily-report", label: "Daily report", Icon: FileSpreadsheet, desc: "Pick or type recruiter & location" },
     { href: "/recruitment/access", label: "Dashboard access", Icon: KeyRound, desc: "Admin vs HR workspace roles" },
     { href: "/admin/team/new", label: "Create profile", Icon: UserPlus, desc: "Add someone hired off-cycle" },
