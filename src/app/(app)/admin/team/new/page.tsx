@@ -1,6 +1,8 @@
-import { auth } from "@/auth";
+import { Suspense } from "react";
 import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
+import { requireAppViewer } from "@/lib/app-viewer";
+import { RouteBodyFallback } from "@/components/app-route-body-fallback";
 import Link from "next/link";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardContent } from "@/components/ui/card";
@@ -18,8 +20,18 @@ export default async function NewMemberPage({
   searchParams: Promise<{ notice?: string }>;
 }) {
   const { notice } = await searchParams;
-  const session = await auth();
-  const me = await prisma.user.findUnique({ where: { email: session!.user!.email! } });
+  return (
+    <div className="max-w-2xl mx-auto">
+      <AdminNoticeBanner code={notice} />
+      <Suspense fallback={<RouteBodyFallback />}>
+        <NewMemberPageBody />
+      </Suspense>
+    </div>
+  );
+}
+
+async function NewMemberPageBody() {
+  const me = await requireAppViewer();
   if (!me || !ADMIN_ROLES.includes(me.role)) redirect("/home");
 
   const [managersRaw] = await Promise.all([
@@ -38,9 +50,7 @@ export default async function NewMemberPage({
   const isCeoOrAdmin = ["CEO", "ADMIN"].includes(me.role);
 
   return (
-    <div className="max-w-2xl mx-auto">
-      <AdminNoticeBanner code={notice} />
-
+    <>
       <PageHeader
         title="Add Team Member"
         emoji="👤"
@@ -164,6 +174,6 @@ export default async function NewMemberPage({
           </form>
         </CardContent>
       </Card>
-    </div>
+    </>
   );
 }

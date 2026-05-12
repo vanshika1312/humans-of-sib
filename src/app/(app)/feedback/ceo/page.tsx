@@ -1,6 +1,8 @@
 import Link from "next/link";
-import { auth } from "@/auth";
+import { Suspense } from "react";
 import { prisma } from "@/lib/prisma";
+import { requireAppViewer } from "@/lib/app-viewer";
+import { RouteBodyFallback } from "@/components/app-route-body-fallback";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -12,16 +14,6 @@ export default async function CeoFeedbackPage({
 }: {
   searchParams: Promise<{ sent?: string }>;
 }) {
-  const session = await auth();
-  const me = await prisma.user.findUnique({ where: { email: session!.user!.email! } });
-  if (!me) return null;
-
-  const mine = await prisma.cEOFeedback.findMany({
-    where: { userId: me.id },
-    orderBy: { createdAt: "desc" },
-    take: 20,
-  });
-
   const params = await searchParams;
   const sent = params.sent === "1";
 
@@ -38,6 +30,25 @@ export default async function CeoFeedbackPage({
         }
       />
 
+      <Suspense fallback={<RouteBodyFallback />}>
+        <CeoFeedbackPageBody sent={sent} />
+      </Suspense>
+    </div>
+  );
+}
+
+async function CeoFeedbackPageBody({ sent }: { sent: boolean }) {
+  const me = await requireAppViewer();
+  if (!me) return null;
+
+  const mine = await prisma.cEOFeedback.findMany({
+    where: { userId: me.id },
+    orderBy: { createdAt: "desc" },
+    take: 20,
+  });
+
+  return (
+    <>
       {sent && (
         <div className="mb-5 p-4 rounded-lg bg-emerald-50 text-emerald-700 text-sm border border-emerald-200">
           ✅ Your message is on its way. You&apos;ll hear back here.
@@ -64,7 +75,9 @@ export default async function CeoFeedbackPage({
           <div className="font-semibold text-ink-700">Nothing sent yet</div>
           <p className="text-sm text-ink-400 mt-1">Your voice matters. Start a conversation.</p>
           <div className="mt-4">
-            <Link href="/feedback/ceo/new"><Button variant="accent">Write your first one</Button></Link>
+            <Link href="/feedback/ceo/new">
+              <Button variant="accent">Write your first one</Button>
+            </Link>
           </div>
         </Card>
       ) : (
@@ -93,6 +106,6 @@ export default async function CeoFeedbackPage({
           ))}
         </div>
       )}
-    </div>
+    </>
   );
 }

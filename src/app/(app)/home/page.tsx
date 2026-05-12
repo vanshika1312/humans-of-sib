@@ -1,6 +1,7 @@
 import { Suspense } from "react";
-import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { requireAppViewer } from "@/lib/app-viewer";
+import { RouteBodyFallback } from "@/components/app-route-body-fallback";
 import { HeroGreeting } from "./_components/HeroGreeting";
 import { QuickStats } from "./_components/QuickStats";
 import { OrgMetrics } from "./_components/OrgMetrics";
@@ -11,12 +12,16 @@ import { CeoInbox } from "./_components/CeoInbox";
 import { QuickActions } from "./_components/QuickActions";
 import { TeamSpotlight } from "./_components/TeamSpotlight";
 
-export default async function HomePage() {
-  const session = await auth();
-  const me = await prisma.user.findUnique({
-    where: { email: session!.user!.email! },
-    include: { department: true },
-  });
+export default function HomePage() {
+  return (
+    <Suspense fallback={<RouteBodyFallback />}>
+      <HomePageBody />
+    </Suspense>
+  );
+}
+
+async function HomePageBody() {
+  const me = await requireAppViewer();
   if (!me) return null;
 
   const eventsCount = await prisma.journeyEvent.count({ where: { userId: me.id } });

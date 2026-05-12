@@ -1,5 +1,7 @@
-import { auth } from "@/auth";
+import { Suspense } from "react";
 import { prisma } from "@/lib/prisma";
+import { requireAppViewer } from "@/lib/app-viewer";
+import { RouteBodyFallback } from "@/components/app-route-body-fallback";
 import { PageHeader, EmptyState } from "@/components/ui/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -9,9 +11,23 @@ import { Input, Textarea, Label } from "@/components/ui/input";
 import { relativeTime } from "@/lib/utils";
 import { createWin, toggleClap } from "./actions";
 
-export default async function WinsPage() {
-  const session = await auth();
-  const me = await prisma.user.findUnique({ where: { email: session!.user!.email! } });
+export default function WinsPage() {
+  return (
+    <div>
+      <PageHeader
+        title="Wins Wall"
+        emoji="🏆"
+        subtitle="Share a win, clap for teammates, remember the good stuff."
+      />
+      <Suspense fallback={<RouteBodyFallback />}>
+        <WinsPageBody />
+      </Suspense>
+    </div>
+  );
+}
+
+async function WinsPageBody() {
+  const me = await requireAppViewer();
   if (!me) return null;
 
   const wins = await prisma.win.findMany({
@@ -25,13 +41,7 @@ export default async function WinsPage() {
   });
 
   return (
-    <div>
-      <PageHeader
-        title="Wins Wall"
-        emoji="🏆"
-        subtitle="Share a win, clap for teammates, remember the good stuff."
-      />
-
+    <>
       <Card className="mb-6">
         <CardContent className="pt-5">
           <form action={createWin} className="space-y-3">
@@ -100,6 +110,6 @@ export default async function WinsPage() {
           })}
         </div>
       )}
-    </div>
+    </>
   );
 }

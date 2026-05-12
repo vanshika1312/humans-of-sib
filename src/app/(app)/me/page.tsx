@@ -1,5 +1,7 @@
-import { auth } from "@/auth";
+import { Suspense } from "react";
 import { prisma } from "@/lib/prisma";
+import { requireAppViewer } from "@/lib/app-viewer";
+import { RouteBodyFallback } from "@/components/app-route-body-fallback";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -9,20 +11,36 @@ import { Input, Textarea, Label } from "@/components/ui/input";
 import { formatDate } from "@/lib/utils";
 import { updateProfile } from "./actions";
 
-export default async function MePage() {
-  const session = await auth();
-  const me = await prisma.user.findUnique({
-    where: { email: session!.user!.email! },
-    include: { department: true, city: true, manager: true, reports: true, compensation: true },
-  });
-  if (!me) return null;
-
-  const tenure = Math.floor((Date.now() - me.joinedAt.getTime()) / (1000 * 60 * 60 * 24));
-
+export default function MePage() {
   return (
     <div>
       <PageHeader title="My Profile" emoji="🙋" subtitle="Your face at SIB." />
+      <Suspense fallback={<RouteBodyFallback />}>
+        <MePageBody />
+      </Suspense>
+    </div>
+  );
+}
 
+async function MePageBody() {
+  const base = await requireAppViewer();
+  if (!base) return null;
+
+  const profile = await prisma.user.findUnique({
+    where: { id: base.id },
+    include: {
+      manager: true,
+      reports: { orderBy: { name: "asc" } },
+      compensation: true,
+    },
+  });
+  if (!profile) return null;
+
+  const me = { ...base, ...profile };
+  const tenure = Math.floor((Date.now() - me.joinedAt.getTime()) / (1000 * 60 * 60 * 24));
+
+  return (
+    <>
       <Card className="mb-5 overflow-hidden">
         <div className="h-24 brand-gradient confetti" />
         <CardContent className="pt-0 -mt-10">
@@ -32,7 +50,11 @@ export default async function MePage() {
               <h2 className="text-xl font-bold text-ink-700">{me.name}</h2>
               <div className="text-sm text-ink-500">{me.title || "Team member"}</div>
               <div className="flex items-center gap-1.5 flex-wrap mt-1">
-                {me.department && <Badge tone="sky">{me.department.emoji} {me.department.name}</Badge>}
+                {me.department && (
+                  <Badge tone="sky">
+                    {me.department.emoji} {me.department.name}
+                  </Badge>
+                )}
                 {me.city && <Badge tone="ink">📍 {me.city.name}</Badge>}
                 <Badge tone="orange">{me.role}</Badge>
               </div>
@@ -63,7 +85,12 @@ export default async function MePage() {
             </div>
             <div>
               <Label htmlFor="birthday">Birthday</Label>
-              <Input id="birthday" name="birthday" type="date" defaultValue={me.birthday ? me.birthday.toISOString().slice(0, 10) : ""} />
+              <Input
+                id="birthday"
+                name="birthday"
+                type="date"
+                defaultValue={me.birthday ? me.birthday.toISOString().slice(0, 10) : ""}
+              />
             </div>
             <div>
               <Label htmlFor="bio">Bio</Label>
@@ -87,9 +114,7 @@ export default async function MePage() {
                   ₹{me.compensation.monthlySalary.toLocaleString("en-IN")}
                   <span className="text-sm font-normal text-ink-400">/mo</span>
                 </div>
-                {me.compensation.note && (
-                  <div className="text-xs text-ink-400 mt-0.5">{me.compensation.note}</div>
-                )}
+                {me.compensation.note && <div className="text-xs text-ink-400 mt-0.5">{me.compensation.note}</div>}
               </div>
             </div>
           </CardContent>
@@ -114,7 +139,7 @@ export default async function MePage() {
           </CardContent>
         </Card>
       )}
-    </div>
+    </>
   );
 }
 

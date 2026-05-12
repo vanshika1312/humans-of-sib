@@ -1,7 +1,8 @@
 import Link from "next/link";
-import { auth } from "@/auth";
-import { prisma } from "@/lib/prisma";
+import { Suspense } from "react";
 import { redirect } from "next/navigation";
+import { requireAppViewer } from "@/lib/app-viewer";
+import { RouteBodyFallback } from "@/components/app-route-body-fallback";
 import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select, Textarea } from "@/components/ui/input";
@@ -17,15 +18,15 @@ type Props = {
 export default async function NewRequisitionPage(props: Props) {
   const searchParams = await props.searchParams;
   const flashError = firstSearchParam(searchParams.error);
+  return (
+    <Suspense fallback={<RouteBodyFallback />}>
+      <NewRequisitionPageBody flashError={flashError} />
+    </Suspense>
+  );
+}
 
-  const session = await auth();
-  const me = await prisma.user.findUnique({
-    where: { email: session!.user!.email! },
-    include: {
-      headedDept: { select: { id: true, name: true, emoji: true } },
-      department: { select: { id: true, name: true, emoji: true } },
-    },
-  });
+async function NewRequisitionPageBody({ flashError }: { flashError: string | undefined }) {
+  const me = await requireAppViewer();
   if (!me || !canSubmitJobRequisition(me.role)) redirect("/home");
 
   const pickDept = canPickDepartmentOnRequisition(me.role);

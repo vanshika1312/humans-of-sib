@@ -1,6 +1,7 @@
 import Link from "next/link";
-import { auth } from "@/auth";
-import { prisma } from "@/lib/prisma";
+import { Suspense } from "react";
+import { requireAppViewer } from "@/lib/app-viewer";
+import { RouteBodyFallback } from "@/components/app-route-body-fallback";
 import {
   PAYROLL_REPORT_ROLES,
   fetchPayrollAttendanceReport,
@@ -17,7 +18,6 @@ import { Download } from "lucide-react";
 import { AttendanceCsvImport } from "./_components/AttendanceCsvImport";
 import { AttendanceCsvDelete } from "./_components/AttendanceCsvDelete";
 import { ReportMonthNav } from "@/components/report-month-nav";
-import { Suspense } from "react";
 
 const MONTHS = [
   "January", "February", "March", "April", "May", "June",
@@ -37,19 +37,22 @@ function clampMonth(m: number): number {
 export default async function AdminAttendanceReportPage(props: {
   searchParams: Promise<{ year?: string; month?: string }>;
 }) {
-  const session = await auth();
-  const me = await prisma.user.findUnique({
-    where: { email: session!.user!.email! },
-    select: { role: true },
-  });
-  if (!me || !(PAYROLL_REPORT_ROLES as readonly string[]).includes(me.role)) {
-    redirect("/home");
-  }
-
   const sp = await props.searchParams;
   const now = new Date();
   const year = clampYear(parseInt(sp.year ?? String(now.getFullYear()), 10));
   const month = clampMonth(parseInt(sp.month ?? String(now.getMonth() + 1), 10));
+  return (
+    <Suspense fallback={<RouteBodyFallback />}>
+      <AdminAttendanceReportBody year={year} month={month} />
+    </Suspense>
+  );
+}
+
+async function AdminAttendanceReportBody({ year, month }: { year: number; month: number }) {
+  const me = await requireAppViewer();
+  if (!me || !(PAYROLL_REPORT_ROLES as readonly string[]).includes(me.role)) {
+    redirect("/home");
+  }
 
   const { summaries, details } = await fetchPayrollAttendanceReport(year, month);
   const nowUtc = new Date();

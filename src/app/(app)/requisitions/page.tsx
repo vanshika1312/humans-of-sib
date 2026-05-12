@@ -1,6 +1,8 @@
 import Link from "next/link";
-import { auth } from "@/auth";
+import { Suspense } from "react";
 import { prisma } from "@/lib/prisma";
+import { requireAppViewer } from "@/lib/app-viewer";
+import { RouteBodyFallback } from "@/components/app-route-body-fallback";
 import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -20,13 +22,27 @@ type Props = {
 
 export default async function MyRequisitionsPage(props: Props) {
   const searchParams = await props.searchParams;
-  const session = await auth();
-  const me = await prisma.user.findUnique({ where: { email: session!.user!.email! } });
-  if (!me) return null;
-
   const submitted = firstSearchParam(searchParams.submitted) === "1";
   const cancelled = firstSearchParam(searchParams.cancelled) === "1";
   const flashError = firstSearchParam(searchParams.error);
+  return (
+    <Suspense fallback={<RouteBodyFallback />}>
+      <MyRequisitionsPageBody submitted={submitted} cancelled={cancelled} flashError={flashError} />
+    </Suspense>
+  );
+}
+
+async function MyRequisitionsPageBody({
+  submitted,
+  cancelled,
+  flashError,
+}: {
+  submitted: boolean;
+  cancelled: boolean;
+  flashError: string | undefined;
+}) {
+  const me = await requireAppViewer();
+  if (!me) return null;
 
   const canSeeHiringDesk = ["CEO", "ADMIN", "HR"].includes(me.role);
 

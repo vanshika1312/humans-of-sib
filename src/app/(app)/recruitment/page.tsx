@@ -1,6 +1,8 @@
-import { auth } from "@/auth";
+import { Suspense } from "react";
 import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
+import { requireAppViewer } from "@/lib/app-viewer";
+import { RouteBodyFallback } from "@/components/app-route-body-fallback";
 import { RecruitmentHero } from "./_components/recruitment-hero";
 import { RecruitmentKpis } from "./_components/recruitment-kpis";
 import { RecruitmentSidebar } from "./_components/recruitment-sidebar";
@@ -20,22 +22,32 @@ import { DailyReportForm } from "./_components/daily-report-form";
 
 const HR_ROLES = ["CEO", "ADMIN", "HR"];
 
+type RecruitmentOverviewSearchParams = {
+  funnelSaved?: string;
+  metricsForbidden?: string;
+  dailyReportSaved?: string;
+  dailyReportError?: string;
+};
+
 export default async function RecruitmentOverviewPage(props: {
-  searchParams: Promise<{
-    funnelSaved?: string;
-    metricsForbidden?: string;
-    dailyReportSaved?: string;
-    dailyReportError?: string;
-  }>;
+  searchParams: Promise<RecruitmentOverviewSearchParams>;
 }) {
+  const sp = await props.searchParams;
+  return (
+    <Suspense fallback={<RouteBodyFallback />}>
+      <RecruitmentOverviewBody searchParams={sp} />
+    </Suspense>
+  );
+}
+
+async function RecruitmentOverviewBody({ searchParams }: { searchParams: RecruitmentOverviewSearchParams }) {
   const {
     funnelSaved,
     metricsForbidden,
     dailyReportSaved,
     dailyReportError,
-  } = await props.searchParams;
-  const session = await auth();
-  const me = await prisma.user.findUnique({ where: { email: session!.user!.email! } });
+  } = searchParams;
+  const me = await requireAppViewer();
   if (!me || !HR_ROLES.includes(me.role)) redirect("/home");
 
   const since = new Date();

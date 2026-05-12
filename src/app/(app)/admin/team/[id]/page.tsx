@@ -1,6 +1,8 @@
-import { auth } from "@/auth";
+import { Suspense } from "react";
 import { prisma } from "@/lib/prisma";
 import { redirect, notFound } from "next/navigation";
+import { requireAppViewer } from "@/lib/app-viewer";
+import { RouteBodyFallback } from "@/components/app-route-body-fallback";
 import Link from "next/link";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardContent } from "@/components/ui/card";
@@ -39,8 +41,18 @@ export default async function EditMemberPage({
   const mailError = firstSearchParam(sp.mailError);
   const mailDetail =
     notice === "invite_failed" && mailError ? mailError : undefined;
-  const session = await auth();
-  const me = await prisma.user.findUnique({ where: { email: session!.user!.email! } });
+  return (
+    <div className="max-w-4xl mx-auto">
+      <AdminNoticeBanner code={notice} detail={mailDetail} />
+      <Suspense fallback={<RouteBodyFallback />}>
+        <EditMemberPageBody id={id} />
+      </Suspense>
+    </div>
+  );
+}
+
+async function EditMemberPageBody({ id }: { id: string }) {
+  const me = await requireAppViewer();
   if (!me || !ADMIN_ROLES.includes(me.role)) redirect("/home");
 
   const [member, cities, managersRaw] = await Promise.all([
@@ -71,8 +83,6 @@ export default async function EditMemberPage({
 
   return (
     <div className="max-w-2xl mx-auto">
-      <AdminNoticeBanner code={notice} detail={mailDetail} />
-
       <PageHeader title="Edit Member" emoji="✏️" subtitle={`Editing ${dn}`} />
 
       <div className="flex items-center gap-4 mb-6 p-4 rounded-xl bg-ink-50 border border-ink-100">

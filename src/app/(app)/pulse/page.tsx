@@ -1,6 +1,8 @@
 import Image from "next/image";
-import { auth } from "@/auth";
+import { Suspense } from "react";
 import { prisma } from "@/lib/prisma";
+import { requireAppViewer } from "@/lib/app-viewer";
+import { RouteBodyFallback } from "@/components/app-route-body-fallback";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -18,9 +20,19 @@ const FACES = [
   { v: 5, e: "🤩", l: "Great" },
 ];
 
-export default async function PulsePage() {
-  const session = await auth();
-  const me = await prisma.user.findUnique({ where: { email: session!.user!.email! } });
+export default function PulsePage() {
+  return (
+    <div>
+      <PageHeader title="Weekly Pulse" emoji="💗" subtitle="One question a week. A minute to answer. You — and SIB — get better." />
+      <Suspense fallback={<RouteBodyFallback />}>
+        <PulsePageBody />
+      </Suspense>
+    </div>
+  );
+}
+
+async function PulsePageBody() {
+  const me = await requireAppViewer();
   if (!me) return null;
 
   const weekStart = weekStartDate();
@@ -39,9 +51,7 @@ export default async function PulsePage() {
     : "—";
 
   return (
-    <div>
-      <PageHeader title="Weekly Pulse" emoji="💗" subtitle="One question a week. A minute to answer. You — and SIB — get better." />
-
+    <>
       <Card className="mb-6">
         <CardContent className="pt-6">
           {/* Ritvik's question header */}
@@ -109,6 +119,6 @@ export default async function PulsePage() {
           )}
         </CardContent>
       </Card>
-    </div>
+    </>
   );
 }

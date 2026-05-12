@@ -1,6 +1,8 @@
-import { auth } from "@/auth";
+import { Suspense } from "react";
 import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
+import { requireAppViewer } from "@/lib/app-viewer";
+import { RouteBodyFallback } from "@/components/app-route-body-fallback";
 import Link from "next/link";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -25,8 +27,18 @@ export default async function AdminPage({
   const mailError = firstSearchParam(sp.mailError);
   const mailDetail =
     notice === "invite_failed" && mailError ? mailError : undefined;
-  const session = await auth();
-  const me = await prisma.user.findUnique({ where: { email: session!.user!.email! } });
+  return (
+    <div>
+      <AdminNoticeBanner code={notice} detail={mailDetail} />
+      <Suspense fallback={<RouteBodyFallback />}>
+        <AdminPageBody />
+      </Suspense>
+    </div>
+  );
+}
+
+async function AdminPageBody() {
+  const me = await requireAppViewer();
   if (!me || !ADMIN_ROLES.includes(me.role)) redirect("/home");
 
   const [users, depts, cities] = await Promise.all([
@@ -47,15 +59,15 @@ export default async function AdminPage({
 
   return (
     <div>
-      <AdminNoticeBanner code={notice} detail={mailDetail} />
-
       <PageHeader
         title="Admin Panel"
         emoji="🔐"
         subtitle="Manage team members, departments, and compensation."
         action={
           <Link href="/admin/team/new">
-            <Button variant="accent"><UserPlus className="size-4" /> Add member</Button>
+            <Button variant="accent">
+              <UserPlus className="size-4" /> Add member
+            </Button>
           </Link>
         }
       />

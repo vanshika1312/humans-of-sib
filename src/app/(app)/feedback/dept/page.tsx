@@ -1,5 +1,7 @@
-import { auth } from "@/auth";
+import { Suspense } from "react";
 import { prisma } from "@/lib/prisma";
+import { requireAppViewer } from "@/lib/app-viewer";
+import { RouteBodyFallback } from "@/components/app-route-body-fallback";
 import { PageHeader, EmptyState } from "@/components/ui/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -22,9 +24,23 @@ const TYPE_LABEL: Record<string, string> = {
   REQUEST: "📬 Request",
 };
 
-export default async function DeptFeedbackPage() {
-  const session = await auth();
-  const me = await prisma.user.findUnique({ where: { email: session!.user!.email! } });
+export default function DeptFeedbackPage() {
+  return (
+    <div>
+      <PageHeader
+        title="Department Feedback"
+        emoji="🤝"
+        subtitle="Send kudos, constructive notes, or requests to other departments. Public by default — build the team together."
+      />
+      <Suspense fallback={<RouteBodyFallback />}>
+        <DeptFeedbackPageBody />
+      </Suspense>
+    </div>
+  );
+}
+
+async function DeptFeedbackPageBody() {
+  const me = await requireAppViewer();
   if (!me) return null;
 
   const [publicFeedback, toMyDept] = await Promise.all([
@@ -51,13 +67,7 @@ export default async function DeptFeedbackPage() {
   ]);
 
   return (
-    <div>
-      <PageHeader
-        title="Department Feedback"
-        emoji="🤝"
-        subtitle="Send kudos, constructive notes, or requests to other departments. Public by default — build the team together."
-      />
-
+    <>
       <div className="grid md:grid-cols-3 gap-5">
         <div className="md:col-span-1 order-2 md:order-1">
           <Card className="sticky top-20">
@@ -117,7 +127,7 @@ export default async function DeptFeedbackPage() {
           </div>
         </div>
       </div>
-    </div>
+    </>
   );
 }
 

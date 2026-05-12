@@ -1,7 +1,9 @@
-import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
 import Link from "next/link";
+import { Suspense } from "react";
+import { requireAppViewer } from "@/lib/app-viewer";
+import { RouteBodyFallback } from "@/components/app-route-body-fallback";
 import { PageHeader } from "@/components/ui/page-header";
 import { Avatar } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -18,8 +20,19 @@ type SearchProps = {
 
 export default async function RecruitmentAccessPage(props: SearchProps) {
   const searchParams = await props.searchParams;
-  const session = await auth();
-  const me = await prisma.user.findUnique({ where: { email: session!.user!.email! } });
+  return (
+    <Suspense fallback={<RouteBodyFallback />}>
+      <RecruitmentAccessPageBody searchParams={searchParams} />
+    </Suspense>
+  );
+}
+
+async function RecruitmentAccessPageBody({
+  searchParams,
+}: {
+  searchParams: { error?: string; saved?: string };
+}) {
+  const me = await requireAppViewer();
   if (!me || !RECRUITER_ROLES.includes(me.role)) redirect("/home");
 
   const canPromoteAdmin = me.role === "CEO" || me.role === "ADMIN";

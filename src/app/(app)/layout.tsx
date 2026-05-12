@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { auth, signOut } from "@/auth";
-import { prisma } from "@/lib/prisma";
 import { displayName } from "@/lib/user-display-name";
+import { requireAppViewer } from "@/lib/app-viewer";
 import { AppSidebar } from "@/components/shell/app-sidebar";
 import { Topbar } from "@/components/shell/topbar";
 
@@ -9,11 +9,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const session = await auth();
   if (!session?.user?.email) redirect("/sign-in");
 
-  const user = await prisma.user.findUnique({
-    where: { email: session.user.email },
-    include: { department: true, city: true },
-  });
-
+  const user = await requireAppViewer();
   if (!user) redirect("/sign-in?error=not_registered");
   if (user.invitationPending) {
     redirect("/sign-in?error=pending_onboarding");

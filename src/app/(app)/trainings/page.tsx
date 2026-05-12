@@ -1,5 +1,7 @@
-import { auth } from "@/auth";
+import { Suspense } from "react";
 import { prisma } from "@/lib/prisma";
+import { requireAppViewer } from "@/lib/app-viewer";
+import { RouteBodyFallback } from "@/components/app-route-body-fallback";
 import { PageHeader, EmptyState } from "@/components/ui/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -8,9 +10,19 @@ import { Input, Label } from "@/components/ui/input";
 import { formatDate } from "@/lib/utils";
 import { enrollInTraining, markTrainingComplete } from "./actions";
 
-export default async function TrainingsPage() {
-  const session = await auth();
-  const me = await prisma.user.findUnique({ where: { email: session!.user!.email! } });
+export default function TrainingsPage() {
+  return (
+    <div>
+      <PageHeader title="Internal Trainings" emoji="🎓" subtitle="Level up. Complete to earn a SIB certificate." />
+      <Suspense fallback={<RouteBodyFallback />}>
+        <TrainingsPageBody />
+      </Suspense>
+    </div>
+  );
+}
+
+async function TrainingsPageBody() {
+  const me = await requireAppViewer();
   if (!me) return null;
 
   const [trainings, myCerts] = await Promise.all([
@@ -29,9 +41,7 @@ export default async function TrainingsPage() {
   ]);
 
   return (
-    <div>
-      <PageHeader title="Internal Trainings" emoji="🎓" subtitle="Level up. Complete to earn a SIB certificate." />
-
+    <>
       {myCerts.length > 0 && (
         <Card className="mb-6 overflow-hidden">
           <div className="brand-gradient p-5 text-white">
@@ -97,6 +107,6 @@ export default async function TrainingsPage() {
           })}
         </div>
       )}
-    </div>
+    </>
   );
 }

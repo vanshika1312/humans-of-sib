@@ -1,5 +1,7 @@
-import { auth } from "@/auth";
+import { Suspense } from "react";
 import { prisma } from "@/lib/prisma";
+import { requireAppViewer } from "@/lib/app-viewer";
+import { RouteBodyFallback } from "@/components/app-route-body-fallback";
 import { PageHeader, EmptyState } from "@/components/ui/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -17,9 +19,19 @@ const STATUS_TONE: Record<string, "green" | "sky" | "orange" | "red" | "ink"> = 
 
 const CYCLE_EMOJI: Record<string, string> = { YEAR: "📅", QUARTER: "🗓️", MONTH: "📆" };
 
-export default async function OKRPage() {
-  const session = await auth();
-  const me = await prisma.user.findUnique({ where: { email: session!.user!.email! } });
+export default function OKRPage() {
+  return (
+    <div>
+      <PageHeader title="OKRs & Goals" emoji="🎯" subtitle="Year → Quarter → Month. Cascade your ambitions." />
+      <Suspense fallback={<RouteBodyFallback />}>
+        <OKRPageBody />
+      </Suspense>
+    </div>
+  );
+}
+
+async function OKRPageBody() {
+  const me = await requireAppViewer();
   if (!me) return null;
 
   const now = new Date();
@@ -33,9 +45,7 @@ export default async function OKRPage() {
   ]);
 
   return (
-    <div>
-      <PageHeader title="OKRs & Goals" emoji="🎯" subtitle="Year → Quarter → Month. Cascade your ambitions." />
-
+    <>
       <div className="grid md:grid-cols-[1fr,380px] gap-6">
         <div className="space-y-6">
           <OkrSection title="🧭 Year" items={year_} />
@@ -104,7 +114,7 @@ export default async function OKRPage() {
           </CardContent>
         </Card>
       </div>
-    </div>
+    </>
   );
 }
 

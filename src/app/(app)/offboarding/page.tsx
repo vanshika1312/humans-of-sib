@@ -1,5 +1,7 @@
-import { auth } from "@/auth";
+import { Suspense } from "react";
 import { prisma } from "@/lib/prisma";
+import { requireAppViewer } from "@/lib/app-viewer";
+import { RouteBodyFallback } from "@/components/app-route-body-fallback";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -15,9 +17,23 @@ const DEFAULT_CHECKLIST = [
   { title: "Remove from payroll", ownedBy: "Finance" },
 ];
 
-export default async function OffboardingPage() {
-  const session = await auth();
-  const me = await prisma.user.findUnique({ where: { email: session!.user!.email! } });
+export default function OffboardingPage() {
+  return (
+    <div>
+      <PageHeader
+        title="Offboarding"
+        emoji="👋"
+        subtitle="If you ever decide to move on, here's what happens. We make it clean, kind, and complete."
+      />
+      <Suspense fallback={<RouteBodyFallback />}>
+        <OffboardingPageBody />
+      </Suspense>
+    </div>
+  );
+}
+
+async function OffboardingPageBody() {
+  const me = await requireAppViewer();
   if (!me) return null;
 
   const tasks = await prisma.offboardingTask.findMany({
@@ -28,13 +44,7 @@ export default async function OffboardingPage() {
   const completedCount = tasks.filter((t) => t.completed).length;
 
   return (
-    <div>
-      <PageHeader
-        title="Offboarding"
-        emoji="👋"
-        subtitle="If you ever decide to move on, here's what happens. We make it clean, kind, and complete."
-      />
-
+    <>
       {me.status !== "NOTICE_PERIOD" && me.status !== "EXITED" && (
         <Card className="mb-6 p-5 bg-sky-50 border-sky-200">
           <div className="text-sm text-sky-700">
@@ -88,6 +98,6 @@ export default async function OffboardingPage() {
           </CardContent>
         </Card>
       )}
-    </div>
+    </>
   );
 }

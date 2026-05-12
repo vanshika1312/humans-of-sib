@@ -1,5 +1,7 @@
-import { auth } from "@/auth";
+import { Suspense } from "react";
 import { prisma } from "@/lib/prisma";
+import { requireAppViewer } from "@/lib/app-viewer";
+import { RouteBodyFallback } from "@/components/app-route-body-fallback";
 import { PageHeader, EmptyState } from "@/components/ui/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -36,9 +38,19 @@ const TYPE_EMOJI: Record<string, string> = {
   OTHER: "📎",
 };
 
-export default async function DocumentsPage() {
-  const session = await auth();
-  const me = await prisma.user.findUnique({ where: { email: session!.user!.email! } });
+export default function DocumentsPage() {
+  return (
+    <div>
+      <PageHeader title="My Documents" emoji="📂" subtitle="All your HR paperwork — in one place." />
+      <Suspense fallback={<RouteBodyFallback />}>
+        <DocumentsPageBody />
+      </Suspense>
+    </div>
+  );
+}
+
+async function DocumentsPageBody() {
+  const me = await requireAppViewer();
   if (!me) return null;
 
   const docs = await prisma.document.findMany({
@@ -52,9 +64,7 @@ export default async function DocumentsPage() {
   }, {});
 
   return (
-    <div>
-      <PageHeader title="My Documents" emoji="📂" subtitle="All your HR paperwork — in one place." />
-
+    <>
       {docs.length === 0 ? (
         <EmptyState
           emoji="📂"
@@ -96,6 +106,6 @@ export default async function DocumentsPage() {
           ))}
         </div>
       )}
-    </div>
+    </>
   );
 }

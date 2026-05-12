@@ -1,7 +1,9 @@
 import Link from "next/link";
 import type { Role } from "@/generated/prisma";
-import { auth } from "@/auth";
+import { Suspense } from "react";
 import { prisma } from "@/lib/prisma";
+import { requireAppViewer } from "@/lib/app-viewer";
+import { RouteBodyFallback } from "@/components/app-route-body-fallback";
 import { PageHeader } from "@/components/ui/page-header";
 import { Avatar } from "@/components/ui/avatar";
 import {
@@ -12,18 +14,17 @@ import {
 import { formatDate, calendarDaysSincePastDate } from "@/lib/utils";
 import { displayName } from "@/lib/user-display-name";
 
-export default async function PeoplePage() {
-  const session = await auth();
-  const viewer = session?.user?.email
-    ? await prisma.user.findUnique({
-        where: { email: session.user.email },
-        select: {
-          id: true,
-          role: true,
-          headedDept: { select: { id: true } },
-        },
-      })
-    : null;
+export default function PeoplePage() {
+  return (
+    <Suspense fallback={<RouteBodyFallback />}>
+      <PeoplePageBody />
+    </Suspense>
+  );
+}
+
+async function PeoplePageBody() {
+  const viewer = await requireAppViewer();
+  if (!viewer) return null;
 
   const [members, departments] = await Promise.all([
     prisma.user.findMany({

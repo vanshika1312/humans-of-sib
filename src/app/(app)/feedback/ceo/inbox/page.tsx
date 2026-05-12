@@ -1,6 +1,8 @@
-import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
+import { Suspense } from "react";
+import { requireAppViewer } from "@/lib/app-viewer";
+import { RouteBodyFallback } from "@/components/app-route-body-fallback";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -10,9 +12,19 @@ import { Avatar } from "@/components/ui/avatar";
 import { relativeTime } from "@/lib/utils";
 import { respondCeoFeedback } from "../actions";
 
-export default async function CeoInboxPage() {
-  const session = await auth();
-  const me = await prisma.user.findUnique({ where: { email: session!.user!.email! } });
+export default function CeoInboxPage() {
+  return (
+    <div>
+      <PageHeader title="CEO Inbox" emoji="📬" subtitle="Every message sent to you by the team." />
+      <Suspense fallback={<RouteBodyFallback />}>
+        <CeoInboxPageBody />
+      </Suspense>
+    </div>
+  );
+}
+
+async function CeoInboxPageBody() {
+  const me = await requireAppViewer();
   if (!me || !["CEO", "ADMIN"].includes(me.role)) redirect("/home");
 
   const all = await prisma.cEOFeedback.findMany({
@@ -28,9 +40,7 @@ export default async function CeoInboxPage() {
   };
 
   return (
-    <div>
-      <PageHeader title="CEO Inbox" emoji="📬" subtitle="Every message sent to you by the team." />
-
+    <>
       <div className="grid grid-cols-3 gap-3 mb-6">
         <Card className="p-4"><div className="text-xs text-ink-400">Total</div><div className="text-2xl font-bold text-ink-700">{stats.total}</div></Card>
         <Card className="p-4"><div className="text-xs text-ink-400">New</div><div className="text-2xl font-bold text-orange-500">{stats.new}</div></Card>
@@ -91,6 +101,6 @@ export default async function CeoInboxPage() {
         ))}
         {all.length === 0 && <Card className="p-10 text-center text-ink-400">No messages yet.</Card>}
       </div>
-    </div>
+    </>
   );
 }

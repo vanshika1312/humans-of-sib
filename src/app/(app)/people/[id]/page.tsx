@@ -1,8 +1,9 @@
-import type { ReactNode } from "react";
+import { Suspense, type ReactNode } from "react";
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { requireAppViewer } from "@/lib/app-viewer";
+import { RouteBodyFallback } from "@/components/app-route-body-fallback";
 import { Avatar } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -27,18 +28,15 @@ function formatInr(amount: number, currency: string) {
 
 export default async function PersonPage({ params }: Props) {
   const { id } = await params;
+  return (
+    <Suspense fallback={<RouteBodyFallback />}>
+      <PersonPageBody id={id} />
+    </Suspense>
+  );
+}
 
-  const session = await auth();
-  if (!session?.user?.email) notFound();
-
-  const viewer = await prisma.user.findUnique({
-    where: { email: session.user.email },
-    select: {
-      id: true,
-      role: true,
-      headedDept: { select: { id: true } },
-    },
-  });
+async function PersonPageBody({ id }: { id: string }) {
+  const viewer = await requireAppViewer();
   if (!viewer) notFound();
 
   const person = await prisma.user.findUnique({

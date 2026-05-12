@@ -1,5 +1,7 @@
-import { auth } from "@/auth";
+import { Suspense } from "react";
 import { prisma } from "@/lib/prisma";
+import { requireAppViewer } from "@/lib/app-viewer";
+import { RouteBodyFallback } from "@/components/app-route-body-fallback";
 import { PageHeader, EmptyState } from "@/components/ui/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -32,12 +34,23 @@ const TYPE_EMOJI: Record<string, string> = {
   CUSTOM: "✨",
 };
 
-export default async function JourneyPage() {
-  const session = await auth();
-  const me = await prisma.user.findUnique({
-    where: { email: session!.user!.email! },
-    include: { department: true, city: true },
-  });
+export default function JourneyPage() {
+  return (
+    <div>
+      <PageHeader
+        title="My Journey"
+        subtitle="Your story at Skillinabox — every milestone, win, and moment worth remembering."
+        emoji="🧭"
+      />
+      <Suspense fallback={<RouteBodyFallback />}>
+        <JourneyPageBody />
+      </Suspense>
+    </div>
+  );
+}
+
+async function JourneyPageBody() {
+  const me = await requireAppViewer();
   if (!me) return null;
 
   const events = await prisma.journeyEvent.findMany({
@@ -55,13 +68,7 @@ export default async function JourneyPage() {
   };
 
   return (
-    <div>
-      <PageHeader
-        title="My Journey"
-        subtitle="Your story at Skillinabox — every milestone, win, and moment worth remembering."
-        emoji="🧭"
-      />
-
+    <>
       <div className="grid md:grid-cols-4 gap-3 mb-6">
         <Card className="p-4">
           <div className="text-xs text-ink-400">At SIB since</div>
@@ -153,6 +160,6 @@ export default async function JourneyPage() {
           </Card>
         </div>
       </div>
-    </div>
+    </>
   );
 }

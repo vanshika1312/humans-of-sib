@@ -1,5 +1,7 @@
-import { auth } from "@/auth";
+import { Suspense } from "react";
 import { prisma } from "@/lib/prisma";
+import { requireAppViewer } from "@/lib/app-viewer";
+import { RouteBodyFallback } from "@/components/app-route-body-fallback";
 import { PageHeader, EmptyState } from "@/components/ui/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -18,9 +20,16 @@ const DEFAULT_TASKS = [
   { dueDay: 90, title: "Claim full ownership of your scope", category: "Work" },
 ];
 
-export default async function OnboardingPage() {
-  const session = await auth();
-  const me = await prisma.user.findUnique({ where: { email: session!.user!.email! } });
+export default function OnboardingPage() {
+  return (
+    <Suspense fallback={<RouteBodyFallback />}>
+      <OnboardingPageBody />
+    </Suspense>
+  );
+}
+
+async function OnboardingPageBody() {
+  const me = await requireAppViewer();
   if (!me) return null;
 
   let tasks = await prisma.onboardingTask.findMany({
@@ -28,7 +37,6 @@ export default async function OnboardingPage() {
     orderBy: [{ dueDay: "asc" }, { createdAt: "asc" }],
   });
 
-  // If the user has none, seed the default plan for them
   if (tasks.length === 0) {
     await prisma.onboardingTask.createMany({
       data: DEFAULT_TASKS.map((t) => ({ ...t, userId: me.id })),
@@ -62,7 +70,9 @@ export default async function OnboardingPage() {
               <div className="text-xs text-ink-400">Progress</div>
               <div className="text-2xl font-bold text-ink-700">{pct}%</div>
             </div>
-            <div className="text-sm text-ink-500">{completedCount} of {tasks.length} done</div>
+            <div className="text-sm text-ink-500">
+              {completedCount} of {tasks.length} done
+            </div>
           </div>
           <div className="mt-3 h-2 rounded-full bg-ink-100 overflow-hidden">
             <div className="h-full brand-gradient" style={{ width: `${pct}%` }} />
@@ -80,7 +90,13 @@ export default async function OnboardingPage() {
               {byDay[day].map((t) => (
                 <Card key={t.id}>
                   <CardContent className="py-3">
-                    <form action={async () => { "use server"; await toggleOnboardingTask(t.id); }} className="flex items-center gap-3">
+                    <form
+                      action={async () => {
+                        "use server";
+                        await toggleOnboardingTask(t.id);
+                      }}
+                      className="flex items-center gap-3"
+                    >
                       <button
                         type="submit"
                         aria-label="Toggle"
@@ -93,10 +109,16 @@ export default async function OnboardingPage() {
                         {t.completed && "✓"}
                       </button>
                       <div className="flex-1 min-w-0">
-                        <div className={`text-sm font-medium ${t.completed ? "line-through text-ink-400" : "text-ink-700"}`}>
+                        <div
+                          className={`text-sm font-medium ${t.completed ? "line-through text-ink-400" : "text-ink-700"}`}
+                        >
                           {t.title}
                         </div>
-                        {t.category && <Badge tone="ink" className="mt-1">{t.category}</Badge>}
+                        {t.category && (
+                          <Badge tone="ink" className="mt-1">
+                            {t.category}
+                          </Badge>
+                        )}
                       </div>
                       {t.completed && t.completedAt && (
                         <span className="text-xs text-ink-400">✓ {formatDate(t.completedAt)}</span>

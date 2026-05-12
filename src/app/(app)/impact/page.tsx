@@ -1,5 +1,7 @@
-import { auth } from "@/auth";
+import { Suspense } from "react";
 import { prisma } from "@/lib/prisma";
+import { requireAppViewer } from "@/lib/app-viewer";
+import { RouteBodyFallback } from "@/components/app-route-body-fallback";
 import { PageHeader, EmptyState } from "@/components/ui/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -11,9 +13,23 @@ const METRIC_LABEL: Record<string, { label: string; emoji: string; color: string
   income_launched: { label: "Income launched (₹)", emoji: "💰", color: "text-emerald-600" },
 };
 
-export default async function ImpactPage() {
-  const session = await auth();
-  const me = await prisma.user.findUnique({ where: { email: session!.user!.email! } });
+export default function ImpactPage() {
+  return (
+    <div>
+      <PageHeader
+        title="Learner Impact"
+        emoji="💎"
+        subtitle="At Skillinabox, your work changes lives. Here's yours, by the numbers."
+      />
+      <Suspense fallback={<RouteBodyFallback />}>
+        <ImpactPageBody />
+      </Suspense>
+    </div>
+  );
+}
+
+async function ImpactPageBody() {
+  const me = await requireAppViewer();
   if (!me) return null;
 
   const records = await prisma.learnerImpact.findMany({
@@ -30,13 +46,7 @@ export default async function ImpactPage() {
   for (const r of records) (byPeriod[r.period] ||= []).push(r);
 
   return (
-    <div>
-      <PageHeader
-        title="Learner Impact"
-        emoji="💎"
-        subtitle="At Skillinabox, your work changes lives. Here's yours, by the numbers."
-      />
-
+    <>
       <Card className="mb-6 overflow-hidden">
         <div className="brand-gradient p-6 text-white">
           <div className="text-sm opacity-90">All-time</div>
@@ -94,6 +104,6 @@ export default async function ImpactPage() {
           </div>
         </>
       )}
-    </div>
+    </>
   );
 }
