@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select, Textarea } from "@/components/ui/input";
+import { DepartmentNameField } from "@/components/workspace/department-name-field";
 import { submitJobRequisition } from "../actions";
 import { canPickDepartmentOnRequisition, canSubmitJobRequisition } from "@/lib/hiring-requisition-access";
 import { firstSearchParam } from "@/lib/search-param";
@@ -28,12 +29,6 @@ export default async function NewRequisitionPage(props: Props) {
   if (!me || !canSubmitJobRequisition(me.role)) redirect("/home");
 
   const pickDept = canPickDepartmentOnRequisition(me.role);
-  const departments = pickDept
-    ? await prisma.department.findMany({
-        orderBy: { name: "asc" },
-        select: { id: true, name: true, emoji: true },
-      })
-    : [];
 
   const deptLabel =
     me.role === "DEPT_HEAD" && me.headedDept
@@ -69,19 +64,7 @@ export default async function NewRequisitionPage(props: Props) {
       )}
 
       <form action={submitJobRequisition} className="rounded-2xl border border-ink-100 bg-white shadow-sm p-6 space-y-5">
-        {pickDept && (
-          <div>
-            <Label htmlFor="departmentId">Department</Label>
-            <Select id="departmentId" name="departmentId" required className="mt-1.5">
-              <option value="">Select department…</option>
-              {departments.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {(d.emoji ? `${d.emoji} ` : "") + d.name}
-                </option>
-              ))}
-            </Select>
-          </div>
-        )}
+        {pickDept && <DepartmentNameField label="Department" required placeholder="Which team is this for?" />}
 
         <div>
           <Label htmlFor="title">Role title</Label>

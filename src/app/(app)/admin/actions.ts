@@ -16,6 +16,7 @@ import {
 import { sendEmployeeOnboardingInvite } from "@/lib/email";
 import { allocateEmployeeCode } from "@/lib/next-employee-code";
 import { newOnboardingSecret, onboardingInviteExpiry } from "@/lib/onboarding-invite";
+import { departmentIdFromForm } from "@/lib/department-resolve";
 
 const ADMIN_ROLES = ["CEO", "ADMIN", "HR"];
 
@@ -37,7 +38,7 @@ export async function createMember(fd: FormData) {
   const dateOfLeavingRaw = fd.get("dateOfLeaving") as string | null;
   const phone = (fd.get("phone") as string)?.trim() || "";
   const salary = fd.get("salary") as string;
-  const departmentId = (fd.get("departmentId") as string)?.trim();
+  const departmentId = await departmentIdFromForm(prisma, fd);
   const managerId = (fd.get("managerId") as string)?.trim();
   const baseUrl = (process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000").replace(/\/$/, "");
 
@@ -79,7 +80,7 @@ export async function createMember(fd: FormData) {
         title: title || null,
         role,
         status,
-        departmentId: departmentId || null,
+        departmentId,
         managerId: managerId || null,
         joinedAt: joinedAt ? new Date(joinedAt) : new Date(),
         dateOfLeaving: dateOfLeavingRaw?.trim() ? new Date(dateOfLeavingRaw) : null,
@@ -220,7 +221,7 @@ export async function updateMember(userId: string, fd: FormData) {
   const combinedName = [firstName, lastName].filter(Boolean).join(" ").trim();
 
   const title = fd.get("title") as string;
-  const departmentId = fd.get("departmentId") as string;
+  const departmentId = await departmentIdFromForm(prisma, fd);
   const cityId = fd.get("cityId") as string;
   const managerId = fd.get("managerId") as string;
   const joinedAt = fd.get("joinedAt") as string;
@@ -251,7 +252,7 @@ export async function updateMember(userId: string, fd: FormData) {
       title: title?.trim() || null,
       role,
       status,
-      departmentId: departmentId || null,
+      departmentId,
       cityId: cityId || null,
       managerId: managerId || null,
       joinedAt: joinedAt ? new Date(joinedAt) : undefined,

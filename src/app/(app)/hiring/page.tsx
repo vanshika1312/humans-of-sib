@@ -3,14 +3,14 @@ import { prisma } from "@/lib/prisma";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { HIRING_APPLICATION_STAGES, STAGE_LABEL } from "@/lib/hiring-copy";
-import type { HiringApplicationStage, HiringJobStatus } from "@/generated/prisma";
+import type { HiringJobStatus } from "@/generated/prisma";
 import { Badge } from "@/components/ui/badge";
 import { Avatar } from "@/components/ui/avatar";
 import { Label, Textarea } from "@/components/ui/input";
 import { approveHiringRequisition, rejectHiringRequisition } from "./actions";
 import { firstSearchParam } from "@/lib/search-param";
 import { formatCalendarDate } from "@/lib/calendar-date";
+import { loadPipelineStagesOrdered, funnelActiveFilter } from "@/lib/hiring-pipeline";
 
 export default async function HiringOverviewPage(props: {
   searchParams: Promise<{ reqApproved?: string; reqRejected?: string; reqError?: string }>;
@@ -20,12 +20,22 @@ export default async function HiringOverviewPage(props: {
   const reqRejected = firstSearchParam(sp.reqRejected) === "1";
   const reqErrorRaw = firstSearchParam(sp.reqError);
 
-  const [openJobsCount, draftsCount, candidateCount, appGroups, closedJobsCount, pendingReqs] = await Promise.all([
+  const [
+    openJobsCount,
+    draftsCount,
+    candidateCount,
+    appGroups,
+    closedJobsCount,
+    pendingReqs,
+    pipelineStagesOrdered,
+    openJobs,
+    openAppByJobStage,
+  ] = await Promise.all([
     prisma.hiringJob.count({ where: { status: "OPEN" } }),
     prisma.hiringJob.count({ where: { status: "DRAFT" } }),
     prisma.hiringCandidate.count(),
     prisma.hiringApplication.groupBy({
-      by: ["stage"],
+      by: ["pipelineStageId"],
       _count: { _all: true },
     }),
     prisma.hiringJob.count({ where: { status: "CLOSED" } }),
@@ -37,27 +47,42 @@ export default async function HiringOverviewPage(props: {
         requestedBy: { select: { id: true, name: true, email: true, image: true, title: true } },
       },
     }),
+    loadPipelineStagesOrdered(),
+    prisma.hiringJob.findMany({
+      where: { status: "OPEN" },
+      orderBy: { updatedAt: "desc" },
+      select: {
+        id: true,
+        title: true,
+        status: true,
+        department: { select: { name: true, emoji: true } },
+      },
+    }),
+    prisma.hiringApplication.groupBy({
+      by: ["jobId", "pipelineStageId"],
+      where: { job: { status: "OPEN" } },
+      _count: { _all: true },
+    }),
   ]);
 
   const pendingReqCount = pendingReqs.length;
-  const byStage = new Map<HiringApplicationStage | string, number>();
+  const byPipelineStageId = new Map<string, number>();
   appGroups.forEach((g) => {
-    byStage.set(g.stage, g._count._all);
+    byPipelineStageId.set(g.pipelineStageId, g._count._all);
   });
 
-  const inFlight = HIRING_APPLICATION_STAGES.filter((s) => s !== "REJECTED" && s !== "HIRED").reduce(
-    (n, s) => n + (byStage.get(s) ?? 0),
-    0,
-  );
+  const funnelActiveStages = funnelActiveFilter(pipelineStagesOrdered);
+  const inFlight = funnelActiveStages.reduce((n, s) => n + (byPipelineStageId.get(s.id) ?? 0), 0);
 
-  const recentJobs = await prisma.hiringJob.findMany({
-    orderBy: { updatedAt: "desc" },
-    take: 5,
-    include: {
-      department: { select: { name: true, emoji: true } },
-      _count: { select: { applications: true } },
-    },
-  });
+  const countsByJobStage = new Map<string, Map<string, number>>();
+  for (const row of openAppByJobStage) {
+    let inner = countsByJobStage.get(row.jobId);
+    if (!inner) {
+      inner = new Map<string, number>();
+      countsByJobStage.set(row.jobId, inner);
+    }
+    inner.set(row.pipelineStageId, row._count._all);
+  }
 
   return (
     <div className="space-y-8">
@@ -96,10 +121,82 @@ export default async function HiringOverviewPage(props: {
         </div>
       )}
 
+      <Card>
+        <CardHeader className="border-b border-ink-100 bg-ink-50/60">
+          <CardTitle>Open jobs — pipeline by stage</CardTitle>
+          <CardDescription>Applicant counts per stage for each active posting.</CardDescription>
+        </CardHeader>
+        <CardContent className="pt-5 space-y-0 divide-y divide-ink-100">
+          {openJobs.length === 0 ? (
+            <p className="text-sm text-ink-500 py-8 text-center">
+              No open jobs — open a posting from{" "}
+              <Link href="/hiring/jobs" className="font-medium text-sky-700 hover:underline">
+                Job openings
+              </Link>{" "}
+              or{" "}
+              <Link href="/hiring/jobs/new" className="font-medium text-sky-700 hover:underline">
+                create one
+              </Link>
+              .
+            </p>
+          ) : (
+            openJobs.map((j) => {
+              const perJob = countsByJobStage.get(j.id);
+              const stageTotal =
+                perJob?.size != null ? [...perJob.values()].reduce((a, b) => a + b, 0) : 0;
+              return (
+                <div key={j.id} className="py-4 first:pt-0 space-y-2">
+                  <Link
+                    href={`/hiring/jobs/${j.id}`}
+                    className="flex flex-wrap items-start justify-between gap-3 group"
+                  >
+                    <div className="min-w-0">
+                      <div className="font-medium text-ink-700 truncate group-hover:text-sky-800">{j.title}</div>
+                      <div className="text-xs text-ink-400 mt-0.5 flex items-center gap-1 flex-wrap">
+                        {j.department ? (
+                          <>
+                            <span>{j.department.emoji}</span>
+                            <span>{j.department.name}</span>
+                          </>
+                        ) : (
+                          <span>Any dept</span>
+                        )}
+                        <span aria-hidden>·</span>
+                        <span>{stageTotal} applicant{stageTotal === 1 ? "" : "s"}</span>
+                      </div>
+                    </div>
+                    <JobStatusBadge status={j.status} />
+                  </Link>
+                  <div className="overflow-x-auto pb-0.5 -mx-1 px-1">
+                    <div className="flex gap-2 min-w-min">
+                      {funnelActiveStages.map((st) => {
+                        const n = perJob?.get(st.id) ?? 0;
+                        return (
+                          <div
+                            key={st.id}
+                            className="shrink-0 rounded-lg border border-ink-100 bg-ink-50/40 px-2.5 py-1.5 min-w-[4.5rem]"
+                            title={st.label}
+                          >
+                            <div className="text-[10px] font-medium uppercase tracking-wide text-ink-400 truncate max-w-[6rem]">
+                              {st.label}
+                            </div>
+                            <div className="text-sm font-semibold tabular-nums text-ink-800">{n}</div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </CardContent>
+      </Card>
+
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <MetricCard title="Open jobs" value={String(openJobsCount)} hint="Receiving applications" tone="sky" />
         <MetricCard title="Active pipeline" value={String(inFlight)} hint="Excludes hired / rejected" tone="orange" />
-        <MetricCard title="Talent pool" value={String(candidateCount)} hint="Unique candidate profiles" tone="green" />
+        <MetricCard title="Candidates" value={String(candidateCount)} hint="Add profiles from Hiring → Applications → Add candidate" tone="green" />
         <MetricCard title="Pending requisitions" value={String(pendingReqCount)} hint="Awaiting your review" tone="orange" />
         <MetricCard title="Archived jobs" value={String(closedJobsCount)} hint={`Drafts saved: ${draftsCount}`} tone="ink" />
       </div>
@@ -212,71 +309,34 @@ export default async function HiringOverviewPage(props: {
         </CardContent>
       </Card>
 
-      <div className="grid gap-8 lg:grid-cols-2">
-        <Card>
-          <CardHeader className="border-b border-ink-100 bg-ink-50/60">
-            <CardTitle>Funnel overview</CardTitle>
-            <CardDescription>Counts by stage across all postings.</CardDescription>
-          </CardHeader>
-          <CardContent className="pt-5 space-y-3">
-            {HIRING_APPLICATION_STAGES.map((s) => (
-              <div key={s} className="flex items-center justify-between text-sm gap-3">
-                <span className="text-ink-600">{STAGE_LABEL[s]}</span>
-                <span className="font-semibold tabular-nums text-ink-700">{byStage.get(s) ?? 0}</span>
-              </div>
-            ))}
+      <Card>
+        <CardHeader className="border-b border-ink-100 bg-ink-50/60">
+          <CardTitle>Funnel overview</CardTitle>
+          <CardDescription>Counts by pipeline stage across all postings.</CardDescription>
+        </CardHeader>
+        <CardContent className="pt-5 space-y-3">
+          {pipelineStagesOrdered.map((s) => (
+            <div key={s.id} className="flex items-center justify-between text-sm gap-3">
+              <span className="text-ink-600">{s.label}</span>
+              <span className="font-semibold tabular-nums text-ink-700">{byPipelineStageId.get(s.id) ?? 0}</span>
+            </div>
+          ))}
+          <div className="flex flex-wrap gap-x-4 gap-y-1 pt-1">
             <Link
               href="/hiring/pipeline"
-              className="inline-flex text-sm font-semibold text-sky-700 hover:underline mt-2 underline-offset-4"
+              className="inline-flex text-sm font-semibold text-sky-700 hover:underline underline-offset-4"
             >
               Open kanban pipeline →
             </Link>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="border-b border-ink-100 bg-ink-50/60">
-            <CardTitle>Recent postings</CardTitle>
-            <CardDescription>Latest updates from your ATS.</CardDescription>
-          </CardHeader>
-          <CardContent className="pt-5 space-y-0 divide-y divide-ink-100">
-            {recentJobs.length === 0 ? (
-              <p className="text-sm text-ink-500 py-8 text-center">
-                No jobs yet —{" "}
-                <Link href="/hiring/jobs/new" className="font-medium text-sky-700 hover:underline">
-                  create one
-                </Link>
-                .
-              </p>
-            ) : (
-              recentJobs.map((j) => (
-                <Link
-                  key={j.id}
-                  href={`/hiring/jobs/${j.id}`}
-                  className="flex flex-wrap items-start justify-between gap-3 py-3 first:pt-0 hover:bg-sky-50/30 -mx-2 px-2 rounded-lg transition-colors"
-                >
-                  <div className="min-w-0">
-                    <div className="font-medium text-ink-700 truncate">{j.title}</div>
-                    <div className="text-xs text-ink-400 mt-0.5 flex items-center gap-1 flex-wrap">
-                      {j.department ? (
-                        <>
-                          <span>{j.department.emoji}</span>
-                          <span>{j.department.name}</span>
-                        </>
-                      ) : (
-                        <span>Any dept</span>
-                      )}
-                      <span aria-hidden>·</span>
-                      <span>{j._count.applications} in pipeline</span>
-                    </div>
-                  </div>
-                  <JobStatusBadge status={j.status} />
-                </Link>
-              ))
-            )}
-          </CardContent>
-        </Card>
-      </div>
+            <Link
+              href="/hiring/pipeline-stages"
+              className="inline-flex text-sm font-semibold text-sky-700 hover:underline underline-offset-4"
+            >
+              Configure stages →
+            </Link>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

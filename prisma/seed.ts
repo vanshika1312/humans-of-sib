@@ -1,4 +1,5 @@
 import { PrismaClient } from "@prisma/client";
+import { WORKSPACE_DEPARTMENTS } from "../src/lib/workspace-departments";
 
 const prisma = new PrismaClient();
 
@@ -12,25 +13,14 @@ async function main() {
     prisma.city.upsert({ where: { slug: "indore" }, update: {}, create: { name: "Indore", slug: "indore" } }),
   ]);
 
-  // Departments
-  const depts = [
-    { slug: "product", name: "Product", emoji: "🛠️" },
-    { slug: "sales", name: "Sales", emoji: "💼" },
-    { slug: "marketing", name: "Marketing", emoji: "📣" },
-    { slug: "supply-chain", name: "Supply Chain", emoji: "📦" },
-    { slug: "csat", name: "CSAT", emoji: "🤝" },
-    { slug: "video", name: "Video", emoji: "🎬" },
-    { slug: "hoe", name: "HoE", emoji: "🎓" },
-    { slug: "hr", name: "HR", emoji: "👥" },
-    { slug: "operations", name: "Operations", emoji: "⚙️" },
-    { slug: "accounts-finance", name: "Accounts & Finance", emoji: "💰" },
-  ];
+  // Departments — canonical workspace list (see src/lib/workspace-departments.ts)
+  const depts = [...WORKSPACE_DEPARTMENTS];
 
   for (const d of depts) {
     await prisma.department.upsert({
       where: { slug: d.slug },
       update: { name: d.name, emoji: d.emoji },
-      create: d,
+      create: { slug: d.slug, name: d.name, emoji: d.emoji },
     });
   }
 

@@ -6,6 +6,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input, Select, Label } from "@/components/ui/input";
+import { DepartmentNameField } from "@/components/workspace/department-name-field";
 import { createMember } from "../../actions";
 import { AdminNoticeBanner } from "@/components/admin/admin-notice-banner";
 
@@ -21,8 +22,7 @@ export default async function NewMemberPage({
   const me = await prisma.user.findUnique({ where: { email: session!.user!.email! } });
   if (!me || !ADMIN_ROLES.includes(me.role)) redirect("/home");
 
-  const [depts, managersRaw] = await Promise.all([
-    prisma.department.findMany({ orderBy: { name: "asc" } }),
+  const [managersRaw] = await Promise.all([
     prisma.user.findMany({
       where: { status: "ACTIVE" },
       select: { id: true, name: true, firstName: true, lastName: true, email: true },
@@ -101,17 +101,7 @@ export default async function NewMemberPage({
             </div>
 
             <div className="grid md:grid-cols-2 gap-4">
-              <div>
-                <Label htmlFor="departmentId">Department</Label>
-                <Select id="departmentId" name="departmentId">
-                  <option value="">— No department —</option>
-                  {depts.map((d) => (
-                    <option key={d.id} value={d.id}>
-                      {d.emoji} {d.name}
-                    </option>
-                  ))}
-                </Select>
-              </div>
+              <DepartmentNameField placeholder="Sales, Marketing…" />
               <div>
                 <Label htmlFor="managerId">Manager</Label>
                 <Select id="managerId" name="managerId" defaultValue="">

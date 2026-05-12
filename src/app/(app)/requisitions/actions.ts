@@ -9,6 +9,7 @@ import {
   canSubmitJobRequisition,
 } from "@/lib/hiring-requisition-access";
 import { calendarDateFromInput } from "@/lib/calendar-date";
+import { departmentIdFromForm } from "@/lib/department-resolve";
 
 async function requireRequisitionSubmitter() {
   const session = await auth();
@@ -37,11 +38,13 @@ export async function submitJobRequisition(formData: FormData) {
 
   let departmentId: string;
   if (canPickDepartmentOnRequisition(me.role)) {
-    const raw = String(formData.get("departmentId") || "").trim();
-    if (!raw) {
-      redirect("/requisitions/new?error=" + encodeURIComponent("Choose a department for this request."));
+    const resolved = await departmentIdFromForm(prisma, formData);
+    if (!resolved) {
+      redirect(
+        "/requisitions/new?error=" + encodeURIComponent("Choose or type a department for this request."),
+      );
     }
-    departmentId = raw;
+    departmentId = resolved;
   } else if (me.role === "DEPT_HEAD" && me.headedDept) {
     departmentId = me.headedDept.id;
   } else if (me.departmentId) {

@@ -4,14 +4,31 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input, Textarea, Select, Label } from "@/components/ui/input";
 import { submitCeoFeedback } from "../actions";
+import { firstSearchParam } from "@/lib/search-param";
 
-export default function NewCeoFeedbackPage() {
+export default async function NewCeoFeedbackPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ error?: string | string[] }>;
+}) {
+  const sp = await searchParams;
+  const flashError = firstSearchParam(sp.error);
+
   return (
     <div className="max-w-2xl mx-auto">
-      <PageHeader title="Message the CEO" emoji="📣" subtitle="Ideas, concerns, kudos. Sign your name or stay anonymous — both are welcome." />
+      <PageHeader
+        title="Message the CEO"
+        emoji="📣"
+        subtitle="Ideas, concerns, kudos. Sign your name or stay anonymous — both are welcome."
+      />
 
       <Card>
         <CardContent className="pt-6">
+          {flashError && (
+            <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">
+              {decodeURIComponent(flashError)}
+            </div>
+          )}
           <form action={submitCeoFeedback} className="space-y-4">
             <div>
               <Label htmlFor="category">Type</Label>
@@ -30,7 +47,15 @@ export default function NewCeoFeedbackPage() {
             </div>
             <div>
               <Label htmlFor="message">Your message</Label>
-              <Textarea id="message" name="message" required minLength={10} maxLength={5000} rows={8} placeholder="Say what you need to say. No fluff needed." />
+              <Textarea
+                id="message"
+                name="message"
+                required
+                minLength={10}
+                maxLength={5000}
+                rows={8}
+                placeholder="Say what you need to say. No fluff needed."
+              />
             </div>
 
             <label className="flex items-start gap-3 p-3 rounded-lg bg-ink-50 hover:bg-ink-100 cursor-pointer">
@@ -44,8 +69,12 @@ export default function NewCeoFeedbackPage() {
             </label>
 
             <div className="flex items-center justify-between pt-2">
-              <Link href="/feedback/ceo" className="text-sm text-ink-400 hover:text-ink-600">← Cancel</Link>
-              <Button type="submit" variant="accent">Send to CEO →</Button>
+              <Link href="/feedback/ceo" className="text-sm text-ink-400 hover:text-ink-600">
+                ← Cancel
+              </Link>
+              <Button type="submit" variant="accent">
+                Send to CEO →
+              </Button>
             </div>
           </form>
         </CardContent>

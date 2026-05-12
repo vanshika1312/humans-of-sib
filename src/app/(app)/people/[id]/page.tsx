@@ -190,6 +190,7 @@ export default async function PersonPage({ params }: Props) {
                 }
               />
               <InfoItem label="Role" value={roleLabel(person.role)} />
+              <InfoItem label="Employee ID" value={person.employeeCode || "—"} />
               <InfoItem
                 label="Manager"
                 value={
@@ -210,6 +211,7 @@ export default async function PersonPage({ params }: Props) {
           ) : (
             <>
               <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3 mt-5 pt-5 border-t border-ink-100">
+                <InfoItem label="Employee ID" value={person.employeeCode || "—"} />
                 <InfoItem
                   label="Joined"
                   value={`${formatDate(person.joinedAt)} · ${tenureLabel}`}
@@ -245,9 +247,6 @@ export default async function PersonPage({ params }: Props) {
                     Contact &amp; personal
                   </h3>
                   <div className="grid sm:grid-cols-2 gap-3">
-                    {person.employeeCode && (
-                      <InfoItem label="Employee ID" value={person.employeeCode} />
-                    )}
                     <InfoItem label="Official email" value={person.email} />
                     <InfoItem label="Personal email" value={person.personalEmail || "—"} />
                     <InfoItem label="Phone" value={person.phone || "—"} />

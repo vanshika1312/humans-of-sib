@@ -28,6 +28,9 @@ jsdnclsjkdbnc
 .DS_Store
 *.pem
 
+# recruiter-uploaded résumés (local / self-hosted builds)
+/public/hiring-uploads
+
 # debug
 npm-debug.log*
 yarn-debug.log*

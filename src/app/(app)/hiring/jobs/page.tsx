@@ -5,8 +5,14 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import type { HiringJobStatus } from "@/generated/prisma";
 import { WORK_ARRANGEMENT_LABEL } from "@/lib/hiring-job-copy";
+import { closeJobPosting } from "../actions";
+import { firstSearchParam } from "@/lib/search-param";
 
-export default async function HiringJobsPage() {
+type Props = { searchParams: Promise<{ closed?: string | string[] }> };
+
+export default async function HiringJobsPage(props: Props) {
+  const sp = await props.searchParams;
+  const flashClosed = firstSearchParam(sp.closed) === "1";
   const jobs = await prisma.hiringJob.findMany({
     orderBy: [{ updatedAt: "desc" }],
     include: {
@@ -20,7 +26,7 @@ export default async function HiringJobsPage() {
       <PageHeader
         title="Job openings"
         emoji="🪧"
-        subtitle="Post roles, track applicants, and move people through stages — similar to Zoho Recruit job records."
+        subtitle="Post roles, track applicants, and move people through stages. Public OPEN listings (with apply links) appear at /careers."
         action={
           <div className="flex gap-2">
             <Link href="/hiring">
@@ -35,6 +41,12 @@ export default async function HiringJobsPage() {
         }
       />
 
+      {flashClosed && (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+          Job marked as closed.
+        </div>
+      )}
+
       <div className="rounded-2xl border border-ink-100 bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04)] overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -45,13 +57,15 @@ export default async function HiringJobsPage() {
                 <th className="px-5 py-3">Location</th>
                 <th className="px-5 py-3 text-right tabular-nums">Openings</th>
                 <th className="px-5 py-3">Status</th>
+                <th className="px-5 py-3 text-center">Ext. apply</th>
                 <th className="px-5 py-3 text-right">Pipeline</th>
+                <th className="px-5 py-3 text-right whitespace-nowrap">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-ink-100">
               {jobs.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-5 py-16 text-center text-ink-500">
+                  <td colSpan={8} className="px-5 py-16 text-center text-ink-500">
                     No postings yet.{" "}
                     <Link href="/hiring/jobs/new" className="font-semibold text-sky-700 hover:underline">
                       Create the first job
@@ -90,7 +104,28 @@ export default async function HiringJobsPage() {
                     <td className="px-5 py-3">
                       <StatusBadge status={j.status} />
                     </td>
+                    <td className="px-5 py-3 text-center text-ink-600">
+                      {j.externalApplyUrl ? (
+                        <span className="inline-flex rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-emerald-800">
+                          Set
+                        </span>
+                      ) : (
+                        <span className="text-ink-300">—</span>
+                      )}
+                    </td>
                     <td className="px-5 py-3 text-right tabular-nums text-ink-600">{j._count.applications}</td>
+                    <td className="px-5 py-3 text-right">
+                      {j.status === "CLOSED" ? (
+                        <span className="text-xs text-ink-300">—</span>
+                      ) : (
+                        <form action={closeJobPosting.bind(null, j.id)} className="inline">
+                          <input type="hidden" name="returnTo" value="list" />
+                          <Button type="submit" variant="outline" size="sm">
+                            Close
+                          </Button>
+                        </form>
+                      )}
+                    </td>
                   </tr>
                 ))
               )}

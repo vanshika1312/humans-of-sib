@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Avatar } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Input, Textarea, Select, Label } from "@/components/ui/input";
+import { DepartmentNameField } from "@/components/workspace/department-name-field";
 import { relativeTime } from "@/lib/utils";
 import { submitDeptFeedback } from "./actions";
 
@@ -26,8 +27,7 @@ export default async function DeptFeedbackPage() {
   const me = await prisma.user.findUnique({ where: { email: session!.user!.email! } });
   if (!me) return null;
 
-  const [departments, publicFeedback, toMyDept] = await Promise.all([
-    prisma.department.findMany({ orderBy: { name: "asc" } }),
+  const [publicFeedback, toMyDept] = await Promise.all([
     prisma.deptFeedback.findMany({
       where: { isPublic: true },
       orderBy: { createdAt: "desc" },
@@ -64,15 +64,7 @@ export default async function DeptFeedbackPage() {
             <CardContent className="pt-5">
               <h3 className="font-semibold text-ink-700 mb-3">Send feedback</h3>
               <form action={submitDeptFeedback} className="space-y-3">
-                <div>
-                  <Label htmlFor="toDepartmentId">To department</Label>
-                  <Select id="toDepartmentId" name="toDepartmentId" required>
-                    <option value="">Choose…</option>
-                    {departments.map((d) => (
-                      <option key={d.id} value={d.id}>{d.emoji} {d.name}</option>
-                    ))}
-                  </Select>
-                </div>
+                <DepartmentNameField label="To department" name="toDepartmentName" required />
                 <div>
                   <Label htmlFor="type">Type</Label>
                   <Select id="type" name="type" defaultValue="KUDOS">

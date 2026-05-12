@@ -37,8 +37,8 @@ const nav = [
     { href: "/people", label: "People", icon: Users },
     { href: "/wins", label: "Wins Wall", icon: Trophy, comingSoon: true },
     { href: "/birthdays", label: "Celebrations", icon: Cake, comingSoon: true },
-    { href: "/feedback/ceo", label: "Direct to CEO", icon: Megaphone, comingSoon: true },
-    { href: "/feedback/dept", label: "Dept Feedback", icon: Building2, comingSoon: true },
+    { href: "/feedback/ceo", label: "Direct to CEO", icon: Megaphone },
+    { href: "/feedback/dept", label: "Dept Feedback", icon: Building2 },
   ]},
   { group: "Work", items: [
     { href: "/attendance", label: "Attendance", icon: CalendarClock },
@@ -61,34 +61,44 @@ const nav = [
     { href: "/offboarding", label: "Offboarding", icon: DoorOpen, comingSoon: true },
   ]},
   { group: "Say hi", items: [
-    { href: "/feedback/ceo/new", label: "Message the CEO", icon: MessageCircleHeart, comingSoon: true },
+    { href: "/feedback/ceo/new", label: "Message the CEO", icon: MessageCircleHeart },
   ]},
 ];
 
-export function Sidebar({ onNavigate, role }: { onNavigate?: () => void; role?: string }) {
+export function Sidebar({
+  onNavigate,
+  role,
+  collapsed,
+}: {
+  onNavigate?: () => void;
+  role?: string;
+  collapsed?: boolean;
+}) {
   const pathname = usePathname();
 
   return (
     <nav className="h-full flex flex-col">
-      <div className="px-5 pt-6 pb-4">
-        <Link href="/home" className="flex items-center gap-2" onClick={onNavigate}>
-          <div className="size-8 rounded-md brand-gradient" />
-          <div>
-            <div className="font-bold text-ink-700 leading-none">Humans of SIB</div>
-            <div className="text-[10px] text-ink-400 mt-1 uppercase tracking-wider">
-              Skillinabox
+      <div className={cn("pb-4", collapsed ? "px-3 pt-5" : "px-5 pt-6")}>
+        <Link href="/home" className="flex items-center gap-2" onClick={onNavigate} title="Home">
+          <div className="size-8 rounded-md brand-gradient shrink-0" />
+          {!collapsed && (
+            <div className="min-w-0">
+              <div className="font-bold text-ink-700 leading-none">Humans of SIB</div>
+              <div className="text-[10px] text-ink-400 mt-1 uppercase tracking-wider">Skillinabox</div>
             </div>
-          </div>
+          )}
         </Link>
       </div>
 
       <div className="flex-1 overflow-y-auto px-3 pb-6 space-y-5">
         {nav.map((section) => (
           <div key={section.group}>
-            <div className="px-3 text-[10px] font-semibold uppercase tracking-wider text-ink-300 mb-1.5">
-              {section.group}
-            </div>
-            <ul className="space-y-0.5">
+            {!collapsed && (
+              <div className="px-3 text-[10px] font-semibold uppercase tracking-wider text-ink-300 mb-1.5">
+                {section.group}
+              </div>
+            )}
+            <ul className={cn("space-y-0.5", collapsed && "flex flex-col items-center")}>
               {section.items
                 .filter((item) => {
                   const restricted = (item as { roles?: readonly string[] }).roles;
@@ -96,112 +106,128 @@ export function Sidebar({ onNavigate, role }: { onNavigate?: () => void; role?: 
                   return true;
                 })
                 .map(({ href, label, icon: Icon, comingSoon }) => {
-                const active =
-                  pathname === href ||
-                  (href !== "/home" && href !== "/requisitions" && pathname.startsWith(href)) ||
-                  (href === "/requisitions" && pathname.startsWith("/requisitions"));
-                if (comingSoon) {
+                  const active =
+                    pathname === href ||
+                    (href !== "/home" && href !== "/requisitions" && pathname.startsWith(href)) ||
+                    (href === "/requisitions" && pathname.startsWith("/requisitions"));
+                  if (comingSoon) {
+                    return (
+                      <li key={href} className={cn(collapsed && "w-full flex justify-center")}>
+                        <div
+                          title={label}
+                          className={cn(
+                            "flex items-center justify-between gap-2.5 rounded-md text-sm font-medium text-ink-300 cursor-not-allowed select-none",
+                            collapsed ? "px-2 py-2 justify-center" : "px-3 py-2 w-full",
+                          )}
+                        >
+                          <span className="flex items-center gap-2.5">
+                            <Icon className="size-4 shrink-0" />
+                            {!collapsed && label}
+                          </span>
+                          {!collapsed && (
+                            <span className="text-[9px] font-semibold uppercase tracking-wider bg-ink-100 text-ink-400 px-1.5 py-0.5 rounded-full whitespace-nowrap">
+                              Soon
+                            </span>
+                          )}
+                        </div>
+                      </li>
+                    );
+                  }
                   return (
-                    <li key={href}>
-                      <div
-                        className="flex items-center justify-between gap-2.5 px-3 py-2 rounded-md text-sm font-medium text-ink-300 cursor-not-allowed select-none"
+                    <li key={href} className={cn(collapsed && "w-full flex justify-center")}>
+                      <Link
+                        href={href}
+                        title={collapsed ? label : undefined}
+                        onClick={onNavigate}
+                        className={cn(
+                          "flex items-center gap-2.5 rounded-md text-sm font-medium transition-colors",
+                          collapsed ? "px-2 py-2 justify-center" : "px-3 py-2 w-full",
+                          active ? "bg-sky-50 text-sky-700" : "text-ink-500 hover:text-ink-700 hover:bg-ink-50",
+                        )}
                       >
-                        <span className="flex items-center gap-2.5">
-                          <Icon className="size-4" />
-                          {label}
-                        </span>
-                        <span className="text-[9px] font-semibold uppercase tracking-wider bg-ink-100 text-ink-400 px-1.5 py-0.5 rounded-full whitespace-nowrap">
-                          Soon
-                        </span>
-                      </div>
+                        <Icon className="size-4 shrink-0" />
+                        {!collapsed && label}
+                      </Link>
                     </li>
                   );
-                }
-                return (
-                  <li key={href}>
-                    <Link
-                      href={href}
-                      onClick={onNavigate}
-                      className={cn(
-                        "flex items-center gap-2.5 px-3 py-2 rounded-md text-sm font-medium transition-colors",
-                        active
-                          ? "bg-sky-50 text-sky-700"
-                          : "text-ink-500 hover:text-ink-700 hover:bg-ink-50",
-                      )}
-                    >
-                      <Icon className="size-4" />
-                      {label}
-                    </Link>
-                  </li>
-                );
-              })}
+                })}
             </ul>
           </div>
         ))}
-      {role && ["CEO", "ADMIN", "HR"].includes(role) && (
-          <div className="px-3 pb-4 border-t border-ink-100 pt-4">
-            <div className="px-3 text-[10px] font-semibold uppercase tracking-wider text-ink-300 mb-1.5">
-              Admin
-            </div>
-            <ul className="space-y-0.5">
-              <li>
+        {role && ["CEO", "ADMIN", "HR"].includes(role) && (
+          <div className={cn("pb-4 border-t border-ink-100 pt-4", collapsed ? "px-0" : "px-3")}>
+            {!collapsed && (
+              <div className="px-3 text-[10px] font-semibold uppercase tracking-wider text-ink-300 mb-1.5">
+                Admin
+              </div>
+            )}
+            <ul className={cn("space-y-0.5", collapsed && "flex flex-col items-center")}>
+              <li className={cn(collapsed && "w-full flex justify-center")}>
                 <Link
                   href="/admin"
+                  title={collapsed ? "Manage Team" : undefined}
                   onClick={onNavigate}
                   className={cn(
-                    "flex items-center gap-2.5 px-3 py-2 rounded-md text-sm font-medium transition-colors",
+                    "flex items-center gap-2.5 rounded-md text-sm font-medium transition-colors",
+                    collapsed ? "px-2 py-2 justify-center" : "px-3 py-2 w-full",
                     pathname === "/admin" || pathname.startsWith("/admin/team")
                       ? "bg-sky-50 text-sky-700"
                       : "text-ink-500 hover:text-ink-700 hover:bg-ink-50",
                   )}
                 >
-                  <Shield className="size-4" />
-                  Manage Team
+                  <Shield className="size-4 shrink-0" />
+                  {!collapsed && "Manage Team"}
                 </Link>
               </li>
-              <li>
+              <li className={cn(collapsed && "w-full flex justify-center")}>
                 <Link
                   href="/admin/attendance-report"
+                  title={collapsed ? "Attendance report" : undefined}
                   onClick={onNavigate}
                   className={cn(
-                    "flex items-center gap-2.5 px-3 py-2 rounded-md text-sm font-medium transition-colors",
+                    "flex items-center gap-2.5 rounded-md text-sm font-medium transition-colors",
+                    collapsed ? "px-2 py-2 justify-center" : "px-3 py-2 w-full",
                     pathname.startsWith("/admin/attendance-report")
                       ? "bg-sky-50 text-sky-700"
                       : "text-ink-500 hover:text-ink-700 hover:bg-ink-50",
                   )}
                 >
-                  <Table2 className="size-4" />
-                  Attendance report
+                  <Table2 className="size-4 shrink-0" />
+                  {!collapsed && "Attendance report"}
                 </Link>
               </li>
-              <li>
+              <li className={cn(collapsed && "w-full flex justify-center")}>
                 <Link
                   href="/hiring"
+                  title={collapsed ? "Hiring" : undefined}
                   onClick={onNavigate}
                   className={cn(
-                    "flex items-center gap-2.5 px-3 py-2 rounded-md text-sm font-medium transition-colors",
+                    "flex items-center gap-2.5 rounded-md text-sm font-medium transition-colors",
+                    collapsed ? "px-2 py-2 justify-center" : "px-3 py-2 w-full",
                     pathname === "/hiring" || pathname.startsWith("/hiring/")
                       ? "bg-sky-50 text-sky-700"
                       : "text-ink-500 hover:text-ink-700 hover:bg-ink-50",
                   )}
                 >
-                  <UserSearch className="size-4" />
-                  Hiring
+                  <UserSearch className="size-4 shrink-0" />
+                  {!collapsed && "Hiring"}
                 </Link>
               </li>
-              <li>
+              <li className={cn(collapsed && "w-full flex justify-center")}>
                 <Link
                   href="/recruitment"
+                  title={collapsed ? "Recruitment" : undefined}
                   onClick={onNavigate}
                   className={cn(
-                    "flex items-center gap-2.5 px-3 py-2 rounded-md text-sm font-medium transition-colors",
+                    "flex items-center gap-2.5 rounded-md text-sm font-medium transition-colors",
+                    collapsed ? "px-2 py-2 justify-center" : "px-3 py-2 w-full",
                     pathname === "/recruitment" || pathname.startsWith("/recruitment/")
                       ? "bg-sky-50 text-sky-700"
                       : "text-ink-500 hover:text-ink-700 hover:bg-ink-50",
                   )}
                 >
-                  <Briefcase className="size-4" />
-                  Recruitment
+                  <Briefcase className="size-4 shrink-0" />
+                  {!collapsed && "Recruitment"}
                 </Link>
               </li>
             </ul>

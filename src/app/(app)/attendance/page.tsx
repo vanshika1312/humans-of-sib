@@ -17,7 +17,14 @@ import { Badge } from "@/components/ui/badge";
 import { Avatar } from "@/components/ui/avatar";
 import { Input, Select, Label, Textarea } from "@/components/ui/input";
 import { formatDate, formatTime } from "@/lib/utils";
-import { formatCalendarDate, utcMonthBounds, utcCalendarMidnight, workingDaysInclusiveUtcCalendar } from "@/lib/calendar-date";
+import {
+  formatCalendarDate,
+  isUtcCalendarWorkingDay,
+  utcMonthBounds,
+  utcCalendarMidnight,
+  workingDaysInclusiveUtcCalendar,
+  workingWeekdaysInUtcMonth,
+} from "@/lib/calendar-date";
 import { sickLeaveMedicalProofRequired } from "@/lib/sick-leave-medical-proof";
 import {
   leaveRequestsAllowInsufficientPaidBalance,
@@ -37,6 +44,11 @@ import {
 } from "./actions";
 import { RegularisationRequestForm } from "./_components/RegularisationRequestForm";
 import { AttendanceTabNav, type AttendanceTab } from "./_components/AttendanceTabNav";
+import {
+  YourLogMonthDashboard,
+  type YourLogDayCell,
+  type YourLogDayDetail,
+} from "./_components/YourLogMonthDashboard";
 import {
   payrollReportLateFlag,
   payrollReportHalfDayFlag,
@@ -72,6 +84,11 @@ function isoLocal(d: Date) {
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const da = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${da}`;
+}
+
+/** Y-M-D for UTC calendar day (matches @db.Date attendance rows). */
+function utcIsoDateKey(d: Date): string {
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
 }
 
 function leaveApprovalsBalanceLabel(type: string): "sick" | "casual paid" {
@@ -256,7 +273,7 @@ export default async function AttendancePage({
     image: string | null;
     dept: string | null;
     city: string | null;
-    record: { mode: AttendanceMode; checkIn: Date | null } | null;
+    record: { mode: AttendanceMode; checkIn: Date | null; checkOut: Date | null } | null;
   }[] = [];
 
   let teamMonthly: {
@@ -311,7 +328,9 @@ export default async function AttendancePage({
         image: u.image,
         dept: u.department?.name ?? null,
         city: u.city?.name ?? null,
-        record: rec ? { mode: rec.mode as AttendanceMode, checkIn: rec.checkIn } : null,
+        record: rec
+          ? { mode: rec.mode as AttendanceMode, checkIn: rec.checkIn, checkOut: rec.checkOut }
+          : null,
       };
     });
 
@@ -398,6 +417,71 @@ export default async function AttendancePage({
   const myHalfDaysChrono = [...monthRecords]
     .filter((r) => payrollReportHalfDayFlag(r.checkIn, r.checkOut, r.date))
     .sort((a, b) => a.date.getTime() - b.date.getTime());
+
+  const workingDaysInMonth = workingWeekdaysInUtcMonth(viewYear, viewMonth);
+  const onTimeDaysCount = monthRecords.filter(
+    (r) => isUtcCalendarWorkingDay(r.date) && !payrollReportLateFlag(r.checkIn, r.date),
+  ).length;
+  const halfDayDatesLabel =
+    myHalfDaysChrono.length === 0
+      ? ""
+      : myHalfDaysChrono.map((r) => formatDate(r.date, { day: "numeric", month: "short" })).join(" · ");
+  const lateRatePctYourLog =
+    workingDaysInMonth > 0 ? Math.round((myLateDaysChrono.length / workingDaysInMonth) * 100) : 0;
+  const yourLogMonthTitle = `${FULL_MONTHS[viewMonth - 1].toUpperCase()} ${viewYear} — DAILY STATUS`;
+  const yourLogMonthYearLabel = formatDate(new Date(Date.UTC(viewYear, viewMonth - 1, 1)), {
+    month: "short",
+    year: "numeric",
+  });
+
+  const recordByIso = new Map(monthRecords.map((r) => [utcIsoDateKey(r.date), r] as const));
+
+  function toYourLogDetail(r: (typeof monthRecords)[number]): YourLogDayDetail {
+    return {
+      id: r.id,
+      dateIso: utcIsoDateKey(r.date),
+      checkInIso: r.checkIn?.toISOString() ?? null,
+      checkOutIso: r.checkOut?.toISOString() ?? null,
+      mode: r.mode as AttendanceMode,
+      source: r.source,
+      note: r.note ?? null,
+      location: r.location ?? null,
+      biometricCode: r.biometricCode ?? null,
+      late: payrollReportLateFlag(r.checkIn, r.date),
+      half: payrollReportHalfDayFlag(r.checkIn, r.checkOut, r.date),
+    };
+  }
+
+  const { start: calMonthStart, end: calMonthEnd } = utcMonthBounds(viewYear, viewMonth);
+  const lastCalDay = calMonthEnd.getUTCDate();
+  const firstDow = calMonthStart.getUTCDay();
+  const mondayOffset = (firstDow + 6) % 7;
+  const yourLogCells: YourLogDayCell[] = [];
+  for (let i = 0; i < mondayOffset; i++) {
+    yourLogCells.push({ kind: "pad" });
+  }
+  for (let d = 1; d <= lastCalDay; d++) {
+    const date = new Date(Date.UTC(viewYear, viewMonth - 1, d));
+    const iso = utcIsoDateKey(date);
+    const rec = recordByIso.get(iso) ?? null;
+    const isOff = !isUtcCalendarWorkingDay(date);
+    let kind: YourLogDayCell["kind"];
+    if (isOff) {
+      kind = "off";
+    } else if (!rec) {
+      kind = "empty";
+    } else {
+      const late = payrollReportLateFlag(rec.checkIn, rec.date);
+      const half = payrollReportHalfDayFlag(rec.checkIn, rec.checkOut, rec.date);
+      if (half) kind = "half";
+      else if (late) kind = "late";
+      else kind = "on_time";
+    }
+    const detail = rec ? toYourLogDetail(rec) : null;
+    yourLogCells.push({ kind, day: d, iso, detail });
+  }
+
+  const yourLogWeekdays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
 
   return (
     <div className="space-y-6">
@@ -952,92 +1036,25 @@ export default async function AttendancePage({
         <Card>
           <CardContent className="pt-4">
             {monthRecords.length === 0 ? (
-              <p className="text-sm text-ink-400 text-center py-8">
+              <p className="text-sm text-ink-500 text-center py-2 mb-4 border-b border-ink-100 pb-4">
                 {isViewingCurrentMonth
-                  ? "No attendance yet this month. Check in above!"
-                  : "No attendance recorded in this month."}
+                  ? "No attendance yet this month — grid below shows working days; check in above to fill it in."
+                  : "No attendance recorded — open a day to confirm, or pick another month."}
               </p>
-            ) : (
-              <>
-                <div className="mb-4 rounded-lg border border-ink-100 bg-ink-50/60 px-3 py-3 space-y-1">
-                  {myLateDaysChrono.length === 0 ? (
-                    <p className="text-sm text-ink-600">
-                      <span className="font-medium text-ink-700">Late policy:</span> no late arrivals this month — on each
-                      working day (Mon–Sat) your check-in was on or before{" "}
-                      <span className="font-medium text-ink-700">10:10 IST</span>, or only Sundays had punches.
-                    </p>
-                  ) : (
-                    <p className="text-sm text-ink-700">
-                      <span className="font-medium">Late arrivals ({myLateDaysChrono.length} working day</span>
-                      {myLateDaysChrono.length === 1 ? "" : "s"}
-                      <span className="font-medium">)</span> — first check-in after{" "}
-                      <span className="font-medium">10:10 IST</span>:{" "}
-                      <span className="text-ink-800">
-                        {myLateDaysChrono.map((r) => formatDate(r.date, { day: "numeric", month: "short", weekday: "short" })).join(" · ")}
-                      </span>
-                    </p>
-                  )}
-                  <p className="text-xs text-ink-400">
-                    Same rule as payroll: Mon–Sat working days only; Sunday is off. Full-day regularisation uses on-time
-                    punches so those days are not flagged here.
-                  </p>
-                  {myHalfDaysChrono.length === 0 ? (
-                    <p className="text-sm text-ink-600 pt-2 border-t border-ink-100">
-                      <span className="font-medium text-ink-700">Half-day (punch) policy:</span> no days this month with
-                      both punches and hours between {REPORT_MIN_HOURS_FOR_HALF_DAY} and{" "}
-                      {REPORT_HALF_DAY_IF_HOURS_BELOW} (same as payroll).
-                    </p>
-                  ) : (
-                    <p className="text-sm text-ink-700 pt-2 border-t border-ink-100">
-                      <span className="font-medium">Punch half-days ({myHalfDaysChrono.length})</span> —{" "}
-                      <span className="text-ink-800">
-                        {myHalfDaysChrono
-                          .map((r) => formatDate(r.date, { day: "numeric", month: "short", weekday: "short" }))
-                          .join(" · ")}
-                      </span>
-                    </p>
-                  )}
-                </div>
-                <ul className="divide-y divide-ink-100">
-                  {monthRecords.map((r) => {
-                    const late = payrollReportLateFlag(r.checkIn, r.date);
-                    const half = payrollReportHalfDayFlag(r.checkIn, r.checkOut, r.date);
-                    return (
-                      <li key={r.id} className="py-3 flex items-center gap-3 flex-wrap">
-                        <div className="font-medium text-ink-700 w-28 shrink-0">
-                          {formatDate(r.date, { day: "2-digit", month: "short", weekday: "short" })}
-                        </div>
-                        <Badge tone={r.mode === "WFH" ? "sun" : "sky"}>
-                          {modeStyle(r.mode as AttendanceMode).label}
-                        </Badge>
-                        <Badge tone={sourceBadgeTone(r.source)}>{sourceShort(r.source)}</Badge>
-                        {late ? (
-                          <Badge tone="orange" title="Check-in after 10:10 IST on a Mon–Sat working day">
-                            Late
-                          </Badge>
-                        ) : null}
-                        {half ? (
-                          <Badge
-                            tone="sun"
-                            title={`Both punches and worked hours &gt; ${REPORT_MIN_HOURS_FOR_HALF_DAY}h and &lt; ${REPORT_HALF_DAY_IF_HOURS_BELOW}h (payroll rule)`}
-                          >
-                            ½ day
-                          </Badge>
-                        ) : null}
-                        <span className="text-sm text-ink-500">
-                          {formatTime(r.checkIn)} → {r.checkOut ? formatTime(r.checkOut) : "—"}
-                        </span>
-                        {r.note && (
-                          <span className="text-xs text-ink-400 italic truncate max-w-xs">
-                            &quot;{r.note}&quot;
-                          </span>
-                        )}
-                      </li>
-                    );
-                  })}
-                </ul>
-              </>
-            )}
+            ) : null}
+            <YourLogMonthDashboard
+              monthTitle={yourLogMonthTitle}
+              workingDaysInMonth={workingDaysInMonth}
+              lateCount={myLateDaysChrono.length}
+              onTimeCount={onTimeDaysCount}
+              halfDayCount={myHalfDaysChrono.length}
+              halfDayDatesLabel={halfDayDatesLabel}
+              lateRatePct={lateRatePctYourLog}
+              monthYearLabel={yourLogMonthYearLabel}
+              weekdays={yourLogWeekdays}
+              cells={yourLogCells}
+              lateArrivalsReport={myLateDaysChrono.map(toYourLogDetail)}
+            />
           </CardContent>
         </Card>
       </div>
@@ -1063,12 +1080,20 @@ export default async function AttendancePage({
                     <ul className="space-y-2.5">
                       {checkedIn.map((u) => {
                         const s = modeStyle(u.record!.mode);
+                        const ri = u.record!.checkIn;
+                        const ro = u.record!.checkOut;
+                        const sub = u.dept ?? u.city;
                         return (
                           <li key={u.id} className="flex items-center gap-2.5">
                             <Avatar src={u.image} name={u.name} size="sm" />
                             <div className="flex-1 min-w-0">
                               <div className="text-sm font-medium text-ink-700 truncate">{u.name}</div>
-                              <div className="text-xs text-ink-400">{u.dept ?? u.city ?? "—"}</div>
+                              <div className="text-xs text-ink-600 tabular-nums">
+                                In {ri ? formatTime(ri) : "—"} · Out {ro ? formatTime(ro) : "—"}
+                              </div>
+                              {sub ? (
+                                <div className="text-[11px] text-ink-400 truncate">{sub}</div>
+                              ) : null}
                             </div>
                             <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full shrink-0 ${s.pill}`}>
                               {s.label}

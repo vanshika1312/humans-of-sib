@@ -36,6 +36,7 @@ export default async function PeoplePage() {
         image: true,
         title: true,
         role: true,
+        employeeCode: true,
         joinedAt: true,
         managerId: true,
         departmentId: true,
@@ -140,6 +141,7 @@ type MemberCardProps = {
     image: string | null;
     title: string | null;
     role: Role;
+    employeeCode: string | null;
     joinedAt: Date;
     managerId: string | null;
     city: { name: string } | null;
@@ -179,6 +181,9 @@ function MemberCard({ member: m, access }: MemberCardProps) {
             )}
           </div>
           <div className="text-[10px] text-ink-400">{roleLabel(m.role)}</div>
+          {m.employeeCode && (
+            <div className="text-[10px] text-ink-500 font-mono">{m.employeeCode}</div>
+          )}
           <div className="text-[10px] text-ink-400 truncate">
             Manager:{" "}
             {m.manager ? (
@@ -203,6 +208,9 @@ function MemberCard({ member: m, access }: MemberCardProps) {
         <div className="font-semibold text-ink-700 truncate">{dn}</div>
         {m.title && <div className="text-xs text-ink-500 truncate">{m.title}</div>}
         <div className="text-[10px] text-ink-500 mt-0.5">{roleLabel(m.role)}</div>
+        {m.employeeCode && (
+          <div className="text-[10px] text-ink-600 font-mono mt-0.5">{m.employeeCode}</div>
+        )}
         <div className="flex items-center gap-2 mt-1 flex-wrap">
           {m.city && <span className="text-[10px] text-ink-400">📍 {m.city.name}</span>}
           <span className="text-[10px] text-ink-400">🗓 {tenureLabel}</span>

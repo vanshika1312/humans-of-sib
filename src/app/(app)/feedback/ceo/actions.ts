@@ -15,26 +15,40 @@ const schema = z.object({
 
 export async function submitCeoFeedback(formData: FormData) {
   const session = await auth();
-  if (!session?.user?.email) throw new Error("Unauthorized");
+  if (!session?.user?.email) redirect("/sign-in");
   const user = await prisma.user.findUnique({ where: { email: session.user.email } });
-  if (!user) throw new Error("User not found");
+  if (!user) redirect("/sign-in");
 
-  const parsed = schema.parse({
+  const parsed = schema.safeParse({
     subject: formData.get("subject"),
     message: formData.get("message"),
     category: formData.get("category"),
     anonymous: formData.get("anonymous") || false,
   });
+  if (!parsed.success) {
+    const err = parsed.error.flatten();
+    const hint =
+      err.fieldErrors.subject?.[0] ||
+      err.fieldErrors.message?.[0] ||
+      err.fieldErrors.category?.[0] ||
+      err.formErrors[0] ||
+      "Please check subject and message (minimum lengths apply).";
+    redirect("/feedback/ceo/new?error=" + encodeURIComponent(hint));
+  }
 
-  await prisma.cEOFeedback.create({
-    data: {
-      subject: parsed.subject,
-      message: parsed.message,
-      category: parsed.category,
-      anonymous: parsed.anonymous,
-      userId: parsed.anonymous ? null : user.id,
-    },
-  });
+  try {
+    await prisma.cEOFeedback.create({
+      data: {
+        subject: parsed.data.subject,
+        message: parsed.data.message,
+        category: parsed.data.category,
+        anonymous: parsed.data.anonymous,
+        userId: parsed.data.anonymous ? null : user.id,
+      },
+    });
+  } catch {
+    redirect("/feedback/ceo/new?error=" + encodeURIComponent("Could not send your message. Try again in a moment."));
+  }
 
   revalidatePath("/feedback/ceo");
   redirect("/feedback/ceo?sent=1");

@@ -4,9 +4,9 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { departmentIdFromForm } from "@/lib/department-resolve";
 
 const schema = z.object({
-  toDepartmentId: z.string().min(1),
   type: z.enum(["KUDOS", "CONSTRUCTIVE", "REQUEST"]),
   subject: z.string().min(3).max(200),
   message: z.string().min(10).max(3000),
@@ -19,8 +19,12 @@ export async function submitDeptFeedback(formData: FormData) {
   const user = await prisma.user.findUnique({ where: { email: session.user.email } });
   if (!user) throw new Error("User not found");
 
+  const toDepartmentId = await departmentIdFromForm(prisma, formData, "toDepartmentName");
+  if (!toDepartmentId) {
+    throw new Error("Pick from the list or type a department name.");
+  }
+
   const parsed = schema.parse({
-    toDepartmentId: formData.get("toDepartmentId"),
     type: formData.get("type"),
     subject: formData.get("subject"),
     message: formData.get("message"),
@@ -30,6 +34,7 @@ export async function submitDeptFeedback(formData: FormData) {
   await prisma.deptFeedback.create({
     data: {
       fromUserId: user.id,
+      toDepartmentId,
       ...parsed,
     },
   });

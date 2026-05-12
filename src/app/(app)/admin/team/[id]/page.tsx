@@ -7,6 +7,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Input, Select, Label, Textarea } from "@/components/ui/input";
+import { DepartmentNameField } from "@/components/workspace/department-name-field";
 import { updateMember, resendOnboardingInvite } from "../../actions";
 import { AdminNoticeBanner } from "@/components/admin/admin-notice-banner";
 import { displayName } from "@/lib/user-display-name";
@@ -42,12 +43,11 @@ export default async function EditMemberPage({
   const me = await prisma.user.findUnique({ where: { email: session!.user!.email! } });
   if (!me || !ADMIN_ROLES.includes(me.role)) redirect("/home");
 
-  const [member, depts, cities, managersRaw] = await Promise.all([
+  const [member, cities, managersRaw] = await Promise.all([
     prisma.user.findUnique({
       where: { id },
       include: { department: true, city: true, compensation: true },
     }),
-    prisma.department.findMany({ orderBy: { name: "asc" } }),
     prisma.city.findMany({ orderBy: { name: "asc" } }),
     prisma.user.findMany({
       where: { status: "ACTIVE", id: { not: id } },
@@ -161,17 +161,7 @@ export default async function EditMemberPage({
             </div>
 
             <div className="grid md:grid-cols-2 gap-4">
-              <div>
-                <Label htmlFor="departmentId">Department</Label>
-                <Select id="departmentId" name="departmentId" defaultValue={member.departmentId || ""}>
-                  <option value="">— No department —</option>
-                  {depts.map((d) => (
-                    <option key={d.id} value={d.id}>
-                      {d.emoji} {d.name}
-                    </option>
-                  ))}
-                </Select>
-              </div>
+              <DepartmentNameField defaultValue={member.department?.name ?? ""} />
               <div>
                 <Label htmlFor="managerId">Manager</Label>
                 <Select id="managerId" name="managerId" defaultValue={member.managerId || ""}>

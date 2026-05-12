@@ -1,19 +1,22 @@
-import type { HiringApplicationStage } from "@/generated/prisma";
+"use client";
+
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/input";
-import { HIRING_APPLICATION_STAGES, STAGE_LABEL } from "@/lib/hiring-copy";
 import { updateApplicationStage } from "../actions";
+
+export type PipelineStageOption = { id: string; label: string };
 
 export function ApplicationStageControl({
   applicationId,
-  stage,
+  currentStageId,
+  stages,
   returnPath,
   compact,
 }: {
   applicationId: string;
-  stage: HiringApplicationStage;
+  currentStageId: string;
+  stages: PipelineStageOption[];
   returnPath: string;
-  /** Narrow control for kanban-style cards */
   compact?: boolean;
 }) {
   const action = updateApplicationStage.bind(null, applicationId);
@@ -21,13 +24,13 @@ export function ApplicationStageControl({
     <form action={action} className={compact ? "flex flex-col gap-2 w-full" : "flex flex-wrap items-center gap-2"}>
       <input type="hidden" name="returnPath" value={returnPath} />
       <Select
-        name="stage"
-        defaultValue={stage}
+        name="pipelineStageId"
+        defaultValue={currentStageId}
         className={compact ? "h-9 text-sm w-full" : "h-9 min-w-[152px] text-sm"}
       >
-        {HIRING_APPLICATION_STAGES.map((s) => (
-          <option key={s} value={s}>
-            {STAGE_LABEL[s]}
+        {stages.map((s) => (
+          <option key={s.id} value={s.id}>
+            {s.label}
           </option>
         ))}
       </Select>

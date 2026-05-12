@@ -172,6 +172,10 @@ model User {
   hiringCandidatesCreated    HiringCandidate[]      @relation("HiringCandidateCreatedBy")
   hiringRequisitionsRequested HiringRequisition[]   @relation("HiringRequisitionRequestedBy")
   hiringRequisitionsReviewed  HiringRequisition[]    @relation("HiringRequisitionReviewedBy")
+  hiringActivities            HiringActivity[]       @relation("HiringActivityActor")
+  hiringApplicationAttachmentsAdded HiringApplicationAttachment[] @relation("HiringApplicationAttachmentAddedBy")
+  hiringInterviewTemplatesAuthored HiringInterviewQuestionTemplate[] @relation("HiringInterviewTemplateAuthor")
+  hiringApplicationReviewsAuthored HiringApplicationReview[]         @relation("HiringApplicationReviewAuthor")
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -228,13 +232,20 @@ enum HiringJobWorkArrangement {
   HYBRID
 }
 
-enum HiringApplicationStage {
-  APPLIED
-  SCREENING
-  INTERVIEW
-  OFFER
-  HIRED
-  REJECTED
+enum HiringActivityKind {
+  CANDIDATE_CREATED
+  CANDIDATE_DUPLICATE_INTAKE
+  CANDIDATE_UPDATED
+  APPLICATION_CREATED
+  APPLICATION_STAGE_CHANGED
+}
+
+enum HiringTemplateCategory {
+  /// Stage-scoped questionnaire / interviewer prep (shown on applications in that stage).
+  QUESTIONNAIRE_GUIDE
+  EMAIL
+  JOB_POST
+  OTHER
 }
 
 enum HiringRequisitionStatus {
@@ -242,6 +253,24 @@ enum HiringRequisitionStatus {
   APPROVED
   REJECTED
   CANCELLED
+}
+
+/// Configurable recruiting funnel — keys are stable (e.g. APPLIED); labels and order are editable.
+model HiringPipelineStage {
+  id          String   @id @default(cuid())
+  /// Uppercase slug, unique (e.g. PHONE_SCREEN).
+  key         String   @unique @db.VarChar(80)
+  label       String   @db.VarChar(160)
+  sortOrder   Int      @default(0)
+  isHired     Boolean  @default(false)
+  isRejected  Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  applications      HiringApplication[]
+  questionTemplates   HiringInterviewQuestionTemplate[]
+
+  @@index([sortOrder])
 }
 
 model HiringJob {
@@ -257,6 +286,8 @@ model HiringJob {
   skillsRequired String?          @db.Text
   applicationDeadline DateTime?   @db.Date
   openings       Int             @default(1)
+  /// Public / job-board button: redirects candidates to your application form (e.g. HRMS). https recommended.
+  externalApplyUrl String?       @db.VarChar(2048)
   departmentId   String?
   department     Department?      @relation(fields: [departmentId], references: [id], onDelete: SetNull)
   status         HiringJobStatus  @default(DRAFT)
@@ -311,12 +342,15 @@ model HiringCandidate {
   fullName    String                @db.VarChar(200)
   email       String                @db.VarChar(320)
   phone       String?               @db.VarChar(48)
+  /// City / region where the candidate is based (separate from the job posting location).
+  candidateLocation String?         @db.VarChar(200)
   source      String?               @db.VarChar(120)
   resumeUrl   String?               @db.VarChar(2000)
   notes       String?               @db.Text
   createdById String?
   createdBy   User?                 @relation("HiringCandidateCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   applications HiringApplication[]
+  activityLog  HiringActivity[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -330,14 +364,94 @@ model HiringApplication {
   job         HiringJob                @relation(fields: [jobId], references: [id], onDelete: Cascade)
   candidateId String
   candidate   HiringCandidate          @relation(fields: [candidateId], references: [id], onDelete: Cascade)
-  stage       HiringApplicationStage   @default(APPLIED)
+  pipelineStageId String
+  pipelineStage   HiringPipelineStage @relation(fields: [pipelineStageId], references: [id], onDelete: Restrict)
+  /// Job board / channel for this submission (falls back to candidate.source in UI when empty).
+  applicationSource String?          @db.VarChar(120)
   notes       String?                  @db.Text
   appliedAt   DateTime                 @default(now())
   updatedAt   DateTime                 @updatedAt
+  activityLog HiringActivity[]
+  attachments HiringApplicationAttachment[]
+  reviews     HiringApplicationReview[]
 
   @@unique([jobId, candidateId])
-  @@index([jobId, stage])
+  @@index([jobId, pipelineStageId])
   @@index([candidateId])
+}
+
+/// Résumés and other documents attached to one application submission (beyond the candidate profile résumé).
+model HiringApplicationAttachment {
+  id            String             @id @default(cuid())
+  applicationId String
+  application   HiringApplication  @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  /// Label shown in the table (filename or title).
+  fileName   String @db.VarChar(280)
+  /// Public upload path (/hiring-uploads/…) or pasted URL (e.g. Google Drive share link).
+  url        String @db.VarChar(2048)
+  category   String @default("Resume") @db.VarChar(80)
+
+  addedByUserId String?
+  addedBy       User?   @relation("HiringApplicationAttachmentAddedBy", fields: [addedByUserId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([applicationId])
+}
+
+model HiringActivity {
+  id            String               @id @default(cuid())
+  kind          HiringActivityKind
+  summary       String               @db.VarChar(500)
+  payloadJson   String?              @db.Text
+  candidateId   String?
+  candidate     HiringCandidate?     @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  applicationId String?
+  application   HiringApplication?   @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  actorUserId   String?
+  actor         User?                @relation("HiringActivityActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([candidateId, createdAt])
+  @@index([applicationId, createdAt])
+}
+
+/// Reusable recruiter content: questionnaires by stage, outreach emails, job post snippets, etc.
+model HiringInterviewQuestionTemplate {
+  id           String                   @id @default(cuid())
+  category     HiringTemplateCategory   @default(QUESTIONNAIRE_GUIDE)
+  /// Required when category is QUESTIONNAIRE_GUIDE; optional for emails and other global templates.
+  pipelineStageId String?
+  pipelineStage    HiringPipelineStage? @relation(fields: [pipelineStageId], references: [id], onDelete: SetNull)
+  title        String                   @db.VarChar(200)
+  body         String                   @db.Text
+  sortOrder    Int                      @default(0)
+
+  createdById  String?
+  createdBy    User?                    @relation("HiringInterviewTemplateAuthor", fields: [createdById], references: [id], onDelete: SetNull)
+
+  createdAt    DateTime                 @default(now())
+  updatedAt    DateTime                 @updatedAt
+
+  @@index([category, pipelineStageId, sortOrder])
+}
+
+model HiringApplicationReview {
+  id            String             @id @default(cuid())
+  applicationId String
+  application   HiringApplication  @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  rating   Int?
+  comment  String                   @db.Text
+
+  authorId String
+  author   User                    @relation("HiringApplicationReviewAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime               @default(now())
+
+  @@index([applicationId, createdAt])
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

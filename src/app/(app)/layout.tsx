@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { auth, signOut } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { displayName } from "@/lib/user-display-name";
-import { Sidebar } from "@/components/shell/sidebar";
+import { AppSidebar } from "@/components/shell/app-sidebar";
 import { Topbar } from "@/components/shell/topbar";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
@@ -26,9 +26,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="min-h-screen flex">
-      <aside className="hidden md:block w-64 shrink-0 border-r border-ink-100 bg-white">
-        <Sidebar role={user.role} />
-      </aside>
+      <AppSidebar role={user.role} />
 
       <div className="flex-1 min-w-0 flex flex-col">
         <Topbar
