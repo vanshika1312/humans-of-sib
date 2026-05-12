@@ -1,8 +1,23 @@
+import type { Prisma } from "@/generated/prisma";
+
 export type AttendanceApproverContext = {
   id: string;
   role: string;
   headedDeptId: string | null;
 };
+
+/**
+ * Narrow pending approval queues at query time (matches {@link canApproveForEmployee}).
+ * HR / CEO / ADMIN: no filter (company-wide). Others: manager or department scope.
+ */
+export function pendingApprovalUserWhere(viewer: AttendanceApproverContext): Prisma.UserWhereInput | undefined {
+  if (["HR", "CEO", "ADMIN"].includes(viewer.role)) return undefined;
+  if (viewer.role === "MANAGER") return { managerId: viewer.id };
+  if (viewer.role === "DEPT_HEAD" && viewer.headedDeptId) {
+    return { departmentId: viewer.headedDeptId };
+  }
+  return { id: { in: [] } };
+}
 
 /** True if viewer may approve attendance / leave for this employee row. */
 export function canApproveForEmployee(

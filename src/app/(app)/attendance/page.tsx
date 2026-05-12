@@ -1,6 +1,6 @@
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import { manageableEmployeesWhere, canApproveForEmployee, type AttendanceApproverContext } from "@/lib/attendance-scope";
+import { manageableEmployeesWhere, pendingApprovalUserWhere, type AttendanceApproverContext } from "@/lib/attendance-scope";
 import {
   casualEntitled,
   casualRemaining,
@@ -28,7 +28,8 @@ import {
 import { sickLeaveMedicalProofRequired } from "@/lib/sick-leave-medical-proof";
 import {
   leaveRequestsAllowInsufficientPaidBalance,
-  paidLeaveApproverBalancePreview,
+  paidLeaveApproverBalancePreviewCached,
+  prefetchPaidLeaveBalancePreviewContext,
 } from "@/lib/leave-balance-guard";
 import Link from "next/link";
 import { ReportMonthNav } from "@/components/report-month-nav";
@@ -156,6 +157,7 @@ export default async function AttendancePage({
   const { periodYear: leavePeriodYear, half: leaveHalf } = getHalfYearPeriod(today);
 
   const isApprover = ["MANAGER", "DEPT_HEAD", "HR", "CEO", "ADMIN"].includes(me.role);
+  const pendingUserWhere = pendingApprovalUserWhere(viewerCtx);
 
   await ensureLeaveBalanceRow(me.id, today);
 
@@ -171,8 +173,8 @@ export default async function AttendancePage({
     leaveBalance,
     myRegularisations,
     myLeaveRequests,
-    pendingRegularisationsAll,
-    pendingLeavesAll,
+    pendingRegularisations,
+    pendingLeaves,
   ] = await Promise.all([
     prisma.attendance.findUnique({
       where: { userId_date: { userId: me.id, date: today } },
@@ -202,7 +204,7 @@ export default async function AttendancePage({
     }),
     isApprover
       ? prisma.regularisationRequest.findMany({
-          where: { status: "PENDING" },
+          where: pendingUserWhere ? { status: "PENDING", user: pendingUserWhere } : { status: "PENDING" },
           include: {
             user: { select: { id: true, name: true, image: true, managerId: true, departmentId: true } },
           },
@@ -211,7 +213,7 @@ export default async function AttendancePage({
       : Promise.resolve([]),
     isApprover
       ? prisma.leaveRequest.findMany({
-          where: { status: "PENDING" },
+          where: pendingUserWhere ? { status: "PENDING", user: pendingUserWhere } : { status: "PENDING" },
           include: {
             user: { select: { id: true, name: true, image: true, managerId: true, departmentId: true } },
           },
@@ -219,11 +221,6 @@ export default async function AttendancePage({
         })
       : Promise.resolve([]),
   ]);
-
-  const pendingRegularisations = pendingRegularisationsAll.filter((r) =>
-    canApproveForEmployee(viewerCtx, r.user),
-  );
-  const pendingLeaves = pendingLeavesAll.filter((r) => canApproveForEmployee(viewerCtx, r.user));
 
   const myLeaveRows = await Promise.all(
     myLeaveRequests.map(async (r) => {
@@ -236,6 +233,16 @@ export default async function AttendancePage({
     }),
   );
 
+  const leaveBalancePrefetch = await prefetchPaidLeaveBalancePreviewContext(
+    pendingLeaves.map((r) => ({
+      userId: r.userId,
+      type: r.type,
+      startDate: r.startDate,
+      endDate: r.endDate,
+      isHalfDay: r.isHalfDay,
+    })),
+  );
+
   const pendingLeaveRows = await Promise.all(
     pendingLeaves.map(async (r) => {
       const ledgerDebitDaysDefault =
@@ -243,13 +250,16 @@ export default async function AttendancePage({
           ? null
           : [...workingDaysByHalfYearForLeave(r.startDate, r.endDate, r.isHalfDay).values()].reduce((a, b) => a + b, 0);
 
-      const balancePreview = await paidLeaveApproverBalancePreview({
-        userId: r.userId,
-        type: r.type,
-        startDate: r.startDate,
-        endDate: r.endDate,
-        isHalfDay: r.isHalfDay,
-      });
+      const balancePreview = paidLeaveApproverBalancePreviewCached(
+        {
+          userId: r.userId,
+          type: r.type,
+          startDate: r.startDate,
+          endDate: r.endDate,
+          isHalfDay: r.isHalfDay,
+        },
+        leaveBalancePrefetch,
+      );
       const insufficientPaidBalanceForDefault =
         balancePreview.ledgerKind !== null && !balancePreview.sufficientForFullDefaultDebit;
 

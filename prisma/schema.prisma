@@ -689,6 +689,7 @@ model RegularisationRequest {
 
   @@index([userId])
   @@index([status])
+  @@index([status, createdAt])
 }
 
 enum LeaveType {
@@ -733,6 +734,7 @@ model LeaveRequest {
 
   @@index([userId])
   @@index([approverId])
+  @@index([status, createdAt])
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
