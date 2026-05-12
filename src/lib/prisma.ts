@@ -9,16 +9,26 @@ declare global {
 }
 
 /**
- * Bump Prisma-side wait when the pooled URL caps connections (often `connection_limit=1` behind PgBouncer).
- * Does not raise the server's limit — for that, prefer Supabase Session mode / a higher pool URL.
+ * Tune Prisma Postgres URL for pooled / serverless (Vercel + Supabase PgBouncer, Neon pooler, etc.).
+ * - Higher `pool_timeout` avoids premature P2024 when one connection slot is briefly busy.
+ * - With transaction poolers, `connection_limit=1` is too small for parallel RSC streams (Suspense siblings);
+ *   allow a small pool per Lambda when the hostname/port indicates pooled access.
  */
-function databaseUrlWithDevPoolTune(url: string | undefined): string | undefined {
-  if (!url || process.env.NODE_ENV !== "development") return url;
+function databaseUrlPoolTune(url: string | undefined): string | undefined {
+  if (!url) return url;
   try {
     const u = new URL(url);
+    const isPooled =
+      u.port === "6543" || /pooler/i.test(u.hostname) || u.searchParams.get("pgbouncer") === "true";
+
     if (!u.searchParams.has("pool_timeout")) {
-      u.searchParams.set("pool_timeout", "30");
+      u.searchParams.set("pool_timeout", process.env.NODE_ENV === "development" ? "30" : "60");
     }
+
+    if (isPooled && u.searchParams.get("connection_limit") === "1") {
+      u.searchParams.set("connection_limit", "5");
+    }
+
     return u.toString();
   } catch {
     return url;
@@ -26,7 +36,7 @@ function databaseUrlWithDevPoolTune(url: string | undefined): string | undefined
 }
 
 function makePrisma() {
-  const url = databaseUrlWithDevPoolTune(process.env.DATABASE_URL) ?? process.env.DATABASE_URL;
+  const url = databaseUrlPoolTune(process.env.DATABASE_URL) ?? process.env.DATABASE_URL;
   return new PrismaClient({
     log: process.env.NODE_ENV === "development" ? ["error", "warn"] : ["error"],
     datasources:
