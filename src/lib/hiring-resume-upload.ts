@@ -40,3 +40,29 @@ export async function persistHiringResumeFile(
   await writeFile(path.join(dir, fname), buf);
   return `/hiring-uploads/${fname}`;
 }
+
+function resolveResumeExt(fileName: string, mimeHint?: string): string | null {
+  const type = (mimeHint || "").toLowerCase();
+  let ext: string | null = MIME_EXT[type] ?? null;
+  if (!ext) ext = extFromFilename(fileName);
+  return ext;
+}
+
+/**
+ * Store résumé bytes (e.g. from inbound email webhook) under `/public/hiring-uploads/`.
+ */
+export async function persistHiringResumeBuffer(
+  buf: Buffer,
+  fileName: string,
+  mimeHint?: string,
+): Promise<string | "TOO_LARGE" | "UNSUPPORTED_TYPE"> {
+  if (!buf?.length) return "UNSUPPORTED_TYPE";
+  if (buf.length > MAX_BYTES) return "TOO_LARGE";
+  const ext = resolveResumeExt(fileName, mimeHint);
+  if (!ext) return "UNSUPPORTED_TYPE";
+  const fname = `${randomUUID()}${ext}`;
+  const dir = path.join(process.cwd(), "public", "hiring-uploads");
+  await mkdir(dir, { recursive: true });
+  await writeFile(path.join(dir, fname), buf);
+  return `/hiring-uploads/${fname}`;
+}

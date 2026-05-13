@@ -176,6 +176,7 @@ model User {
   hiringApplicationAttachmentsAdded HiringApplicationAttachment[] @relation("HiringApplicationAttachmentAddedBy")
   hiringInterviewTemplatesAuthored HiringInterviewQuestionTemplate[] @relation("HiringInterviewTemplateAuthor")
   hiringApplicationReviewsAuthored HiringApplicationReview[]         @relation("HiringApplicationReviewAuthor")
+  hiringResumeImportBatchesCreated HiringResumeImportBatch[]        @relation("HiringResumeImportBatchCreator")
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -294,6 +295,7 @@ model HiringJob {
   createdById    String?
   createdBy      User?            @relation("HiringJobCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   applications   HiringApplication[]
+  resumeImportBatches HiringResumeImportBatch[]
   /// If this job came from an approved headcount request.
   sourcingRequisition HiringRequisition?
 
@@ -452,6 +454,55 @@ model HiringApplicationReview {
   createdAt DateTime               @default(now())
 
   @@index([applicationId, createdAt])
+}
+
+enum HiringResumeImportSourceChannel {
+  UPLOAD
+  EMAIL
+}
+
+enum HiringResumeImportItemStatus {
+  PENDING_PARSE
+  PARSED
+  IMPORTED
+  FAILED
+}
+
+/// Bulk résumé intake staging — reviewed before candidates/applications are created.
+model HiringResumeImportBatch {
+  id                String                         @id @default(cuid())
+  createdById       String?
+  createdBy         User?                          @relation("HiringResumeImportBatchCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  targetJobId       String?
+  targetJob         HiringJob?                     @relation(fields: [targetJobId], references: [id], onDelete: SetNull)
+  applicationSource String?                        @db.VarChar(120)
+  sourceChannel     HiringResumeImportSourceChannel @default(UPLOAD)
+  expiresAt         DateTime
+
+  items HiringResumeImportItem[]
+
+  createdAt DateTime @default(now())
+
+  @@index([createdById])
+  @@index([expiresAt])
+}
+
+model HiringResumeImportItem {
+  id                  String                       @id @default(cuid())
+  batchId             String
+  batch               HiringResumeImportBatch       @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  fileName            String                       @db.VarChar(280)
+  resumeUrl           String                       @db.VarChar(2048)
+  extractedText       String?                      @db.Text
+  parsedPayloadJson   String?                      @db.Text
+  parseModel          String?                      @db.VarChar(120)
+  parsedAt            DateTime?
+  status              HiringResumeImportItemStatus @default(PENDING_PARSE)
+  error               String?                      @db.VarChar(500)
+
+  createdAt DateTime @default(now())
+
+  @@index([batchId])
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
