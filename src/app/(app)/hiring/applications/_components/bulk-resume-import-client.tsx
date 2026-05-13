@@ -8,12 +8,16 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input, Label } from "@/components/ui/input";
 import type { ParsedResumeFields } from "@/lib/hiring-resume-llm";
+import { formatDateTimeUtc } from "@/lib/utils";
 import {
   commitBulkResumeImport,
   createBulkResumeImportFromUpload,
   discardBulkResumeImportBatch,
   type BulkImportCommitRow,
 } from "../import-actions";
+
+/** Must match AFFINDA_RESUME_MAX_BYTES in `@/lib/hiring-resume-affinda`. */
+const AFFINDA_RESUME_MAX_BYTES_CLIENT = 5 * 1024 * 1024;
 
 const EMPTY_PARSED: ParsedResumeFields = {
   fullName: null,
@@ -101,6 +105,7 @@ export function BulkResumeImportClient(props: {
   openJobs: { id: string; title: string }[];
   initialBatch: SerializedImportBatch | null;
   webhookBaseUrl: string;
+  affindaResumeParsingEnabled?: boolean;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -116,6 +121,8 @@ export function BulkResumeImportClient(props: {
     ? `${props.webhookBaseUrl}/api/webhooks/hiring-resume-inbound`
     : "/api/webhooks/hiring-resume-inbound";
 
+  const affindaOn = props.affindaResumeParsingEnabled ?? false;
+
   async function onUploadSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (!jobId) {
@@ -125,6 +132,16 @@ export function BulkResumeImportClient(props: {
     if (!files?.length) {
       toast.error("Choose one or more résumé files.");
       return;
+    }
+    if (affindaOn) {
+      for (let i = 0; i < files.length; i++) {
+        if (files[i].size > AFFINDA_RESUME_MAX_BYTES_CLIENT) {
+          toast.error(
+            `${files[i].name}: exceeds Affinda’s ${AFFINDA_RESUME_MAX_BYTES_CLIENT / (1024 * 1024)} MB résumé limit.`,
+          );
+          return;
+        }
+      }
     }
     const fd = new FormData();
     fd.set("targetJobId", jobId);
@@ -225,9 +242,59 @@ export function BulkResumeImportClient(props: {
         <Card className="border-ink-100 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
           <CardHeader>
             <CardTitle className="text-base">Upload from computer</CardTitle>
-            <CardDescription>
-              PDF or DOCX up to 12 MB each — parsed fields use{" "}
-              <code className="text-xs bg-ink-100 px-1 rounded">Hiring_RESUME_PARSE_API_KEY</code> when set.
+            <CardDescription className="space-y-2">
+              <span className="block">
+                PDF or DOCX — stored files may be up to <strong>12 MB</strong> each.
+                {affindaOn ? (
+                  <>
+                    {" "}
+                    With{" "}
+                    <a
+                      href="https://docs.affinda.com/resumes/integration"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="font-semibold text-sky-700 underline-offset-4 hover:underline"
+                    >
+                      Affinda
+                    </a>{" "}
+                    parsing enabled, each résumé must be ≤ <strong>5 MB</strong> (their résumé API limit).
+                  </>
+                ) : (
+                  <>
+                    {" "}
+                    Auto-filled columns use{" "}
+                    <a
+                      href="https://docs.affinda.com/resumes/integration"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="font-semibold text-sky-700 underline-offset-4 hover:underline"
+                    >
+                      Affinda
+                    </a>{" "}
+                    only — OpenAI is not called. Until workspace + API key are configured on the server, type fields manually after upload.
+                  </>
+                )}
+              </span>
+              <span className="block text-xs text-ink-500 leading-relaxed">
+                Env for parsing:{" "}
+                <code className="bg-ink-100 px-1 rounded">AFFINDA_WORKSPACE</code>,{" "}
+                <code className="bg-ink-100 px-1 rounded">AFFINDA_API_KEY</code> (or{" "}
+                <code className="bg-ink-100 px-1 rounded">HIRING_RESUME_PARSE_API_KEY</code>
+                ), optional{" "}
+                <code className="bg-ink-100 px-1 rounded">AFFINDA_API_BASE_URL</code>{" "}
+                (<code className="bg-ink-100 px-1 rounded">https://api.affinda.com</code>,{" "}
+                <code className="bg-ink-100 px-1 rounded">api.us1.affinda.com</code>,{" "}
+                <code className="bg-ink-100 px-1 rounded">api.eu1.affinda.com</code>). Field reference:{" "}
+                <a
+                  href="https://docs.affinda.com/resumes/data-extracted"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-semibold text-sky-700 underline-offset-4 hover:underline"
+                >
+                  Data extracted
+                </a>
+                .
+              </span>
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -295,7 +362,7 @@ export function BulkResumeImportClient(props: {
               <CardTitle className="text-base">Review &amp; import</CardTitle>
               <CardDescription>
                 Batch <span className="font-mono text-xs">{batchId}</span> · expires{" "}
-                {new Date(props.initialBatch!.expiresAt).toLocaleString()} · channel{" "}
+                {formatDateTimeUtc(props.initialBatch!.expiresAt)} · channel{" "}
                 {props.initialBatch!.sourceChannel}
               </CardDescription>
             </div>

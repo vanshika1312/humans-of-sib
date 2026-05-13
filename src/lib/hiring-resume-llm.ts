@@ -46,15 +46,39 @@ export type LlmParseOutcome =
   | { ok: true; parsed: ParsedResumeFields; model: string }
   | { ok: false; error: string; parsed?: ParsedResumeFields };
 
+function normalizeEnvSecret(raw: string | undefined): string {
+  let s = (raw ?? "").trim();
+  if (
+    (s.startsWith('"') && s.endsWith('"')) ||
+    (s.startsWith("'") && s.endsWith("'"))
+  ) {
+    s = s.slice(1, -1).trim();
+  }
+  return s;
+}
+
+async function parsingErrorMessage(response: Response): Promise<string> {
+  try {
+    const body = (await response.json()) as {
+      error?: { message?: string };
+      message?: string;
+    };
+    const msg = body.error?.message ?? body.message;
+    if (typeof msg === "string" && msg.trim()) return msg.trim();
+  } catch {
+    /* ignore */
+  }
+  return "";
+}
+
 /**
  * Structured extraction via OpenAI-compatible Chat Completions JSON mode.
  */
 export async function parseResumeFieldsWithLlm(resumeText: string): Promise<LlmParseOutcome> {
-  const apiKey = process.env.HIRING_RESUME_PARSE_API_KEY?.trim();
-  const baseUrl = (
-    process.env.HIRING_RESUME_PARSE_BASE_URL?.trim() || "https://api.openai.com/v1"
-  ).replace(/\/$/, "");
-  const model = process.env.HIRING_RESUME_PARSE_MODEL?.trim() || "gpt-4o-mini";
+  const apiKey = normalizeEnvSecret(process.env.HIRING_RESUME_PARSE_API_KEY);
+  const baseUrl = normalizeEnvSecret(process.env.HIRING_RESUME_PARSE_BASE_URL) || "https://api.openai.com/v1";
+  const baseNormalized = baseUrl.replace(/\/$/, "");
+  const model = normalizeEnvSecret(process.env.HIRING_RESUME_PARSE_MODEL) || "gpt-4o-mini";
 
   const stubParsed: ParsedResumeFields = {
     fullName: null,
@@ -89,7 +113,7 @@ Rules:
 
   let response: Response;
   try {
-    response = await fetch(`${baseUrl}/chat/completions`, {
+    response = await fetch(`${baseNormalized}/chat/completions`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -113,9 +137,15 @@ Rules:
   }
 
   if (!response.ok) {
+    const upstream = await parsingErrorMessage(response);
+    const suffix = upstream ? ` ${upstream}` : "";
+    const hint401 =
+      response.status === 401
+        ? " Wrong or mismatched credentials: use an API key valid for this base URL (OpenAI keys start with sk-…). For OpenRouter/LiteLLM/Azure set HIRING_RESUME_PARSE_BASE_URL to that provider’s OpenAI-compatible root."
+        : "";
     return {
       ok: false,
-      error: `Résumé parsing failed (${response.status}). Fill fields manually.`,
+      error: `Résumé parsing failed (HTTP ${response.status}).${suffix}${hint401} Fill fields manually.`,
       parsed: stubParsed,
     };
   }
@@ -152,4 +182,9 @@ Rules:
   }
 
   return { ok: true, parsed: sanitizeParsed(parsed.data), model };
+}
+
+/** Shared trim rules for ParsedResumeFields (used by Affinda mapper). */
+export function sanitizeParsedResumeFields(raw: ParsedResumeFields): ParsedResumeFields {
+  return sanitizeParsed(raw);
 }

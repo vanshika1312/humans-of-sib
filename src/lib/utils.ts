@@ -16,6 +16,17 @@ export function formatDate(d: Date | string | null | undefined, opts?: Intl.Date
   }).format(date);
 }
 
+/**
+ * UTC wall-clock string — identical on server and client (avoids hydration mismatches from default locale).
+ */
+export function formatDateTimeUtc(isoOrDate: Date | string | null | undefined): string {
+  if (!isoOrDate) return "—";
+  const d = typeof isoOrDate === "string" ? new Date(isoOrDate) : isoOrDate;
+  if (Number.isNaN(d.getTime())) return "—";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())} UTC`;
+}
+
 export function formatTime(d: Date | string | null | undefined) {
   if (!d) return "—";
   const date = typeof d === "string" ? new Date(d) : d;
