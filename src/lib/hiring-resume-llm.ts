@@ -78,6 +78,11 @@ export type ResolvedLlmResumeParse = {
   isOpenRouter: boolean;
 };
 
+/** Affinda keys (`aff_…`) must not be used with OpenAI-compatible chat endpoints. */
+function isLikelyAffindaApiKey(k: string): boolean {
+  return k.startsWith("aff_");
+}
+
 /**
  * Resolves OpenAI-compatible chat parsing: prefers dedicated OpenRouter env vars, then
  * `HIRING_RESUME_PARSE_*` (OpenAI, OpenRouter, LiteLLM, etc.).
@@ -86,7 +91,7 @@ export function resolveLlmParseConfig(): ResolvedLlmResumeParse | null {
   const orKey =
     normalizeEnvSecret(process.env.OPENROUTER_API_KEY) ||
     normalizeEnvSecret(process.env.HIRING_RESUME_OPENROUTER_API_KEY);
-  if (orKey) {
+  if (orKey && !isLikelyAffindaApiKey(orKey)) {
     const baseRaw =
       normalizeEnvSecret(process.env.OPENROUTER_BASE_URL) ||
       normalizeEnvSecret(process.env.HIRING_RESUME_OPENROUTER_BASE_URL) ||
@@ -104,7 +109,7 @@ export function resolveLlmParseConfig(): ResolvedLlmResumeParse | null {
   }
 
   const genericKey = normalizeEnvSecret(process.env.HIRING_RESUME_PARSE_API_KEY);
-  if (!genericKey) return null;
+  if (!genericKey || isLikelyAffindaApiKey(genericKey)) return null;
   const explicitBase = normalizeEnvSecret(process.env.HIRING_RESUME_PARSE_BASE_URL);
   const baseRaw =
     explicitBase ||
@@ -144,7 +149,7 @@ export async function parseResumeFieldsWithLlm(resumeText: string): Promise<LlmP
     return {
       ok: false,
       error:
-        "Résumé parsing is not configured. Set OPENROUTER_API_KEY (or HIRING_RESUME_PARSE_API_KEY + base URL). Fill fields manually.",
+        "Résumé parsing is not configured for LLM. Set OPENROUTER_API_KEY to your OpenRouter key (not Affinda). If HIRING_RESUME_PARSE_API_KEY is an Affinda key (`aff_…`), remove it or add OPENROUTER_API_KEY — Affinda keys only work with AFFINDA_WORKSPACE + Affinda’s API host.",
       parsed: stubParsed,
     };
   }
