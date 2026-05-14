@@ -333,6 +333,10 @@ function resolveAffindaApiKey(): string {
 
 /** True when workspace + API key are set (Affinda path replaces OpenAI chat parsing). */
 export function isAffindaResumeParsingConfigured(): boolean {
+  const raw = normalizeEnv(process.env.DISABLE_AFFINDA_RESUME_PARSING);
+  const disabled = raw === "1" || raw?.toLowerCase() === "true" || raw?.toLowerCase() === "yes";
+  if (disabled) return false;
+
   const ws = normalizeEnv(process.env.AFFINDA_WORKSPACE);
   const key = resolveAffindaApiKey();
   return !!(ws && key);
@@ -467,6 +471,19 @@ function describeAffindaDocumentError(err: unknown): string {
   }
   if (typeof err === "object") {
     const o = err as Record<string, unknown>;
+
+    const errCodeRaw = o.errorCode;
+    const errDetailRaw = o.errorDetail;
+    if (typeof errCodeRaw === "string" && errCodeRaw.trim()) {
+      const code = errCodeRaw.trim();
+      const detail = typeof errDetailRaw === "string" && errDetailRaw.trim() ? errDetailRaw.trim() : "";
+      if (code === "no_parsing_credits") {
+        return `${detail || "No Affinda parsing credits remaining."} Set OPENROUTER_API_KEY (LLM parsing runs first), or set DISABLE_AFFINDA_RESUME_PARSING=true to skip Affinda, or contact Affinda for credits.`;
+      }
+      if (detail) return `${code}: ${detail}`;
+      return code;
+    }
+
     for (const key of ["detail", "message", "description", "title"]) {
       const v = o[key];
       if (typeof v === "string" && v.trim()) return v.trim();

@@ -297,7 +297,9 @@ export function BulkResumeImportClient(props: {
                     <code className="bg-ink-100 px-1 rounded">OPENROUTER_MODEL</code> (e.g.{" "}
                     <code className="bg-ink-100 px-1 rounded">openai/gpt-4o-mini</code>),{" "}
                     <code className="bg-ink-100 px-1 rounded">OPENROUTER_BASE_URL</code>. This path runs before
-                    Affinda when configured.
+                    Affinda when configured. If Affinda has no credits, add{" "}
+                    <code className="bg-ink-100 px-1 rounded">DISABLE_AFFINDA_RESUME_PARSING=true</code> so imports
+                    don’t call Affinda.
                   </>
                 ) : strictAffinda5mbLimit ? (
                   <>
@@ -305,7 +307,9 @@ export function BulkResumeImportClient(props: {
                     <code className="bg-ink-100 px-1 rounded">AFFINDA_API_KEY</code> (or{" "}
                     <code className="bg-ink-100 px-1 rounded">HIRING_RESUME_PARSE_API_KEY</code>), optional{" "}
                     <code className="bg-ink-100 px-1 rounded">AFFINDA_RESUME_DOCUMENT_TYPE</code>,{" "}
-                    <code className="bg-ink-100 px-1 rounded">AFFINDA_API_BASE_URL</code> (region hosts).{" "}
+                    <code className="bg-ink-100 px-1 rounded">AFFINDA_API_BASE_URL</code> (region hosts). Out of
+                    credits? Set <code className="bg-ink-100 px-1 rounded">OPENROUTER_API_KEY</code> and{" "}
+                    <code className="bg-ink-100 px-1 rounded">DISABLE_AFFINDA_RESUME_PARSING=true</code>.{" "}
                     <a
                       href="https://docs.affinda.com/resumes/data-extracted"
                       target="_blank"
