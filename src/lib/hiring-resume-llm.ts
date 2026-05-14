@@ -71,6 +71,59 @@ async function parsingErrorMessage(response: Response): Promise<string> {
   return "";
 }
 
+/** Timeout for POST /chat/completions (large résumé + model latency). */
+const LLM_CHAT_COMPLETION_TIMEOUT_MS = 120_000;
+
+function collectErrorChain(err: unknown): string {
+  const parts: string[] = [];
+  let cur: unknown = err;
+  for (let i = 0; i < 6 && cur != null; i++) {
+    if (cur instanceof Error) {
+      const m = cur.message.trim();
+      if (m) parts.push(m);
+      cur = cur.cause;
+    } else {
+      parts.push(String(cur).trim());
+      break;
+    }
+  }
+  return parts.filter(Boolean).join(" — ");
+}
+
+/** Redact URLs and key-like strings before showing in import row NOTES. */
+function sanitizeTransportErrorForUser(text: string, maxLen = 220): string {
+  let s = text.replace(/\s+/g, " ").trim();
+  s = s.replace(/https?:\/\/[^\s)]+/gi, "[url]");
+  s = s.replace(/\bsk-(?:or-v1-)?[a-z0-9_-]{16,}/gi, "[key]");
+  s = s.replace(/\baff_[a-z0-9_-]+\b/gi, "[key]");
+  s = s.replace(/\bBearer\s+\S+/gi, "Bearer [key]");
+  s = s.replace(/\b[a-f0-9]{32,}\b/gi, "[hex]");
+  if (s.length > maxLen) s = `${s.slice(0, maxLen - 1)}…`;
+  return s;
+}
+
+function isFetchTimeoutError(err: unknown): boolean {
+  if (err instanceof DOMException && err.name === "TimeoutError") return true;
+  if (err instanceof Error && err.name === "TimeoutError") return true;
+  const code =
+    typeof err === "object" && err !== null && "code" in err
+      ? String((err as { code?: unknown }).code)
+      : "";
+  if (code === "ETIMEDOUT") return true;
+  if (err instanceof Error && /timed out|timeout|aborted/i.test(err.message)) return true;
+  return false;
+}
+
+function resolveChatCompletionsUrl(baseNormalized: string): { ok: true; url: string } | { ok: false } {
+  const base = baseNormalized.replace(/\/$/, "");
+  try {
+    const url = new URL("chat/completions", `${base}/`).toString();
+    return { ok: true, url };
+  } catch {
+    return { ok: false };
+  }
+}
+
 export type ResolvedLlmResumeParse = {
   apiKey: string;
   baseNormalized: string;
@@ -183,11 +236,22 @@ Rules:
       normalizeEnvSecret(process.env.OPENROUTER_APP_TITLE) || "Humans of SIB — résumé import";
   }
 
+  const chatUrlResult = resolveChatCompletionsUrl(baseNormalized);
+  if (!chatUrlResult.ok) {
+    return {
+      ok: false,
+      error:
+        "Invalid base URL for résumé parsing (check OPENROUTER_BASE_URL or HIRING_RESUME_PARSE_BASE_URL).",
+      parsed: stubParsed,
+    };
+  }
+
   let response: Response;
   try {
-    response = await fetch(`${baseNormalized}/chat/completions`, {
+    response = await fetch(chatUrlResult.url, {
       method: "POST",
       headers,
+      signal: AbortSignal.timeout(LLM_CHAT_COMPLETION_TIMEOUT_MS),
       body: JSON.stringify({
         model,
         temperature: 0.1,
@@ -201,8 +265,21 @@ Rules:
         ],
       }),
     });
-  } catch {
-    return { ok: false, error: "Could not reach résumé parsing service.", parsed: stubParsed };
+  } catch (err) {
+    const timedOut = isFetchTimeoutError(err);
+    const chain = collectErrorChain(err);
+    console.error("[hiring-resume-llm] chat/completions fetch failed", {
+      baseNormalized,
+      model,
+      timedOut,
+      error: chain,
+    });
+    const safe = sanitizeTransportErrorForUser(chain);
+    const baseMsg = timedOut
+      ? `Request timed out contacting résumé parsing service (${LLM_CHAT_COMPLETION_TIMEOUT_MS / 1000}s).`
+      : "Could not reach résumé parsing service.";
+    const error = safe ? `${baseMsg} (${safe})` : baseMsg;
+    return { ok: false, error, parsed: stubParsed };
   }
 
   if (!response.ok) {
