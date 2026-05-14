@@ -174,6 +174,32 @@ function extractReady(body: unknown): boolean {
 
 const AFFINDA_PROCESSING_FALLBACK = "Affinda reported a processing error.";
 
+/** True when `v` carries no signal (null, empty string, empty container, numeric 0, or object whose values are all absent). */
+function valueIsAbsent(v: unknown): boolean {
+  if (v === null || v === undefined || v === false) return true;
+  if (typeof v === "string") return !v.trim();
+  if (typeof v === "number") return v === 0 || Number.isNaN(v);
+  if (Array.isArray(v)) return v.length === 0 || v.every(valueIsAbsent);
+  if (typeof v === "object") {
+    const keys = Object.keys(v as object);
+    if (keys.length === 0) return true;
+    return keys.every((k) => valueIsAbsent((v as Record<string, unknown>)[k]));
+  }
+  return false;
+}
+
+/**
+ * Affinda often includes an `error` object on ready documents even when there is no failure
+ * (e.g. `{ errorCode: null, errorDetail: null }`). Only treat non-empty payloads as failures.
+ */
+function affindaDocumentErrorIsMeaningful(err: unknown): boolean {
+  if (err === null || err === undefined || err === false || err === "") return false;
+  if (typeof err === "string") return err.trim().length > 0;
+  if (Array.isArray(err)) return err.some((x) => !valueIsAbsent(x));
+  if (typeof err !== "object") return true;
+  return Object.values(err as Record<string, unknown>).some((v) => !valueIsAbsent(v));
+}
+
 /** Affinda sets `meta.ready` with an `error` object when extraction failed; shape varies by API version. */
 function describeAffindaDocumentError(err: unknown): string {
   if (err === null || err === undefined) return AFFINDA_PROCESSING_FALLBACK;
@@ -220,7 +246,9 @@ function describeAffindaDocumentError(err: unknown): string {
     }
     try {
       const json = JSON.stringify(err);
-      if (json !== "{}" && json.length <= 560) return `Affinda: ${json}`;
+      if (json !== "{}" && json.length <= 560 && affindaDocumentErrorIsMeaningful(err)) {
+        return `Affinda: ${json}`;
+      }
     } catch {
       /* ignore */
     }
@@ -342,7 +370,7 @@ export async function parseResumeWithAffinda(opts: {
 
   if (extractReady(postJson)) {
     const errRaw = (postJson as { error?: unknown }).error;
-    if (errRaw !== null && errRaw !== undefined && errRaw !== false && errRaw !== "") {
+    if (affindaDocumentErrorIsMeaningful(errRaw)) {
       const msg = describeAffindaDocumentError(errRaw);
       return { ok: false, error: msg, parsed: stub };
     }
@@ -386,7 +414,7 @@ export async function parseResumeWithAffinda(opts: {
 
     if (extractReady(doc)) {
       const errRaw = (doc as { error?: unknown }).error;
-      if (errRaw !== null && errRaw !== undefined && errRaw !== false && errRaw !== "") {
+      if (affindaDocumentErrorIsMeaningful(errRaw)) {
         const detail = describeAffindaDocumentError(errRaw);
         return { ok: false, error: detail, parsed: stub };
       }
