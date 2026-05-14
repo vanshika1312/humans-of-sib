@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { requireAppViewer } from "@/lib/app-viewer";
 import { BulkResumeImportClient, type SerializedImportBatch } from "../_components/bulk-resume-import-client";
 import { isAffindaResumeParsingConfigured } from "@/lib/hiring-resume-affinda";
+import { isLlmResumeParsingConfigured } from "@/lib/hiring-resume-llm";
 
 const RECRUITER_ROLES = ["CEO", "ADMIN", "HR"];
 
@@ -92,6 +93,7 @@ export default async function BulkResumeImportPage(props: Props) {
         initialBatch={initialBatch}
         webhookBaseUrl={webhookBaseUrl}
         affindaResumeParsingEnabled={isAffindaResumeParsingConfigured()}
+        llmResumeParsingEnabled={isLlmResumeParsingConfigured()}
       />
     </div>
   );

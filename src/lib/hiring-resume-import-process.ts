@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { persistHiringResumeBuffer } from "@/lib/hiring-resume-upload";
 import { extractResumeTextFromBuffer } from "@/lib/hiring-resume-text";
 import type { ParsedResumeFields } from "@/lib/hiring-resume-llm";
+import { isLlmResumeParsingConfigured, parseResumeFieldsWithLlm } from "@/lib/hiring-resume-llm";
 import {
   AFFINDA_RESUME_MAX_BYTES,
   isAffindaResumeParsingConfigured,
@@ -33,20 +34,20 @@ function normalizeEnvToken(raw: string | undefined): string {
   return s;
 }
 
-/** Explains why auto-parse did not run (bulk import never calls OpenAI). */
+/** Explains why auto-parse did not run when no LLM or Affinda is configured. */
 function bulkImportManualParsingNotice(): string {
   const ws = normalizeEnvToken(process.env.AFFINDA_WORKSPACE);
   const key =
     normalizeEnvToken(process.env.AFFINDA_API_KEY) ||
     normalizeEnvToken(process.env.HIRING_RESUME_PARSE_API_KEY);
   if (key.startsWith("aff_") && !ws) {
-    return "AFFINDA_WORKSPACE is missing. Your key looks like Affinda — add the workspace ID from the Affinda app. This importer does not call OpenAI.";
+    return "AFFINDA_WORKSPACE is missing. Your key looks like Affinda — add the workspace ID from the Affinda app, or use OPENROUTER_API_KEY for LLM parsing.";
   }
-  return "Automatic extraction uses Affinda only (OpenAI is not used). Set AFFINDA_WORKSPACE and your Affinda API key on the server, then restart — or fill rows manually.";
+  return "No automatic parsing is configured. Set OPENROUTER_API_KEY (recommended) or Affinda workspace + API key on the server, then restart — or fill rows manually.";
 }
 
 /**
- * Persist one résumé file into an existing import batch (Affinda parse when configured; otherwise manual fill + stored plain text).
+ * Persist one résumé file into an existing import batch (OpenRouter/LLM first, then Affinda, otherwise manual fill + stored plain text).
  */
 export async function createHiringResumeImportItemFromBuffer(opts: {
   batchId: string;
@@ -56,9 +57,10 @@ export async function createHiringResumeImportItemFromBuffer(opts: {
 }): Promise<void> {
   const displayName = opts.originalFileName.slice(0, 280);
   const parsedAt = new Date();
+  const llmOn = isLlmResumeParsingConfigured();
   const affindaOn = isAffindaResumeParsingConfigured();
 
-  if (affindaOn && opts.buffer.length > AFFINDA_RESUME_MAX_BYTES) {
+  if (affindaOn && !llmOn && opts.buffer.length > AFFINDA_RESUME_MAX_BYTES) {
     await prisma.hiringResumeImportItem.create({
       data: {
         batchId: opts.batchId,
@@ -102,6 +104,55 @@ export async function createHiringResumeImportItemFromBuffer(opts: {
   }
 
   const resumeUrl = uploaded;
+
+  if (llmOn) {
+    const textResult = await extractResumeTextFromBuffer(opts.buffer, opts.originalFileName);
+
+    if (!textResult.ok) {
+      await prisma.hiringResumeImportItem.create({
+        data: {
+          batchId: opts.batchId,
+          fileName: displayName,
+          resumeUrl,
+          status: "FAILED",
+          error: textResult.error,
+          parsedPayloadJson: JSON.stringify({
+            parsed: EMPTY_PARSED,
+          } satisfies StoredResumePayload),
+          parsedAt,
+        },
+      });
+      return;
+    }
+
+    const extractedText = textResult.text.slice(0, 80_000);
+    const llm = await parseResumeFieldsWithLlm(extractedText);
+    const parsed = llm.ok ? llm.parsed : llm.parsed ?? EMPTY_PARSED;
+    const warnings: string[] = [];
+    if (!llm.ok && llm.error) warnings.push(llm.error);
+
+    const payload: StoredResumePayload = {
+      parsed,
+      warnings: warnings.length ? warnings : undefined,
+    };
+
+    const parseModelLabel = llm.ok ? llm.model.slice(0, 120) : null;
+
+    await prisma.hiringResumeImportItem.create({
+      data: {
+        batchId: opts.batchId,
+        fileName: displayName,
+        resumeUrl,
+        extractedText,
+        parsedPayloadJson: JSON.stringify(payload),
+        parseModel: parseModelLabel,
+        parsedAt,
+        status: "PARSED",
+        error: null,
+      },
+    });
+    return;
+  }
 
   if (affindaOn) {
     const aff = await parseResumeWithAffinda({

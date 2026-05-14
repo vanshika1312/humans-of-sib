@@ -71,14 +71,66 @@ async function parsingErrorMessage(response: Response): Promise<string> {
   return "";
 }
 
+export type ResolvedLlmResumeParse = {
+  apiKey: string;
+  baseNormalized: string;
+  model: string;
+  isOpenRouter: boolean;
+};
+
+/**
+ * Resolves OpenAI-compatible chat parsing: prefers dedicated OpenRouter env vars, then
+ * `HIRING_RESUME_PARSE_*` (OpenAI, OpenRouter, LiteLLM, etc.).
+ */
+export function resolveLlmParseConfig(): ResolvedLlmResumeParse | null {
+  const orKey =
+    normalizeEnvSecret(process.env.OPENROUTER_API_KEY) ||
+    normalizeEnvSecret(process.env.HIRING_RESUME_OPENROUTER_API_KEY);
+  if (orKey) {
+    const baseRaw =
+      normalizeEnvSecret(process.env.OPENROUTER_BASE_URL) ||
+      normalizeEnvSecret(process.env.HIRING_RESUME_OPENROUTER_BASE_URL) ||
+      "https://openrouter.ai/api/v1";
+    const model =
+      normalizeEnvSecret(process.env.OPENROUTER_MODEL) ||
+      normalizeEnvSecret(process.env.HIRING_RESUME_OPENROUTER_MODEL) ||
+      "openai/gpt-4o-mini";
+    return {
+      apiKey: orKey,
+      baseNormalized: baseRaw.replace(/\/$/, ""),
+      model,
+      isOpenRouter: true,
+    };
+  }
+
+  const genericKey = normalizeEnvSecret(process.env.HIRING_RESUME_PARSE_API_KEY);
+  if (!genericKey) return null;
+  const explicitBase = normalizeEnvSecret(process.env.HIRING_RESUME_PARSE_BASE_URL);
+  const baseRaw =
+    explicitBase ||
+    (genericKey.startsWith("sk-or-") ? "https://openrouter.ai/api/v1" : "https://api.openai.com/v1");
+  const model =
+    normalizeEnvSecret(process.env.HIRING_RESUME_PARSE_MODEL) ||
+    (genericKey.startsWith("sk-or-") ? "openai/gpt-4o-mini" : "gpt-4o-mini");
+  const baseNormalized = baseRaw.replace(/\/$/, "");
+  return {
+    apiKey: genericKey,
+    baseNormalized,
+    model,
+    isOpenRouter: baseNormalized.includes("openrouter.ai"),
+  };
+}
+
+/** True when bulk import can call an LLM (OpenRouter, OpenAI, or other OpenAI-compatible API). */
+export function isLlmResumeParsingConfigured(): boolean {
+  return resolveLlmParseConfig() !== null;
+}
+
 /**
  * Structured extraction via OpenAI-compatible Chat Completions JSON mode.
  */
 export async function parseResumeFieldsWithLlm(resumeText: string): Promise<LlmParseOutcome> {
-  const apiKey = normalizeEnvSecret(process.env.HIRING_RESUME_PARSE_API_KEY);
-  const baseUrl = normalizeEnvSecret(process.env.HIRING_RESUME_PARSE_BASE_URL) || "https://api.openai.com/v1";
-  const baseNormalized = baseUrl.replace(/\/$/, "");
-  const model = normalizeEnvSecret(process.env.HIRING_RESUME_PARSE_MODEL) || "gpt-4o-mini";
+  const cfg = resolveLlmParseConfig();
 
   const stubParsed: ParsedResumeFields = {
     fullName: null,
@@ -88,14 +140,16 @@ export async function parseResumeFieldsWithLlm(resumeText: string): Promise<LlmP
     fieldConfidence: {},
   };
 
-  if (!apiKey) {
+  if (!cfg) {
     return {
       ok: false,
       error:
-        "Résumé parsing is not configured (set HIRING_RESUME_PARSE_API_KEY). Fill fields manually.",
+        "Résumé parsing is not configured. Set OPENROUTER_API_KEY (or HIRING_RESUME_PARSE_API_KEY + base URL). Fill fields manually.",
       parsed: stubParsed,
     };
   }
+
+  const { apiKey, baseNormalized, model, isOpenRouter } = cfg;
 
   const bodyText = truncateForModel(resumeText, 14_000);
 
@@ -111,14 +165,24 @@ Rules:
 - fieldConfidence: optional 0–1 confidence per field you populated (omit keys you leave null).
 - Use null when unknown — never invent emails or phones.`;
 
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${apiKey}`,
+    "Content-Type": "application/json",
+  };
+  if (isOpenRouter) {
+    const referer =
+      normalizeEnvSecret(process.env.OPENROUTER_HTTP_REFERER) ||
+      normalizeEnvSecret(process.env.NEXT_PUBLIC_APP_URL);
+    if (referer) headers["HTTP-Referer"] = referer;
+    headers["X-Title"] =
+      normalizeEnvSecret(process.env.OPENROUTER_APP_TITLE) || "Humans of SIB — résumé import";
+  }
+
   let response: Response;
   try {
     response = await fetch(`${baseNormalized}/chat/completions`, {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
+      headers,
       body: JSON.stringify({
         model,
         temperature: 0.1,
@@ -141,7 +205,7 @@ Rules:
     const suffix = upstream ? ` ${upstream}` : "";
     const hint401 =
       response.status === 401
-        ? " Wrong or mismatched credentials: use an API key valid for this base URL (OpenAI keys start with sk-…). For OpenRouter/LiteLLM/Azure set HIRING_RESUME_PARSE_BASE_URL to that provider’s OpenAI-compatible root."
+        ? " Wrong or mismatched API key for this base URL. For OpenRouter use OPENROUTER_API_KEY and optional OPENROUTER_BASE_URL, or HIRING_RESUME_PARSE_BASE_URL=https://openrouter.ai/api/v1 with an OpenRouter key."
         : "";
     return {
       ok: false,

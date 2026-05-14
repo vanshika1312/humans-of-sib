@@ -105,7 +105,10 @@ export function BulkResumeImportClient(props: {
   openJobs: { id: string; title: string }[];
   initialBatch: SerializedImportBatch | null;
   webhookBaseUrl: string;
+  /** Affinda workspace + key (no LLM). Used for 5 MB API cap when LLM is off. */
   affindaResumeParsingEnabled?: boolean;
+  /** OpenRouter or other OpenAI-compatible parsing (takes precedence over Affinda). */
+  llmResumeParsingEnabled?: boolean;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -122,6 +125,9 @@ export function BulkResumeImportClient(props: {
     : "/api/webhooks/hiring-resume-inbound";
 
   const affindaOn = props.affindaResumeParsingEnabled ?? false;
+  const llmOn = props.llmResumeParsingEnabled ?? false;
+  /** Affinda’s API rejects &gt;5 MB résumés; LLM path uses local text extraction (12 MB stored file limit). */
+  const strictAffinda5mbLimit = affindaOn && !llmOn;
 
   async function onUploadSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -133,7 +139,7 @@ export function BulkResumeImportClient(props: {
       toast.error("Choose one or more résumé files.");
       return;
     }
-    if (affindaOn) {
+    if (strictAffinda5mbLimit) {
       for (let i = 0; i < files.length; i++) {
         if (files[i].size > AFFINDA_RESUME_MAX_BYTES_CLIENT) {
           toast.error(
@@ -245,7 +251,21 @@ export function BulkResumeImportClient(props: {
             <CardDescription className="space-y-2">
               <span className="block">
                 PDF or DOCX — stored files may be up to <strong>12 MB</strong> each.
-                {affindaOn ? (
+                {llmOn ? (
+                  <>
+                    {" "}
+                    Auto-fill uses{" "}
+                    <a
+                      href="https://openrouter.ai/docs"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="font-semibold text-sky-700 underline-offset-4 hover:underline"
+                    >
+                      OpenRouter
+                    </a>{" "}
+                    (OpenAI-compatible JSON extraction from extracted text). Same size limits as storage (12 MB).
+                  </>
+                ) : strictAffinda5mbLimit ? (
                   <>
                     {" "}
                     With{" "}
@@ -262,40 +282,46 @@ export function BulkResumeImportClient(props: {
                 ) : (
                   <>
                     {" "}
-                    Auto-filled columns use{" "}
-                    <a
-                      href="https://docs.affinda.com/resumes/integration"
-                      target="_blank"
-                      rel="noreferrer"
-                      className="font-semibold text-sky-700 underline-offset-4 hover:underline"
-                    >
-                      Affinda
-                    </a>{" "}
-                    only — OpenAI is not called. Until workspace + API key are configured on the server, type fields manually after upload.
+                    Configure{" "}
+                    <code className="text-xs bg-ink-100 px-1 rounded">OPENROUTER_API_KEY</code> or Affinda
+                    workspace keys on the server, then restart — or type fields manually after upload.
                   </>
                 )}
               </span>
               <span className="block text-xs text-ink-500 leading-relaxed">
-                Env for parsing:{" "}
-                <code className="bg-ink-100 px-1 rounded">AFFINDA_WORKSPACE</code>,{" "}
-                <code className="bg-ink-100 px-1 rounded">AFFINDA_API_KEY</code> (or{" "}
-                <code className="bg-ink-100 px-1 rounded">HIRING_RESUME_PARSE_API_KEY</code>
-                ), optional{" "}
-                <code className="bg-ink-100 px-1 rounded">AFFINDA_RESUME_DOCUMENT_TYPE</code> (Résumé Parser
-                document type id),{" "}
-                <code className="bg-ink-100 px-1 rounded">AFFINDA_API_BASE_URL</code>{" "}
-                (<code className="bg-ink-100 px-1 rounded">https://api.affinda.com</code>,{" "}
-                <code className="bg-ink-100 px-1 rounded">api.us1.affinda.com</code>,{" "}
-                <code className="bg-ink-100 px-1 rounded">api.eu1.affinda.com</code>). Field reference:{" "}
-                <a
-                  href="https://docs.affinda.com/resumes/data-extracted"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="font-semibold text-sky-700 underline-offset-4 hover:underline"
-                >
-                  Data extracted
-                </a>
-                .
+                {llmOn ? (
+                  <>
+                    LLM parsing env: <code className="bg-ink-100 px-1 rounded">OPENROUTER_API_KEY</code>{" "}
+                    (defaults to <code className="bg-ink-100 px-1 rounded">https://openrouter.ai/api/v1</code>
+                    ), optional{" "}
+                    <code className="bg-ink-100 px-1 rounded">OPENROUTER_MODEL</code> (e.g.{" "}
+                    <code className="bg-ink-100 px-1 rounded">openai/gpt-4o-mini</code>),{" "}
+                    <code className="bg-ink-100 px-1 rounded">OPENROUTER_BASE_URL</code>. This path runs before
+                    Affinda when configured.
+                  </>
+                ) : strictAffinda5mbLimit ? (
+                  <>
+                    Affinda env: <code className="bg-ink-100 px-1 rounded">AFFINDA_WORKSPACE</code>,{" "}
+                    <code className="bg-ink-100 px-1 rounded">AFFINDA_API_KEY</code> (or{" "}
+                    <code className="bg-ink-100 px-1 rounded">HIRING_RESUME_PARSE_API_KEY</code>), optional{" "}
+                    <code className="bg-ink-100 px-1 rounded">AFFINDA_RESUME_DOCUMENT_TYPE</code>,{" "}
+                    <code className="bg-ink-100 px-1 rounded">AFFINDA_API_BASE_URL</code> (region hosts).{" "}
+                    <a
+                      href="https://docs.affinda.com/resumes/data-extracted"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="font-semibold text-sky-700 underline-offset-4 hover:underline"
+                    >
+                      Data extracted
+                    </a>
+                    .
+                  </>
+                ) : (
+                  <>
+                    Add <code className="bg-ink-100 px-1 rounded">OPENROUTER_API_KEY</code> for LLM parsing, or
+                    Affinda <code className="bg-ink-100 px-1 rounded">AFFINDA_WORKSPACE</code> + API key.
+                  </>
+                )}
               </span>
             </CardDescription>
           </CardHeader>
