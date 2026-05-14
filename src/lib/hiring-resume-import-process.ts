@@ -3,11 +3,6 @@ import { persistHiringResumeBuffer } from "@/lib/hiring-resume-upload";
 import { extractResumeTextFromBuffer } from "@/lib/hiring-resume-text";
 import type { ParsedResumeFields } from "@/lib/hiring-resume-llm";
 import { isLlmResumeParsingConfigured, parseResumeFieldsWithLlm } from "@/lib/hiring-resume-llm";
-import {
-  AFFINDA_RESUME_MAX_BYTES,
-  isAffindaResumeParsingConfigured,
-  parseResumeWithAffinda,
-} from "@/lib/hiring-resume-affinda";
 import type { HiringResumeImportItemStatus } from "@/generated/prisma";
 
 export type StoredResumePayload = {
@@ -23,31 +18,13 @@ const EMPTY_PARSED: ParsedResumeFields = {
   fieldConfidence: {},
 };
 
-function normalizeEnvToken(raw: string | undefined): string {
-  let s = (raw ?? "").trim();
-  if (
-    (s.startsWith('"') && s.endsWith('"')) ||
-    (s.startsWith("'") && s.endsWith("'"))
-  ) {
-    s = s.slice(1, -1).trim();
-  }
-  return s;
-}
-
-/** Explains why auto-parse did not run when no LLM or Affinda is configured. */
+/** Shown when LLM parsing is not configured and fields must be filled by hand. */
 function bulkImportManualParsingNotice(): string {
-  const ws = normalizeEnvToken(process.env.AFFINDA_WORKSPACE);
-  const key =
-    normalizeEnvToken(process.env.AFFINDA_API_KEY) ||
-    normalizeEnvToken(process.env.HIRING_RESUME_PARSE_API_KEY);
-  if (key.startsWith("aff_") && !ws) {
-    return "AFFINDA_WORKSPACE is missing. Your key looks like Affinda — add the workspace ID from the Affinda app, or use OPENROUTER_API_KEY for LLM parsing.";
-  }
-  return "No automatic parsing is configured. Set OPENROUTER_API_KEY (recommended) or Affinda workspace + API key on the server, then restart — or fill rows manually.";
+  return "Automatic parsing is not configured. Set OPENROUTER_API_KEY (or a compatible OpenAI-style key with HIRING_RESUME_PARSE_BASE_URL), restart the server, then try again — or fill rows manually.";
 }
 
 /**
- * Persist one résumé file into an existing import batch (OpenRouter/LLM first, then Affinda, otherwise manual fill + stored plain text).
+ * Persist one résumé file into an existing import batch (OpenRouter / OpenAI-compatible LLM when configured; otherwise manual fill + stored plain text).
  */
 export async function createHiringResumeImportItemFromBuffer(opts: {
   batchId: string;
@@ -58,24 +35,6 @@ export async function createHiringResumeImportItemFromBuffer(opts: {
   const displayName = opts.originalFileName.slice(0, 280);
   const parsedAt = new Date();
   const llmOn = isLlmResumeParsingConfigured();
-  const affindaOn = isAffindaResumeParsingConfigured();
-
-  if (affindaOn && !llmOn && opts.buffer.length > AFFINDA_RESUME_MAX_BYTES) {
-    await prisma.hiringResumeImportItem.create({
-      data: {
-        batchId: opts.batchId,
-        fileName: displayName,
-        resumeUrl: "",
-        status: "FAILED",
-        error: `Résumé exceeds Affinda limit (${AFFINDA_RESUME_MAX_BYTES / (1024 * 1024)} MB). Use a smaller file or disable Affinda for this batch.`,
-        parsedPayloadJson: JSON.stringify({
-          parsed: EMPTY_PARSED,
-        } satisfies StoredResumePayload),
-        parsedAt,
-      },
-    });
-    return;
-  }
 
   const uploaded = await persistHiringResumeBuffer(
     opts.buffer,
@@ -146,37 +105,6 @@ export async function createHiringResumeImportItemFromBuffer(opts: {
         extractedText,
         parsedPayloadJson: JSON.stringify(payload),
         parseModel: parseModelLabel,
-        parsedAt,
-        status: "PARSED",
-        error: null,
-      },
-    });
-    return;
-  }
-
-  if (affindaOn) {
-    const aff = await parseResumeWithAffinda({
-      buffer: opts.buffer,
-      fileName: opts.originalFileName,
-      mimeHint: opts.mimeHint,
-    });
-    const parsed = aff.ok ? aff.parsed : aff.parsed ?? EMPTY_PARSED;
-    const warnings: string[] = [];
-    if (!aff.ok && aff.error) warnings.push(aff.error);
-
-    const payload: StoredResumePayload = {
-      parsed,
-      warnings: warnings.length ? warnings : undefined,
-    };
-
-    await prisma.hiringResumeImportItem.create({
-      data: {
-        batchId: opts.batchId,
-        fileName: displayName,
-        resumeUrl,
-        extractedText: null,
-        parsedPayloadJson: JSON.stringify(payload),
-        parseModel: aff.ok ? aff.model : null,
         parsedAt,
         status: "PARSED",
         error: null,

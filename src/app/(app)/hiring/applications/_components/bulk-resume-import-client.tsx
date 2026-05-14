@@ -16,8 +16,8 @@ import {
   type BulkImportCommitRow,
 } from "../import-actions";
 
-/** Must match AFFINDA_RESUME_MAX_BYTES in `@/lib/hiring-resume-affinda`. */
-const AFFINDA_RESUME_MAX_BYTES_CLIENT = 5 * 1024 * 1024;
+/** Must match `MAX_BYTES` in `@/lib/hiring-resume-upload`. */
+const MAX_RESUME_UPLOAD_BYTES_CLIENT = 12 * 1024 * 1024;
 
 const EMPTY_PARSED: ParsedResumeFields = {
   fullName: null,
@@ -105,9 +105,7 @@ export function BulkResumeImportClient(props: {
   openJobs: { id: string; title: string }[];
   initialBatch: SerializedImportBatch | null;
   webhookBaseUrl: string;
-  /** Affinda workspace + key (no LLM). Used for 5 MB API cap when LLM is off. */
-  affindaResumeParsingEnabled?: boolean;
-  /** OpenRouter or other OpenAI-compatible parsing (takes precedence over Affinda). */
+  /** OpenRouter / OpenAI-compatible LLM parsing when env is set on the server. */
   llmResumeParsingEnabled?: boolean;
 }) {
   const router = useRouter();
@@ -124,10 +122,7 @@ export function BulkResumeImportClient(props: {
     ? `${props.webhookBaseUrl}/api/webhooks/hiring-resume-inbound`
     : "/api/webhooks/hiring-resume-inbound";
 
-  const affindaOn = props.affindaResumeParsingEnabled ?? false;
   const llmOn = props.llmResumeParsingEnabled ?? false;
-  /** Affinda’s API rejects &gt;5 MB résumés; LLM path uses local text extraction (12 MB stored file limit). */
-  const strictAffinda5mbLimit = affindaOn && !llmOn;
 
   async function onUploadSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -139,14 +134,12 @@ export function BulkResumeImportClient(props: {
       toast.error("Choose one or more résumé files.");
       return;
     }
-    if (strictAffinda5mbLimit) {
-      for (let i = 0; i < files.length; i++) {
-        if (files[i].size > AFFINDA_RESUME_MAX_BYTES_CLIENT) {
-          toast.error(
-            `${files[i].name}: exceeds Affinda’s ${AFFINDA_RESUME_MAX_BYTES_CLIENT / (1024 * 1024)} MB résumé limit.`,
-          );
-          return;
-        }
+    for (let i = 0; i < files.length; i++) {
+      if (files[i].size > MAX_RESUME_UPLOAD_BYTES_CLIENT) {
+        toast.error(
+          `${files[i].name}: exceeds ${MAX_RESUME_UPLOAD_BYTES_CLIENT / (1024 * 1024)} MB upload limit.`,
+        );
+        return;
       }
     }
     const fd = new FormData();
@@ -263,67 +256,32 @@ export function BulkResumeImportClient(props: {
                     >
                       OpenRouter
                     </a>{" "}
-                    (OpenAI-compatible JSON extraction from extracted text). Same size limits as storage (12 MB).
-                  </>
-                ) : strictAffinda5mbLimit ? (
-                  <>
-                    {" "}
-                    With{" "}
-                    <a
-                      href="https://docs.affinda.com/resumes/integration"
-                      target="_blank"
-                      rel="noreferrer"
-                      className="font-semibold text-sky-700 underline-offset-4 hover:underline"
-                    >
-                      Affinda
-                    </a>{" "}
-                    parsing enabled, each résumé must be ≤ <strong>5 MB</strong> (their résumé API limit).
+                    (OpenAI-compatible JSON extraction from extracted text).
                   </>
                 ) : (
                   <>
                     {" "}
-                    Configure{" "}
-                    <code className="text-xs bg-ink-100 px-1 rounded">OPENROUTER_API_KEY</code> or Affinda
-                    workspace keys on the server, then restart — or type fields manually after upload.
+                    Set <code className="text-xs bg-ink-100 px-1 rounded">OPENROUTER_API_KEY</code> on the server and
+                    restart — then uploads will be parsed automatically. Until then, type fields manually after upload.
                   </>
                 )}
               </span>
               <span className="block text-xs text-ink-500 leading-relaxed">
                 {llmOn ? (
                   <>
-                    LLM parsing env: <code className="bg-ink-100 px-1 rounded">OPENROUTER_API_KEY</code>{" "}
-                    (defaults to <code className="bg-ink-100 px-1 rounded">https://openrouter.ai/api/v1</code>
-                    ), optional{" "}
+                    Env: <code className="bg-ink-100 px-1 rounded">OPENROUTER_API_KEY</code> (defaults to{" "}
+                    <code className="bg-ink-100 px-1 rounded">https://openrouter.ai/api/v1</code>), optional{" "}
                     <code className="bg-ink-100 px-1 rounded">OPENROUTER_MODEL</code> (e.g.{" "}
                     <code className="bg-ink-100 px-1 rounded">openai/gpt-4o-mini</code>),{" "}
-                    <code className="bg-ink-100 px-1 rounded">OPENROUTER_BASE_URL</code>. This path runs before
-                    Affinda when configured. If Affinda has no credits, add{" "}
-                    <code className="bg-ink-100 px-1 rounded">DISABLE_AFFINDA_RESUME_PARSING=true</code> so imports
-                    don’t call Affinda.
-                  </>
-                ) : strictAffinda5mbLimit ? (
-                  <>
-                    Affinda env: <code className="bg-ink-100 px-1 rounded">AFFINDA_WORKSPACE</code>,{" "}
-                    <code className="bg-ink-100 px-1 rounded">AFFINDA_API_KEY</code> (or{" "}
-                    <code className="bg-ink-100 px-1 rounded">HIRING_RESUME_PARSE_API_KEY</code>), optional{" "}
-                    <code className="bg-ink-100 px-1 rounded">AFFINDA_RESUME_DOCUMENT_TYPE</code>,{" "}
-                    <code className="bg-ink-100 px-1 rounded">AFFINDA_API_BASE_URL</code> (region hosts). Out of
-                    credits? Set <code className="bg-ink-100 px-1 rounded">OPENROUTER_API_KEY</code> and{" "}
-                    <code className="bg-ink-100 px-1 rounded">DISABLE_AFFINDA_RESUME_PARSING=true</code>.{" "}
-                    <a
-                      href="https://docs.affinda.com/resumes/data-extracted"
-                      target="_blank"
-                      rel="noreferrer"
-                      className="font-semibold text-sky-700 underline-offset-4 hover:underline"
-                    >
-                      Data extracted
-                    </a>
-                    .
+                    <code className="bg-ink-100 px-1 rounded">OPENROUTER_BASE_URL</code>. Alternatively{" "}
+                    <code className="bg-ink-100 px-1 rounded">HIRING_RESUME_PARSE_API_KEY</code> +{" "}
+                    <code className="bg-ink-100 px-1 rounded">HIRING_RESUME_PARSE_BASE_URL</code> for other OpenAI-compatible
+                    hosts.
                   </>
                 ) : (
                   <>
-                    Add <code className="bg-ink-100 px-1 rounded">OPENROUTER_API_KEY</code> for LLM parsing, or
-                    Affinda <code className="bg-ink-100 px-1 rounded">AFFINDA_WORKSPACE</code> + API key.
+                    Add <code className="bg-ink-100 px-1 rounded">OPENROUTER_API_KEY</code> in{" "}
+                    <code className="bg-ink-100 px-1 rounded">.env.local</code>, restart the dev server, and upload again.
                   </>
                 )}
               </span>

@@ -149,7 +149,7 @@ export async function parseResumeFieldsWithLlm(resumeText: string): Promise<LlmP
     return {
       ok: false,
       error:
-        "Résumé parsing is not configured for LLM. Set OPENROUTER_API_KEY to your OpenRouter key (not Affinda). If HIRING_RESUME_PARSE_API_KEY is an Affinda key (`aff_…`), remove it or add OPENROUTER_API_KEY — Affinda keys only work with AFFINDA_WORKSPACE + Affinda’s API host.",
+        "Résumé parsing is not configured for LLM. Set OPENROUTER_API_KEY (OpenRouter `sk-or-…`). If `HIRING_RESUME_PARSE_API_KEY` is an Affinda key (`aff_…`), remove it from that variable or use it only with a dedicated integration — it cannot be used as an OpenAI-compatible chat key.",
       parsed: stubParsed,
     };
   }
@@ -253,7 +253,7 @@ Rules:
   return { ok: true, parsed: sanitizeParsed(parsed.data), model };
 }
 
-/** Shared trim rules for ParsedResumeFields (used by Affinda mapper). */
+/** Shared trim rules for ParsedResumeFields (used by LLM + any future mappers). */
 export function sanitizeParsedResumeFields(raw: ParsedResumeFields): ParsedResumeFields {
   return sanitizeParsed(raw);
 }
