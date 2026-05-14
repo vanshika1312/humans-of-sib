@@ -73,28 +73,205 @@ function firstPickFromAffindaList(list: unknown): string | null {
   return null;
 }
 
+/** Conservative email pattern for fallbacks (rawText / loose scan). */
+const AFFINDA_EMAIL_LIKE = /\b[A-Za-z0-9][A-Za-z0-9._%+-]*@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/;
+
 /** Affinda occasionally nests the résumé payload (or returns extra envelope keys). */
-function affindaResumePayloadRoot(data: unknown): Record<string, unknown> {
+function flattenAffindaResumeData(data: unknown): Record<string, unknown> {
   if (!data || typeof data !== "object" || Array.isArray(data)) return {};
-  let d = data as Record<string, unknown>;
-  const score = (o: Record<string, unknown>) =>
-    [
-      "candidateName",
-      "name",
-      "email",
-      "emails",
-      "phoneNumber",
-      "phoneNumbers",
-      "location",
-    ].filter((k) => o[k] !== null && o[k] !== undefined).length;
-  for (const key of ["resume", "resumeData", "parsedResume", "extractedResume", "result", "parsed"]) {
-    const inner = d[key];
+  const top = data as Record<string, unknown>;
+  let m: Record<string, unknown> = { ...top };
+
+  /** Shallow merge so we don't drop fields that only exist on the parent (e.g. `email`) while enriching from `parsed`. */
+  const nestKeys = [
+    "resume",
+    "resumeData",
+    "parsedResume",
+    "extractedResume",
+    "result",
+    "parsed",
+    "personalInformation",
+    "personalDetails",
+    "personal",
+    "contact",
+  ];
+  for (const k of nestKeys) {
+    const inner = top[k];
     if (inner && typeof inner === "object" && !Array.isArray(inner)) {
-      const io = inner as Record<string, unknown>;
-      if (score(io) >= score(d)) d = io;
+      m = { ...m, ...(inner as Record<string, unknown>) };
     }
   }
-  return d;
+
+  /** One more unwrap if merger left a nested extractor blob (`data.parsed` as object containing `candidateName` + primitives). */
+  const secondPass = ["parsed", "extractedResume", "resume"];
+  for (const k of secondPass) {
+    const blob = (m as Record<string, unknown>)[k];
+    if (blob && typeof blob === "object" && !Array.isArray(blob)) {
+      const o = blob as Record<string, unknown>;
+      if ("candidateName" in o || "email" in o || "phoneNumber" in o) {
+        m = { ...m, ...o };
+      }
+    }
+  }
+
+  return m;
+}
+
+function extractEmailRegexFromBlob(v: unknown, depth = 0, budget = { n: 0 }): string | null {
+  if (depth > 10 || budget.n > 300) return null;
+  budget.n++;
+
+  if (v === null || v === undefined) return null;
+  if (typeof v === "string") {
+    const m = v.match(AFFINDA_EMAIL_LIKE);
+    return m ? m[0] : null;
+  }
+  if (Array.isArray(v)) {
+    for (const item of v) {
+      const f = extractEmailRegexFromBlob(item, depth + 1, budget);
+      if (f) return f;
+    }
+    return null;
+  }
+  if (typeof v === "object") {
+    const o = v as Record<string, unknown>;
+
+    /** Prefer subtrees keyed like email.* */
+    for (const key of Object.keys(o)) {
+      if (!/mail/i.test(key)) continue;
+      const val = o[key];
+      const fromPick =
+        typeof val === "string"
+          ? val.trim()
+          : val && typeof val === "object"
+            ? pickRawString(val)
+            : null;
+      if (fromPick && AFFINDA_EMAIL_LIKE.test(fromPick)) return fromPick.match(AFFINDA_EMAIL_LIKE)![0];
+      const deep = extractEmailRegexFromBlob(val, depth + 1, budget);
+      if (deep) return deep;
+    }
+
+    for (const key of Object.keys(o)) {
+      if (/attachments|image|headshot|photo|logo/i.test(key)) continue;
+      const val = o[key];
+      const maybe = typeof val === "string" ? val : val;
+      const f = extractEmailRegexFromBlob(maybe, depth + 1, budget);
+      if (f) return f;
+    }
+  }
+  return null;
+}
+
+function emailFromWebsiteEntries(v: unknown): string | null {
+  const lists = Array.isArray(v) ? v : v ? [v] : [];
+  for (const row of lists) {
+    if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+    const o = row as Record<string, unknown>;
+    const raw =
+      typeof o.url === "string"
+        ? o.url.trim()
+        : typeof o.uri === "string"
+          ? o.uri.trim()
+          : pickRawString(o.url ?? o.uri);
+    if (!raw) continue;
+
+    const lower = raw.toLowerCase();
+    if (lower.startsWith("mailto:")) {
+      const rest = decodeURIComponent(raw.slice(7)).split(/[;&?#\s]/)[0];
+      if (rest.includes("@")) return rest;
+    }
+
+    const m = raw.match(AFFINDA_EMAIL_LIKE);
+    if (m) return m[0];
+  }
+
+  /** Affinda `{ type: "Email", … }`-style hints */
+  for (const row of lists) {
+    if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+    const o = row as Record<string, unknown>;
+    const typeStr = pickRawString(o.type) ?? pickRawString(o.websiteType);
+    if (typeStr && /email/i.test(typeStr)) {
+      const s = pickRawString(o.url) ?? pickRawString(o.address) ?? pickRawString(o.value);
+      if (s) {
+        const m = s.match(AFFINDA_EMAIL_LIKE);
+        if (m) return m[0];
+      }
+    }
+  }
+
+  return null;
+}
+
+function firstEmailFromResumeData(d: Record<string, unknown>): string | null {
+  for (const list of [d.emails, d.emailAddresses, d.contactEmails]) {
+    if (Array.isArray(list)) {
+      const s = firstPickFromAffindaList(list);
+      if (s) return s;
+    }
+  }
+  const emailField = d.email;
+  if (Array.isArray(emailField)) {
+    const s = firstPickFromAffindaList(emailField);
+    if (s) return s;
+  }
+  for (const key of [
+    "email",
+    "emailId",
+    "emailID",
+    "candidateEmail",
+    "emailAddress",
+    "primaryEmail",
+    "contactEmail",
+  ]) {
+    const v = d[key];
+    if (Array.isArray(v)) {
+      const s = firstPickFromAffindaList(v);
+      if (s) return s;
+    }
+    const s = pickRawString(v);
+    if (s) return s;
+  }
+
+  /** Custom workspace schemas sometimes emit label/value tuples. */
+  const tupleLists = [d.fields, d.dataPoints, d.components];
+  for (const list of tupleLists) {
+    if (!Array.isArray(list)) continue;
+    for (const row of list) {
+      if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+      const o = row as Record<string, unknown>;
+      const label =
+        pickRawString(o.name) ??
+        pickRawString(o.label) ??
+        pickRawString(o.field) ??
+        pickRawString(o.key) ??
+        pickRawString(o.title);
+      if (!label || !/mail/i.test(label)) continue;
+      const val =
+        pickRawString(o.value) ??
+        pickRawString(o.text) ??
+        pickRawString(o.parsed);
+      if (val) return val;
+    }
+  }
+
+  return null;
+}
+
+function firstEmailWithAffindaFallbacks(d: Record<string, unknown>): string | null {
+  const direct = firstEmailFromResumeData(d);
+  if (direct) return direct;
+
+  const fromSites = emailFromWebsiteEntries(d.websites ?? d.website);
+  if (fromSites) return fromSites;
+
+  for (const block of [d.rawText, d.text, d.plainText, d.documentText]) {
+    if (typeof block === "string" && block.length) {
+      const m = block.match(AFFINDA_EMAIL_LIKE);
+      if (m) return m[0];
+    }
+  }
+
+  return extractEmailRegexFromBlob(d);
 }
 
 function pickPhoneFromEntry(entry: unknown): string | null {
@@ -148,30 +325,6 @@ function firstPhoneFromResumeData(d: Record<string, unknown>): string | null {
   return null;
 }
 
-function firstEmailFromResumeData(d: Record<string, unknown>): string | null {
-  for (const list of [d.emails, d.emailAddresses, d.contactEmails]) {
-    if (Array.isArray(list)) {
-      const s = firstPickFromAffindaList(list);
-      if (s) return s;
-    }
-  }
-  const emailField = d.email;
-  if (Array.isArray(emailField)) {
-    const s = firstPickFromAffindaList(emailField);
-    if (s) return s;
-  }
-  for (const key of ["email", "candidateEmail", "emailAddress", "primaryEmail", "contactEmail"]) {
-    const v = d[key];
-    if (Array.isArray(v)) {
-      const s = firstPickFromAffindaList(v);
-      if (s) return s;
-    }
-    const s = pickRawString(v);
-    if (s) return s;
-  }
-  return null;
-}
-
 function resolveAffindaApiKey(): string {
   const explicit = normalizeEnv(process.env.AFFINDA_API_KEY);
   if (explicit) return explicit;
@@ -204,7 +357,7 @@ function mimeForAffindaBlob(fileName: string, mimeHint?: string): string {
 
 /** Map Affinda resume `data` JSON to our staging shape (defensive — schema varies by extractor version). */
 export function mapAffindaResumeDataToParsedFields(data: unknown): ParsedResumeFields {
-  const d = affindaResumePayloadRoot(data);
+  const d = flattenAffindaResumeData(data);
 
   let fullName: string | null = null;
 
@@ -226,7 +379,7 @@ export function mapAffindaResumeDataToParsedFields(data: unknown): ParsedResumeF
   }
   if (!fullName) fullName = pickRawString(d.name) ?? pickRawString(d.fullName);
 
-  const email = firstEmailFromResumeData(d);
+  const email = firstEmailWithAffindaFallbacks(d);
   const phone = firstPhoneFromResumeData(d);
 
   let candidateLocation: string | null = null;
