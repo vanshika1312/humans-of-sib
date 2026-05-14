@@ -124,6 +124,23 @@ function resolveChatCompletionsUrl(baseNormalized: string): { ok: true; url: str
   }
 }
 
+/**
+ * `fetch()` header values must be ByteString / ISO-8859-1 (code points ≤ 0xFF). Unicode-only
+ * characters such as em dash (U+2014) cause "Cannot convert argument to a ByteString" before send.
+ */
+function latin1ByteStringHeaderValue(raw: string, maxLen: number): string {
+  let out = "";
+  for (let i = 0; i < raw.length && out.length < maxLen; ) {
+    const cp = raw.codePointAt(i)!;
+    i += cp > 0xffff ? 2 : 1;
+    if (cp <= 0xff) out += String.fromCodePoint(cp);
+    else if (cp === 0x2014 || cp === 0x2013) out += "-";
+    else if (cp === 0x2026) out += "...";
+    else out += "";
+  }
+  return out.slice(0, maxLen);
+}
+
 export type ResolvedLlmResumeParse = {
   apiKey: string;
   baseNormalized: string;
@@ -231,9 +248,11 @@ Rules:
     const referer =
       normalizeEnvSecret(process.env.OPENROUTER_HTTP_REFERER) ||
       normalizeEnvSecret(process.env.NEXT_PUBLIC_APP_URL);
-    if (referer) headers["HTTP-Referer"] = referer;
-    headers["X-Title"] =
-      normalizeEnvSecret(process.env.OPENROUTER_APP_TITLE) || "Humans of SIB — résumé import";
+    if (referer)
+      headers["HTTP-Referer"] = latin1ByteStringHeaderValue(referer, 2048);
+    const titleRaw =
+      normalizeEnvSecret(process.env.OPENROUTER_APP_TITLE) || "Humans of SIB - resume import";
+    headers["X-Title"] = latin1ByteStringHeaderValue(titleRaw, 256);
   }
 
   const chatUrlResult = resolveChatCompletionsUrl(baseNormalized);
