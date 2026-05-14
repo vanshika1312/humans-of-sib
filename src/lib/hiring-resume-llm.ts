@@ -36,7 +36,7 @@ function sanitizeParsed(raw: ParsedResumeFields): ParsedResumeFields {
   return {
     fullName: trimOrNull(raw.fullName, 200),
     email,
-    phone: trimOrNull(raw.phone, 48),
+    phone: trimOrNull(raw.phone, 64),
     candidateLocation: trimOrNull(raw.candidateLocation, 200),
     fieldConfidence: raw.fieldConfidence,
   };

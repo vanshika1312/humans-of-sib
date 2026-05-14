@@ -31,13 +31,143 @@ function pickRawString(v: unknown): string | null {
   }
   if (typeof v === "object") {
     const o = v as Record<string, unknown>;
-    for (const key of ["raw", "formatted", "parsed", "value", "text"]) {
+    /** Affinda full schema often nests display text under these (compact mode uses plain strings). */
+    for (const key of [
+      "parsed",
+      "formatted",
+      "raw",
+      "text",
+      "value",
+      "normalized",
+      "rawInput",
+      "rawText",
+      "internationalNumber",
+      "nationalNumber",
+      "formattedNumber",
+      "email",
+      "mailbox",
+    ]) {
       const inner = o[key];
       if (typeof inner === "string") {
         const t = inner.trim();
         if (t.length) return t;
       }
     }
+    /** Some tokens wrap the display string one level deeper, e.g. `{ parsed: { formatted: "..." } }`. */
+    const nestedParsed = o.parsed;
+    if (nestedParsed && typeof nestedParsed === "object") {
+      const nestedStr = pickRawString(nestedParsed);
+      if (nestedStr) return nestedStr;
+    }
+  }
+  return null;
+}
+
+/** First non-empty string from an array (Affinda compact `email` / `phoneNumber` are string arrays). */
+function firstPickFromAffindaList(list: unknown): string | null {
+  if (!Array.isArray(list)) return null;
+  for (const item of list) {
+    const s = pickRawString(item);
+    if (s) return s;
+  }
+  return null;
+}
+
+/** Affinda occasionally nests the résumé payload (or returns extra envelope keys). */
+function affindaResumePayloadRoot(data: unknown): Record<string, unknown> {
+  if (!data || typeof data !== "object" || Array.isArray(data)) return {};
+  let d = data as Record<string, unknown>;
+  const score = (o: Record<string, unknown>) =>
+    [
+      "candidateName",
+      "name",
+      "email",
+      "emails",
+      "phoneNumber",
+      "phoneNumbers",
+      "location",
+    ].filter((k) => o[k] !== null && o[k] !== undefined).length;
+  for (const key of ["resume", "resumeData", "parsedResume", "extractedResume", "result", "parsed"]) {
+    const inner = d[key];
+    if (inner && typeof inner === "object" && !Array.isArray(inner)) {
+      const io = inner as Record<string, unknown>;
+      if (score(io) >= score(d)) d = io;
+    }
+  }
+  return d;
+}
+
+function pickPhoneFromEntry(entry: unknown): string | null {
+  const s = pickRawString(entry);
+  if (s) return s;
+  if (entry && typeof entry === "object" && !Array.isArray(entry)) {
+    const o = entry as Record<string, unknown>;
+    for (const key of [
+      "formattedNumber",
+      "nationalNumber",
+      "internationalNumber",
+      "rawInput",
+      "rawText",
+      "normalized",
+    ]) {
+      const v = o[key];
+      if (typeof v === "string" && v.trim()) return v.trim();
+    }
+  }
+  return null;
+}
+
+function firstPhoneFromResumeData(d: Record<string, unknown>): string | null {
+  const arrays = [
+    d.phoneNumbers,
+    d.phoneNumberDetails,
+    d.phoneNumber,
+    d.telephoneNumbers,
+    d.mobileNumbers,
+  ];
+  for (const list of arrays) {
+    if (!Array.isArray(list)) continue;
+    for (const entry of list) {
+      const p = pickPhoneFromEntry(entry);
+      if (p) return p;
+    }
+  }
+  const singles = [d.phoneNumber, d.phone, d.telephoneNumber, d.mobileNumber];
+  for (const x of singles) {
+    if (x === undefined || x === null) continue;
+    if (Array.isArray(x)) {
+      for (const entry of x) {
+        const p = pickPhoneFromEntry(entry);
+        if (p) return p;
+      }
+    } else {
+      const p = pickPhoneFromEntry(x);
+      if (p) return p;
+    }
+  }
+  return null;
+}
+
+function firstEmailFromResumeData(d: Record<string, unknown>): string | null {
+  for (const list of [d.emails, d.emailAddresses, d.contactEmails]) {
+    if (Array.isArray(list)) {
+      const s = firstPickFromAffindaList(list);
+      if (s) return s;
+    }
+  }
+  const emailField = d.email;
+  if (Array.isArray(emailField)) {
+    const s = firstPickFromAffindaList(emailField);
+    if (s) return s;
+  }
+  for (const key of ["email", "candidateEmail", "emailAddress", "primaryEmail", "contactEmail"]) {
+    const v = d[key];
+    if (Array.isArray(v)) {
+      const s = firstPickFromAffindaList(v);
+      if (s) return s;
+    }
+    const s = pickRawString(v);
+    if (s) return s;
   }
   return null;
 }
@@ -74,10 +204,7 @@ function mimeForAffindaBlob(fileName: string, mimeHint?: string): string {
 
 /** Map Affinda resume `data` JSON to our staging shape (defensive — schema varies by extractor version). */
 export function mapAffindaResumeDataToParsedFields(data: unknown): ParsedResumeFields {
-  const d =
-    data && typeof data === "object"
-      ? (data as Record<string, unknown>)
-      : ({} as Record<string, unknown>);
+  const d = affindaResumePayloadRoot(data);
 
   let fullName: string | null = null;
 
@@ -85,9 +212,9 @@ export function mapAffindaResumeDataToParsedFields(data: unknown): ParsedResumeF
   if (cn && typeof cn === "object") {
     const o = cn as Record<string, unknown>;
     const joinedName = [
-      pickRawString(o.first),
-      pickRawString(o.middle),
-      pickRawString(o.last),
+      pickRawString(o.first) ?? pickRawString(o.candidateNameFirst) ?? pickRawString(o.givenName),
+      pickRawString(o.middle) ?? pickRawString(o.candidateNameMiddle),
+      pickRawString(o.last) ?? pickRawString(o.candidateNameFamily) ?? pickRawString(o.familyName),
     ]
       .filter(Boolean)
       .join(" ")
@@ -99,31 +226,8 @@ export function mapAffindaResumeDataToParsedFields(data: unknown): ParsedResumeF
   }
   if (!fullName) fullName = pickRawString(d.name) ?? pickRawString(d.fullName);
 
-  let email: string | null = null;
-  const emails = d.emails;
-  if (Array.isArray(emails) && emails.length > 0) {
-    email = pickRawString(emails[0]);
-  }
-  if (!email) email = pickRawString(d.email);
-
-  let phone: string | null = null;
-  const phones = d.phoneNumbers ?? d.phoneNumberDetails;
-  if (Array.isArray(phones) && phones.length > 0) {
-    const first = phones[0];
-    phone =
-      pickRawString(first) ??
-      pickRawString(
-        first && typeof first === "object"
-          ? (first as Record<string, unknown>).formattedNumber
-          : null,
-      ) ??
-      pickRawString(
-        first && typeof first === "object"
-          ? (first as Record<string, unknown>).nationalNumber
-          : null,
-      );
-  }
-  if (!phone) phone = pickRawString(d.phone);
+  const email = firstEmailFromResumeData(d);
+  const phone = firstPhoneFromResumeData(d);
 
   let candidateLocation: string | null = null;
   const loc = d.location;
@@ -140,6 +244,7 @@ export function mapAffindaResumeDataToParsedFields(data: unknown): ParsedResumeF
     candidateLocation =
       pickRawString(o.raw) ??
       pickRawString(o.formatted) ??
+      pickRawString(o.rawInput) ??
       pickRawString(o.city) ??
       (joinedLoc.length ? joinedLoc : null);
   }
@@ -322,6 +427,12 @@ export async function parseResumeWithAffinda(opts: {
       opts.fileName.slice(0, 280),
     );
     fd.append("workspace", workspace);
+    fd.append("wait", "true");
+    fd.append("compact", "true");
+    const documentType =
+      normalizeEnv(process.env.AFFINDA_RESUME_DOCUMENT_TYPE) ||
+      normalizeEnv(process.env.AFFINDA_DOCUMENT_TYPE);
+    if (documentType) fd.append("documentType", documentType);
 
     postRes = await fetch(`${base}/v3/documents`, {
       method: "POST",

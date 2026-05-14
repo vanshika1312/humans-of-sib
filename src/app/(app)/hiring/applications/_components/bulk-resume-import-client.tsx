@@ -281,6 +281,8 @@ export function BulkResumeImportClient(props: {
                 <code className="bg-ink-100 px-1 rounded">AFFINDA_API_KEY</code> (or{" "}
                 <code className="bg-ink-100 px-1 rounded">HIRING_RESUME_PARSE_API_KEY</code>
                 ), optional{" "}
+                <code className="bg-ink-100 px-1 rounded">AFFINDA_RESUME_DOCUMENT_TYPE</code> (Résumé Parser
+                document type id),{" "}
                 <code className="bg-ink-100 px-1 rounded">AFFINDA_API_BASE_URL</code>{" "}
                 (<code className="bg-ink-100 px-1 rounded">https://api.affinda.com</code>,{" "}
                 <code className="bg-ink-100 px-1 rounded">api.us1.affinda.com</code>,{" "}
