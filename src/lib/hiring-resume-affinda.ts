@@ -172,6 +172,62 @@ function extractReady(body: unknown): boolean {
   return meta?.ready === true;
 }
 
+const AFFINDA_PROCESSING_FALLBACK = "Affinda reported a processing error.";
+
+/** Affinda sets `meta.ready` with an `error` object when extraction failed; shape varies by API version. */
+function describeAffindaDocumentError(err: unknown): string {
+  if (err === null || err === undefined) return AFFINDA_PROCESSING_FALLBACK;
+  if (typeof err === "string") {
+    const t = err.trim();
+    return t || AFFINDA_PROCESSING_FALLBACK;
+  }
+  if (typeof err === "object") {
+    const o = err as Record<string, unknown>;
+    for (const key of ["detail", "message", "description", "title"]) {
+      const v = o[key];
+      if (typeof v === "string" && v.trim()) return v.trim();
+    }
+    const nestedErr = o.error;
+    if (typeof nestedErr === "string" && nestedErr.trim()) return nestedErr.trim();
+    if (nestedErr && typeof nestedErr === "object") {
+      const inner = nestedErr as Record<string, unknown>;
+      for (const key of ["detail", "message"]) {
+        const v = inner[key];
+        if (typeof v === "string" && v.trim()) return v.trim();
+      }
+    }
+    const code = typeof o.code === "string" && o.code.trim() ? o.code.trim() : null;
+    const msg = typeof o.msg === "string" && o.msg.trim() ? o.msg.trim() : null;
+    if (code && msg) return `${code}: ${msg}`;
+    if (code) return code;
+    if (msg) return msg;
+
+    const errors = o.errors;
+    if (Array.isArray(errors) && errors.length) {
+      const parts: string[] = [];
+      for (const item of errors) {
+        if (typeof item === "string" && item.trim()) parts.push(item.trim());
+        else if (item && typeof item === "object") {
+          const ei = item as Record<string, unknown>;
+          const bit =
+            (typeof ei.detail === "string" && ei.detail.trim()) ||
+            (typeof ei.message === "string" && ei.message.trim()) ||
+            "";
+          if (bit) parts.push(bit);
+        }
+      }
+      if (parts.length) return parts.slice(0, 5).join("; ");
+    }
+    try {
+      const json = JSON.stringify(err);
+      if (json !== "{}" && json.length <= 560) return `Affinda: ${json}`;
+    } catch {
+      /* ignore */
+    }
+  }
+  return AFFINDA_PROCESSING_FALLBACK;
+}
+
 async function readAffindaError(response: Response): Promise<string> {
   try {
     const body = (await response.json()) as {
@@ -285,12 +341,9 @@ export async function parseResumeWithAffinda(opts: {
   }
 
   if (extractReady(postJson)) {
-    const errObj = (postJson as { error?: unknown }).error;
-    if (errObj && typeof errObj === "object") {
-      const msg =
-        typeof (errObj as { detail?: string }).detail === "string"
-          ? (errObj as { detail: string }).detail
-          : "Affinda reported a processing error.";
+    const errRaw = (postJson as { error?: unknown }).error;
+    if (errRaw !== null && errRaw !== undefined && errRaw !== false && errRaw !== "") {
+      const msg = describeAffindaDocumentError(errRaw);
       return { ok: false, error: msg, parsed: stub };
     }
     const data = (postJson as { data?: unknown }).data;
@@ -332,15 +385,9 @@ export async function parseResumeWithAffinda(opts: {
     }
 
     if (extractReady(doc)) {
-      const errObj = (doc as { error?: unknown }).error;
-      if (errObj) {
-        const detail =
-          typeof errObj === "object" &&
-          errObj !== null &&
-          "detail" in errObj &&
-          typeof (errObj as { detail?: string }).detail === "string"
-            ? (errObj as { detail: string }).detail
-            : "Affinda reported a processing error.";
+      const errRaw = (doc as { error?: unknown }).error;
+      if (errRaw !== null && errRaw !== undefined && errRaw !== false && errRaw !== "") {
+        const detail = describeAffindaDocumentError(errRaw);
         return { ok: false, error: detail, parsed: stub };
       }
       const data = (doc as { data?: unknown }).data;
