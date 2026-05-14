@@ -1,5 +1,5 @@
 import type { ParsedResumeFields } from "@/lib/hiring-resume-llm";
-import { sanitizeParsedResumeFields } from "@/lib/hiring-resume-llm";
+import { isLlmResumeParsingConfigured, sanitizeParsedResumeFields } from "@/lib/hiring-resume-llm";
 
 /** Affinda résumé uploads are capped lower than generic documents (docs: ~5 MB for resumes). */
 export const AFFINDA_RESUME_MAX_BYTES = 5 * 1024 * 1024;
@@ -331,11 +331,14 @@ function resolveAffindaApiKey(): string {
   return normalizeEnv(process.env.HIRING_RESUME_PARSE_API_KEY);
 }
 
-/** True when workspace + API key are set (Affinda path replaces OpenAI chat parsing). */
+/** True when workspace + API key are set. Skipped when LLM parsing is configured (OpenRouter), unless `USE_AFFINDA_WITH_OPENROUTER=true`. */
 export function isAffindaResumeParsingConfigured(): boolean {
   const raw = normalizeEnv(process.env.DISABLE_AFFINDA_RESUME_PARSING);
   const disabled = raw === "1" || raw?.toLowerCase() === "true" || raw?.toLowerCase() === "yes";
   if (disabled) return false;
+
+  const forceAffindaWithLlm = normalizeEnv(process.env.USE_AFFINDA_WITH_OPENROUTER)?.toLowerCase() === "true";
+  if (!forceAffindaWithLlm && isLlmResumeParsingConfigured()) return false;
 
   const ws = normalizeEnv(process.env.AFFINDA_WORKSPACE);
   const key = resolveAffindaApiKey();
