@@ -1,14 +1,14 @@
 import { prisma } from "@/lib/prisma";
 import { persistHiringResumeBuffer } from "@/lib/hiring-resume-upload";
-import { extractResumeTextFromBuffer } from "@/lib/hiring-resume-text";
 import type { ParsedResumeFields } from "@/lib/hiring-resume-llm";
-import { isLlmResumeParsingConfigured, parseResumeFieldsWithLlm } from "@/lib/hiring-resume-llm";
-import type { HiringResumeImportItemStatus } from "@/generated/prisma";
 
 export type StoredResumePayload = {
   parsed: ParsedResumeFields;
   warnings?: string[];
 };
+
+/** Disk + DB staging (fast). Rows are ready for manual field entry immediately. */
+export const RESUME_IMPORT_STAGING_CONCURRENCY = 8;
 
 const EMPTY_PARSED: ParsedResumeFields = {
   fullName: null,
@@ -18,31 +18,76 @@ const EMPTY_PARSED: ParsedResumeFields = {
   fieldConfidence: {},
 };
 
-/** Shown when LLM parsing is not configured and fields must be filled by hand. */
-function bulkImportManualParsingNotice(): string {
-  return "Automatic parsing is not configured. Set OPENROUTER_API_KEY (or a compatible OpenAI-style key with HIRING_RESUME_PARSE_BASE_URL), restart the server, then try again — or fill rows manually.";
+const STUB_PAYLOAD = JSON.stringify({ parsed: EMPTY_PARSED } satisfies StoredResumePayload);
+
+function resumeImportTimingsEnabled(): boolean {
+  if (process.env.HIRING_RESUME_IMPORT_TIMINGS === "1") return true;
+  if (process.env.HIRING_RESUME_IMPORT_TIMINGS === "0") return false;
+  return process.env.NODE_ENV === "development";
+}
+
+function logTiming(label: string, meta: Record<string, unknown>) {
+  if (!resumeImportTimingsEnabled()) return;
+  console.warn(`[hire-resume-import] ${label}`, meta);
+}
+
+/** Process items in waves of at most `limit` concurrent promises. */
+export async function mapWithConcurrencyLimit<T>(
+  items: readonly T[],
+  limit: number,
+  fn: (item: T) => Promise<void>,
+): Promise<void> {
+  const l = Math.max(1, Math.min(limit, 32));
+  let next = 0;
+  async function worker() {
+    for (;;) {
+      const i = next++;
+      if (i >= items.length) return;
+      await fn(items[i]!);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(l, items.length) }, () => worker()));
 }
 
 /**
- * Persist one résumé file into an existing import batch (OpenRouter / OpenAI-compatible LLM when configured; otherwise manual fill + stored plain text).
+ * Heal legacy rows from when parsing ran in the background (`PENDING_PARSE`).
+ * Safe to call on every batch load.
  */
-export async function createHiringResumeImportItemFromBuffer(opts: {
+export async function resumeImportMarkPendingAsManualReady(batchId: string): Promise<void> {
+  const now = new Date();
+  await prisma.hiringResumeImportItem.updateMany({
+    where: { batchId, status: "PENDING_PARSE" },
+    data: {
+      status: "PARSED",
+      parsedPayloadJson: STUB_PAYLOAD,
+      extractedText: null,
+      parseModel: null,
+      parsedAt: now,
+      error: null,
+    },
+  });
+}
+
+/**
+ * Persist file and insert a staging row (`PARSED` with empty fields, or `FAILED` for bad type/size).
+ */
+export async function stageResumeImportItemFromBuffer(opts: {
   batchId: string;
   buffer: Buffer;
   originalFileName: string;
   mimeHint?: string;
 }): Promise<void> {
   const displayName = opts.originalFileName.slice(0, 280);
-  const parsedAt = new Date();
-  const llmOn = isLlmResumeParsingConfigured();
-
+  const persistT0 = performance.now();
   const uploaded = await persistHiringResumeBuffer(
     opts.buffer,
     opts.originalFileName,
     opts.mimeHint,
   );
+  const persistMs = Math.round(performance.now() - persistT0);
 
   if (uploaded === "TOO_LARGE" || uploaded === "UNSUPPORTED_TYPE") {
+    const parsedAtFail = new Date();
     await prisma.hiringResumeImportItem.create({
       data: {
         batchId: opts.batchId,
@@ -53,104 +98,37 @@ export async function createHiringResumeImportItemFromBuffer(opts: {
           uploaded === "TOO_LARGE"
             ? "File too large (max 12 MB)."
             : "Unsupported type — use PDF or DOCX.",
-        parsedPayloadJson: JSON.stringify({
-          parsed: EMPTY_PARSED,
-        } satisfies StoredResumePayload),
-        parsedAt,
+        parsedPayloadJson: STUB_PAYLOAD,
+        parsedAt: parsedAtFail,
       },
+    });
+    logTiming("stage_fail", {
+      batchId: opts.batchId,
+      fileName: displayName,
+      reason: uploaded,
+      persistMs,
     });
     return;
   }
 
-  const resumeUrl = uploaded;
-
-  if (llmOn) {
-    const textResult = await extractResumeTextFromBuffer(opts.buffer, opts.originalFileName);
-
-    if (!textResult.ok) {
-      await prisma.hiringResumeImportItem.create({
-        data: {
-          batchId: opts.batchId,
-          fileName: displayName,
-          resumeUrl,
-          status: "FAILED",
-          error: textResult.error,
-          parsedPayloadJson: JSON.stringify({
-            parsed: EMPTY_PARSED,
-          } satisfies StoredResumePayload),
-          parsedAt,
-        },
-      });
-      return;
-    }
-
-    const extractedText = textResult.text.slice(0, 80_000);
-    const llm = await parseResumeFieldsWithLlm(extractedText);
-    const parsed = llm.ok ? llm.parsed : llm.parsed ?? EMPTY_PARSED;
-    const warnings: string[] = [];
-    if (!llm.ok && llm.error) warnings.push(llm.error);
-
-    const payload: StoredResumePayload = {
-      parsed,
-      warnings: warnings.length ? warnings : undefined,
-    };
-
-    const parseModelLabel = llm.ok ? llm.model.slice(0, 120) : null;
-
-    await prisma.hiringResumeImportItem.create({
-      data: {
-        batchId: opts.batchId,
-        fileName: displayName,
-        resumeUrl,
-        extractedText,
-        parsedPayloadJson: JSON.stringify(payload),
-        parseModel: parseModelLabel,
-        parsedAt,
-        status: "PARSED",
-        error: null,
-      },
-    });
-    return;
-  }
-
-  const textResult = await extractResumeTextFromBuffer(opts.buffer, opts.originalFileName);
-
-  if (!textResult.ok) {
-    await prisma.hiringResumeImportItem.create({
-      data: {
-        batchId: opts.batchId,
-        fileName: displayName,
-        resumeUrl,
-        status: "FAILED",
-        error: textResult.error,
-        parsedPayloadJson: JSON.stringify({
-          parsed: EMPTY_PARSED,
-        } satisfies StoredResumePayload),
-        parsedAt,
-      },
-    });
-    return;
-  }
-
-  const extractedText = textResult.text.slice(0, 80_000);
-  const payload: StoredResumePayload = {
-    parsed: EMPTY_PARSED,
-    warnings: [bulkImportManualParsingNotice()],
-  };
-
-  const status: HiringResumeImportItemStatus = "PARSED";
-
+  const parsedAt = new Date();
   await prisma.hiringResumeImportItem.create({
     data: {
       batchId: opts.batchId,
       fileName: displayName,
-      resumeUrl,
-      extractedText,
-      parsedPayloadJson: JSON.stringify(payload),
+      resumeUrl: uploaded,
+      status: "PARSED",
+      error: null,
+      parsedPayloadJson: STUB_PAYLOAD,
+      extractedText: null,
       parseModel: null,
       parsedAt,
-      status,
-      error: null,
     },
+  });
+
+  logTiming("stage_done", {
+    batchId: opts.batchId,
+    fileName: displayName,
+    persistMs,
   });
 }

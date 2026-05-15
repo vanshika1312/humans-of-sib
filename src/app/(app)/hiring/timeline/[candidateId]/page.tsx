@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input, Label, Textarea } from "@/components/ui/input";
 import { formatDate } from "@/lib/utils";
 import { HiringActivityPayloadBlock } from "@/components/hiring/hiring-activity-payload";
@@ -78,7 +78,6 @@ export default async function CandidateTimelinePage(props: Props) {
       <Card>
         <CardHeader className="border-b border-ink-100 bg-ink-50/60">
           <CardTitle>Edit profile</CardTitle>
-          <CardDescription>Changes log to the timeline automatically with before / after snapshots.</CardDescription>
         </CardHeader>
         <CardContent className="pt-6">
           <form action={action} className="grid gap-4 sm:grid-cols-2">
@@ -181,7 +180,6 @@ export default async function CandidateTimelinePage(props: Props) {
       <Card>
         <CardHeader className="border-b border-ink-100">
           <CardTitle>Activity timeline</CardTitle>
-          <CardDescription>Duplicates, attaches, pipeline moves, and profile edits recorded here.</CardDescription>
         </CardHeader>
         <CardContent className="pt-6 space-y-4">
           {events.length === 0 ? (

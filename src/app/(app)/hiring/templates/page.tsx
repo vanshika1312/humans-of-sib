@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { PageHeader } from "@/components/ui/page-header";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select, Textarea } from "@/components/ui/input";
 import { loadPipelineStagesOrdered } from "@/lib/hiring-pipeline";
@@ -100,9 +100,6 @@ export default async function HiringTemplatesPage(props: Props) {
       <Card className="border-sky-100/70">
         <CardHeader className="border-b border-ink-100 bg-ink-50/60">
           <CardTitle>New template</CardTitle>
-          <CardDescription>
-            Questionnaire guides are keyed to a pipeline stage and surface on matching applications.
-          </CardDescription>
         </CardHeader>
         <CardContent className="pt-6">
           <form action={createHiringTemplate} className="grid gap-4 max-w-2xl">
@@ -175,7 +172,6 @@ export default async function HiringTemplatesPage(props: Props) {
       <Card>
         <CardHeader>
           <CardTitle>Saved templates</CardTitle>
-          <CardDescription>Browse questionnaires by stage, then emails and everything else.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-10">
           <section>

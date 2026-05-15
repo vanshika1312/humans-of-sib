@@ -90,10 +90,6 @@ async function AdminAttendanceReportBody({ year, month }: { year: number; month:
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Import test attendance (CSV)</CardTitle>
-          <CardDescription>
-            Upsert punches from a file—then pick the month above (or step with arrows) and confirm Late, Half day, and
-            Deduction match your expectations.
-          </CardDescription>
         </CardHeader>
         <CardContent>
           <AttendanceCsvImport templateHref="/admin/attendance-report/import-template" />

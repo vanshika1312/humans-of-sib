@@ -218,13 +218,12 @@ export default async function HiringApplicationDetailPage(props: Props) {
           <section className="scroll-mt-24 space-y-4">
             <Card>
               <CardHeader className="border-b border-ink-100">
-                <CardTitle>Submission timeline</CardTitle>
-                <CardDescription>
-                  Events tied to this application only. Full candidate audit (including edits that apply everywhere) ·{" "}
-                  <Link href={`/hiring/timeline/${app.candidateId}`} className="font-semibold text-sky-700 hover:underline">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <CardTitle>Submission timeline</CardTitle>
+                  <Link href={`/hiring/timeline/${app.candidateId}`} className="text-sm font-semibold text-sky-700 hover:underline shrink-0">
                     Candidate timeline →
                   </Link>
-                </CardDescription>
+                </div>
               </CardHeader>
               <CardContent className="pt-6 space-y-4">
                 {timelineEvents.length === 0 ? (
@@ -304,7 +303,6 @@ export default async function HiringApplicationDetailPage(props: Props) {
               <Card>
                 <CardHeader className="border-b border-ink-100 bg-ink-50/60">
                   <CardTitle>Application details</CardTitle>
-                  <CardDescription>Posting and submission metadata · edit the job from Job openings.</CardDescription>
                 </CardHeader>
                 <CardContent className="pt-6 grid gap-6 sm:grid-cols-2 text-sm">
                   <div className="space-y-4">
@@ -335,12 +333,6 @@ export default async function HiringApplicationDetailPage(props: Props) {
                       />
                     </div>
                   </div>
-                  <div className="sm:col-span-2 space-y-2">
-                    <h3 className="text-[11px] font-semibold uppercase tracking-wider text-ink-500">Social links</h3>
-                    <p className="text-sm text-ink-500">
-                      LinkedIn / social URLs are not stored on profiles yet — add context in Notes or paste links in Attachments as a web link.
-                    </p>
-                  </div>
                 </CardContent>
               </Card>
             </section>
@@ -349,7 +341,6 @@ export default async function HiringApplicationDetailPage(props: Props) {
               <Card>
                 <CardHeader className="border-b border-ink-100 bg-ink-50/60">
                   <CardTitle>Notes</CardTitle>
-                  <CardDescription>Private to this workspace — scoped to this application.</CardDescription>
                 </CardHeader>
                 <CardContent className="pt-6">
                   <form action={notesAction} className="space-y-4 max-w-2xl">
@@ -376,9 +367,6 @@ export default async function HiringApplicationDetailPage(props: Props) {
               <Card>
                 <CardHeader className="border-b border-ink-100 bg-ink-50/60">
                   <CardTitle>Attachments</CardTitle>
-                  <CardDescription>
-                    Paste a Drive or share link, or upload PDF / Word. The résumé on the candidate profile is listed separately.
-                  </CardDescription>
                 </CardHeader>
                 <CardContent className="pt-6 space-y-6">
                   <div className="overflow-x-auto rounded-xl border border-ink-100">
@@ -521,7 +509,6 @@ export default async function HiringApplicationDetailPage(props: Props) {
               <Card>
                 <CardHeader>
                   <CardTitle>Tags</CardTitle>
-                  <CardDescription>Quick labels for search and segmentation (coming next).</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <p className="text-sm text-ink-500">No tags on this submission yet.</p>
@@ -533,7 +520,6 @@ export default async function HiringApplicationDetailPage(props: Props) {
               <Card>
                 <CardHeader>
                   <CardTitle>Ratings and reviews</CardTitle>
-                  <CardDescription>Hiring-panel notes and optional 1–5 scores for this application.</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
                   {app.reviews.length === 0 ? (
@@ -596,24 +582,16 @@ export default async function HiringApplicationDetailPage(props: Props) {
               <Card>
                 <CardHeader>
                   <div className="flex flex-wrap items-start justify-between gap-2">
-                    <div>
-                      <CardTitle>Questionnaire templates</CardTitle>
-                      <CardDescription>
-                        Content for funnel stage <strong>{app.pipelineStage.label}</strong>.{" "}
-                        <Link
-                          href="/hiring/templates?category=QUESTIONNAIRE_GUIDE"
-                          className="font-semibold text-sky-700 hover:underline"
-                        >
-                          Manage all templates →
-                        </Link>
-                      </CardDescription>
-                    </div>
+                    <CardTitle>Questionnaire templates</CardTitle>
+                    <Link
+                      href="/hiring/templates?category=QUESTIONNAIRE_GUIDE"
+                      className="text-sm font-semibold text-sky-700 hover:underline shrink-0"
+                    >
+                      Manage templates →
+                    </Link>
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-6">
-                  <p className="text-sm text-ink-500">
-                    Scheduling and recordings are still manual — paste notes under Application notes in the meantime.
-                  </p>
                   {interviewTemplates.length === 0 ? (
                     <div className="rounded-lg border border-dashed border-ink-200 bg-ink-50/50 p-4 text-sm text-ink-600">
                       No questionnaire templates for this stage yet.{" "}
@@ -652,7 +630,6 @@ export default async function HiringApplicationDetailPage(props: Props) {
               <Card>
                 <CardHeader>
                   <CardTitle>Hiring manager submissions</CardTitle>
-                  <CardDescription>Share shortlists or packets with hiring managers.</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <p className="text-sm text-ink-500">No submissions yet.</p>
@@ -667,14 +644,12 @@ export default async function HiringApplicationDetailPage(props: Props) {
               <Card>
                 <CardHeader>
                   <CardTitle>Emails</CardTitle>
-                  <CardDescription>Tracked messages about this applicant (integrated mail is planned).</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <p className="text-sm text-ink-500">No tracked emails saved on this submission.</p>
                   <Button type="button" variant="outline" size="sm" disabled className="opacity-60 cursor-not-allowed">
                     Send mail (planned)
                   </Button>
-                  <p className="text-xs text-ink-400">Until then, use your mail client via the Email button above.</p>
                 </CardContent>
               </Card>
             </section>

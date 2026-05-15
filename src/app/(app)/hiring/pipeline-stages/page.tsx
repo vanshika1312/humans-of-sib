@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { PageHeader } from "@/components/ui/page-header";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
 import { firstSearchParam } from "@/lib/search-param";
@@ -64,10 +64,6 @@ export default async function HiringPipelineStagesPage(props: Props) {
       <Card className="border-sky-100/80">
         <CardHeader className="border-b border-ink-100 bg-ink-50/60">
           <CardTitle>Add a stage</CardTitle>
-          <CardDescription>
-            New stages appear as new columns everywhere (applications, pipeline kanban). The internal key is generated from
-            the name — useful for integrations and templates.
-          </CardDescription>
         </CardHeader>
         <CardContent className="pt-6">
           <form action={createPipelineStage} className="flex flex-wrap items-end gap-4 max-w-lg">
@@ -92,10 +88,6 @@ export default async function HiringPipelineStagesPage(props: Props) {
       <Card>
         <CardHeader>
           <CardTitle>Configured stages ({stages.length})</CardTitle>
-          <CardDescription>
-            Ordered top-to-bottom · same order left-to-right on the pipeline. Edit labels and sort order anytime. Delete only
-            when nobody is in that stage and no questionnaire template points at it.
-          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-0 divide-y divide-ink-100">
           {stages.length === 0 ? (

@@ -8,7 +8,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { Avatar } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label, Select } from "@/components/ui/input";
 import { grantRecruitmentAccess, updateWorkspaceAdminRole } from "../actions";
 
@@ -89,27 +89,6 @@ async function RecruitmentAccessPageBody({
       <Card>
         <CardHeader className="border-b border-ink-100 bg-ink-50/60">
           <CardTitle className="text-ink-700">Grant access</CardTitle>
-          <CardDescription className="text-ink-500">
-            Pick someone already on the roster.
-            {canPromoteAdmin ? (
-              <>
-                {" "}
-                Assign <strong>Admin</strong> for full team management (including payouts for CEO/Admin) or{" "}
-                <strong>HR</strong> for HRMS and recruiter tools without salary fields.
-              </>
-            ) : (
-              <>
-                {" "}
-                You can grant <strong>HR</strong> only — ask CEO or an Admin if someone needs workspace Admin.
-              </>
-            )}
-            {" "}
-            Brand-new hire?{' '}
-            <Link href="/admin/team/new" className="font-medium text-sky-700 underline-offset-4 hover:underline">
-              Create their profile first
-            </Link>
-            .
-          </CardDescription>
         </CardHeader>
         <CardContent className="pt-6">
           {grantCandidates.length === 0 ? (
@@ -145,9 +124,6 @@ async function RecruitmentAccessPageBody({
       <Card>
         <CardHeader className="border-b border-ink-100">
           <CardTitle className="text-ink-700">People with access</CardTitle>
-          <CardDescription className="text-ink-500">
-            Admin and HR see this recruitment area and the Manage Team admin tools. CEO is always included.
-          </CardDescription>
         </CardHeader>
         <CardContent className="p-0">
           <div className="overflow-x-auto">

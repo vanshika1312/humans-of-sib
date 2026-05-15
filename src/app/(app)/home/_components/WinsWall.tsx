@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { relativeTime } from "@/lib/utils";
@@ -20,7 +20,6 @@ export async function WinsWall() {
           <CardTitle className="flex items-center gap-2">
             <Trophy className="size-4 text-orange-500" /> Wins Wall
           </CardTitle>
-          <CardDescription>Latest wins from the team</CardDescription>
         </div>
         <Link href="/wins" className="text-xs font-medium text-sky-600 hover:underline">
           See all →

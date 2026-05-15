@@ -71,6 +71,7 @@ function parseStoredPayload(raw: string | null): {
 
 type RowState = {
   itemId: string;
+  fileName: string;
   include: boolean;
   fullName: string;
   email: string;
@@ -88,6 +89,7 @@ function buildRows(batch: SerializedImportBatch | null): RowState[] {
     const { parsed, warnings } = parseStoredPayload(it.parsedPayloadJson);
     return {
       itemId: it.id,
+      fileName: it.fileName,
       include: it.status !== "IMPORTED",
       fullName: parsed.fullName ?? "",
       email: parsed.email ?? "",
@@ -104,9 +106,6 @@ function buildRows(batch: SerializedImportBatch | null): RowState[] {
 export function BulkResumeImportClient(props: {
   openJobs: { id: string; title: string }[];
   initialBatch: SerializedImportBatch | null;
-  webhookBaseUrl: string;
-  /** OpenRouter / OpenAI-compatible LLM parsing when env is set on the server. */
-  llmResumeParsingEnabled?: boolean;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -117,12 +116,6 @@ export function BulkResumeImportClient(props: {
   const [rows, setRows] = useState<RowState[]>(() => buildRows(props.initialBatch));
 
   const batchId = props.initialBatch?.id ?? null;
-
-  const inboundWebhookHint = props.webhookBaseUrl
-    ? `${props.webhookBaseUrl}/api/webhooks/hiring-resume-inbound`
-    : "/api/webhooks/hiring-resume-inbound";
-
-  const llmOn = props.llmResumeParsingEnabled ?? false;
 
   async function onUploadSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -155,7 +148,7 @@ export function BulkResumeImportClient(props: {
         toast.error(result.error);
         return;
       }
-      toast.success("Résumés processed — review fields below.");
+      toast.success("Files saved. Fill in the table, then import.");
       router.replace(`/hiring/applications/import?batch=${encodeURIComponent(result.batchId)}`);
       router.refresh();
     });
@@ -222,70 +215,10 @@ export function BulkResumeImportClient(props: {
 
   return (
     <div className="space-y-8">
-      <Card className="border-ink-100 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
-        <CardHeader className="border-b border-ink-100">
-          <CardTitle className="text-base">Inbound email (optional)</CardTitle>
-          <CardDescription>
-            Forward résumés from mail to your ingress provider so each message POSTs multipart attachments to your webhook.
-            Configure <code className="text-xs bg-ink-100 px-1 rounded">HIRING_RESUME_INBOUND_SECRET</code>,{" "}
-            <code className="text-xs bg-ink-100 px-1 rounded">HIRING_INBOUND_DEFAULT_JOB_ID</code>, and point the vendor at{" "}
-            <code className="text-xs bg-ink-100 px-1 rounded break-all">{inboundWebhookHint}</code>.
-            Authenticate with header{" "}
-            <code className="text-xs bg-ink-100 px-1 rounded">Authorization: Bearer …</code> or{" "}
-            <code className="text-xs bg-ink-100 px-1 rounded">X-Hiring-Inbound-Secret</code>.
-          </CardDescription>
-        </CardHeader>
-      </Card>
-
       {!batchId ? (
         <Card className="border-ink-100 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
           <CardHeader>
             <CardTitle className="text-base">Upload from computer</CardTitle>
-            <CardDescription className="space-y-2">
-              <span className="block">
-                PDF or DOCX — stored files may be up to <strong>12 MB</strong> each.
-                {llmOn ? (
-                  <>
-                    {" "}
-                    Auto-fill uses{" "}
-                    <a
-                      href="https://openrouter.ai/docs"
-                      target="_blank"
-                      rel="noreferrer"
-                      className="font-semibold text-sky-700 underline-offset-4 hover:underline"
-                    >
-                      OpenRouter
-                    </a>{" "}
-                    (OpenAI-compatible JSON extraction from extracted text).
-                  </>
-                ) : (
-                  <>
-                    {" "}
-                    Set <code className="text-xs bg-ink-100 px-1 rounded">OPENROUTER_API_KEY</code> on the server and
-                    restart — then uploads will be parsed automatically. Until then, type fields manually after upload.
-                  </>
-                )}
-              </span>
-              <span className="block text-xs text-ink-500 leading-relaxed">
-                {llmOn ? (
-                  <>
-                    Env: <code className="bg-ink-100 px-1 rounded">OPENROUTER_API_KEY</code> (defaults to{" "}
-                    <code className="bg-ink-100 px-1 rounded">https://openrouter.ai/api/v1</code>), optional{" "}
-                    <code className="bg-ink-100 px-1 rounded">OPENROUTER_MODEL</code> (e.g.{" "}
-                    <code className="bg-ink-100 px-1 rounded">openai/gpt-4o-mini</code>),{" "}
-                    <code className="bg-ink-100 px-1 rounded">OPENROUTER_BASE_URL</code>. Alternatively{" "}
-                    <code className="bg-ink-100 px-1 rounded">HIRING_RESUME_PARSE_API_KEY</code> +{" "}
-                    <code className="bg-ink-100 px-1 rounded">HIRING_RESUME_PARSE_BASE_URL</code> for other OpenAI-compatible
-                    hosts.
-                  </>
-                ) : (
-                  <>
-                    Add <code className="bg-ink-100 px-1 rounded">OPENROUTER_API_KEY</code> in{" "}
-                    <code className="bg-ink-100 px-1 rounded">.env.local</code>, restart the dev server, and upload again.
-                  </>
-                )}
-              </span>
-            </CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={onUploadSubmit} className="space-y-5 max-w-xl">
@@ -340,7 +273,7 @@ export function BulkResumeImportClient(props: {
                 />
               </div>
               <Button type="submit" variant="accent" disabled={pending || props.openJobs.length === 0}>
-                {pending ? "Processing…" : "Parse résumés"}
+                {pending ? "Saving…" : "Upload résumés"}
               </Button>
             </form>
           </CardContent>
@@ -360,7 +293,13 @@ export function BulkResumeImportClient(props: {
               <Button type="button" variant="outline" size="sm" onClick={onDiscard} disabled={pending}>
                 Discard draft
               </Button>
-              <Button type="button" variant="accent" size="sm" onClick={onCommit} disabled={pending}>
+              <Button
+                type="button"
+                variant="accent"
+                size="sm"
+                onClick={onCommit}
+                disabled={pending}
+              >
                 {pending ? "Saving…" : "Import selected rows"}
               </Button>
             </div>

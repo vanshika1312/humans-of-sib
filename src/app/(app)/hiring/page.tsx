@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { PageHeader } from "@/components/ui/page-header";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import type { HiringJobStatus } from "@/generated/prisma";
 import { Badge } from "@/components/ui/badge";
@@ -22,7 +22,6 @@ export default async function HiringOverviewPage(props: {
 
   const [
     openJobsCount,
-    draftsCount,
     candidateCount,
     appGroups,
     closedJobsCount,
@@ -32,7 +31,6 @@ export default async function HiringOverviewPage(props: {
     openAppByJobStage,
   ] = await Promise.all([
     prisma.hiringJob.count({ where: { status: "OPEN" } }),
-    prisma.hiringJob.count({ where: { status: "DRAFT" } }),
     prisma.hiringCandidate.count(),
     prisma.hiringApplication.groupBy({
       by: ["pipelineStageId"],
@@ -124,7 +122,6 @@ export default async function HiringOverviewPage(props: {
       <Card>
         <CardHeader className="border-b border-ink-100 bg-ink-50/60">
           <CardTitle>Open jobs — pipeline by stage</CardTitle>
-          <CardDescription>Applicant counts per stage for each active posting.</CardDescription>
         </CardHeader>
         <CardContent className="pt-5 space-y-0 divide-y divide-ink-100">
           {openJobs.length === 0 ? (
@@ -194,20 +191,16 @@ export default async function HiringOverviewPage(props: {
       </Card>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-        <MetricCard title="Open jobs" value={String(openJobsCount)} hint="Receiving applications" tone="sky" />
-        <MetricCard title="Active pipeline" value={String(inFlight)} hint="Excludes hired / rejected" tone="orange" />
-        <MetricCard title="Candidates" value={String(candidateCount)} hint="Add profiles from Hiring → Applications → Add candidate" tone="green" />
-        <MetricCard title="Pending requisitions" value={String(pendingReqCount)} hint="Awaiting your review" tone="orange" />
-        <MetricCard title="Archived jobs" value={String(closedJobsCount)} hint={`Drafts saved: ${draftsCount}`} tone="ink" />
+        <MetricCard title="Open jobs" value={String(openJobsCount)} tone="sky" />
+        <MetricCard title="Active pipeline" value={String(inFlight)} tone="orange" />
+        <MetricCard title="Candidates" value={String(candidateCount)} tone="green" />
+        <MetricCard title="Pending requisitions" value={String(pendingReqCount)} tone="orange" />
+        <MetricCard title="Archived jobs" value={String(closedJobsCount)} tone="ink" />
       </div>
 
       <Card className="border-orange-100/80 shadow-sm overflow-hidden">
         <CardHeader className="border-b border-ink-100 bg-gradient-to-r from-orange-50/80 to-white">
           <CardTitle>Headcount requests</CardTitle>
-          <CardDescription>
-            Submitted by managers and department heads from{" "}
-            <strong>Job requisition</strong> in the sidebar. Approve to create a linked draft posting, or decline with an optional note.
-          </CardDescription>
         </CardHeader>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
@@ -312,7 +305,6 @@ export default async function HiringOverviewPage(props: {
       <Card>
         <CardHeader className="border-b border-ink-100 bg-ink-50/60">
           <CardTitle>Funnel overview</CardTitle>
-          <CardDescription>Counts by pipeline stage across all postings.</CardDescription>
         </CardHeader>
         <CardContent className="pt-5 space-y-3">
           {pipelineStagesOrdered.map((s) => (
@@ -349,7 +341,7 @@ function MetricCard({
 }: {
   title: string;
   value: string;
-  hint: string;
+  hint?: string;
   tone: "sky" | "orange" | "green" | "ink";
 }) {
   const ring =
@@ -364,7 +356,7 @@ function MetricCard({
     <div className={`rounded-xl border border-ink-100 bg-gradient-to-br ${ring} p-4 shadow-[0_1px_2px_rgba(0,0,0,0.04)] ring-1`}>
       <div className="text-[11px] font-semibold uppercase tracking-wider text-ink-400">{title}</div>
       <div className="text-2xl font-bold text-ink-800 mt-1 tabular-nums">{value}</div>
-      <div className="text-xs text-ink-500 mt-1">{hint}</div>
+      {hint ? <div className="text-xs text-ink-500 mt-1">{hint}</div> : null}
     </div>
   );
 }

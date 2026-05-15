@@ -5,7 +5,11 @@ import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { defaultAppliedPipelineStageIdInTxn } from "@/lib/hiring-pipeline";
-import { createHiringResumeImportItemFromBuffer } from "@/lib/hiring-resume-import-process";
+import {
+  mapWithConcurrencyLimit,
+  RESUME_IMPORT_STAGING_CONCURRENCY,
+  stageResumeImportItemFromBuffer,
+} from "@/lib/hiring-resume-import-process";
 
 type HiringTxnClient = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
 
@@ -131,15 +135,22 @@ export async function createBulkResumeImportFromUpload(formData: FormData): Prom
     select: { id: true },
   });
 
-  for (const file of files) {
-    const buf = Buffer.from(await file.arrayBuffer());
-    await createHiringResumeImportItemFromBuffer({
-      batchId: batch.id,
-      buffer: buf,
+  const fileBuffers = await Promise.all(
+    files.map(async (file) => ({
+      buf: Buffer.from(await file.arrayBuffer()),
       originalFileName: file.name || "resume.pdf",
       mimeHint: file.type || undefined,
-    });
-  }
+    })),
+  );
+
+  await mapWithConcurrencyLimit(fileBuffers, RESUME_IMPORT_STAGING_CONCURRENCY, async (entry) =>
+    stageResumeImportItemFromBuffer({
+      batchId: batch.id,
+      buffer: entry.buf,
+      originalFileName: entry.originalFileName,
+      mimeHint: entry.mimeHint,
+    }),
+  );
 
   invalidateImportPaths(job.id);
   return { ok: true, batchId: batch.id };

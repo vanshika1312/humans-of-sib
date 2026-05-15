@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { createHiringResumeImportItemFromBuffer } from "@/lib/hiring-resume-import-process";
+import {
+  mapWithConcurrencyLimit,
+  RESUME_IMPORT_STAGING_CONCURRENCY,
+  stageResumeImportItemFromBuffer,
+} from "@/lib/hiring-resume-import-process";
 
 const BATCH_TTL_DAYS = 7;
 
@@ -82,14 +86,14 @@ export async function POST(req: Request) {
     select: { id: true },
   });
 
-  for (const att of attachments) {
-    await createHiringResumeImportItemFromBuffer({
+  await mapWithConcurrencyLimit(attachments, RESUME_IMPORT_STAGING_CONCURRENCY, async (att) =>
+    stageResumeImportItemFromBuffer({
       batchId: batch.id,
       buffer: att.buffer,
       originalFileName: att.fileName,
       mimeHint: att.mimeHint,
-    });
-  }
+    }),
+  );
 
   revalidatePath("/hiring/applications");
   revalidatePath("/hiring/applications/import");

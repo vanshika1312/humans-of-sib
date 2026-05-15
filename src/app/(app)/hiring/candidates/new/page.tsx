@@ -2,7 +2,7 @@ import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input, Label, Select, Textarea } from "@/components/ui/input";
 import { createCandidate } from "../../actions";
 import { firstSearchParam } from "@/lib/search-param";
@@ -91,13 +91,15 @@ export default async function AddCandidatePage(props: Props) {
       {focusCandidate && (
         <Card className="border-sky-100/80">
           <CardHeader className="border-b border-ink-100 pb-4">
-            <CardTitle className="text-base">Profile &amp; timeline</CardTitle>
-            <CardDescription>
-              {focusCandidate.fullName} ·{" "}
-              <Link href={`/hiring/timeline/${focusCandidate.id}`} className="font-semibold text-sky-700 hover:underline">
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <CardTitle className="text-base">Profile &amp; timeline</CardTitle>
+                <p className="text-sm text-ink-600 mt-1">{focusCandidate.fullName}</p>
+              </div>
+              <Link href={`/hiring/timeline/${focusCandidate.id}`} className="text-sm font-semibold text-sky-700 hover:underline shrink-0">
                 Open timeline &amp; edit profile →
               </Link>
-            </CardDescription>
+            </div>
           </CardHeader>
           <CardContent className="pt-5 space-y-4 max-h-[420px] overflow-y-auto">
             {focusEvents.length === 0 ? (
@@ -137,11 +139,6 @@ export default async function AddCandidatePage(props: Props) {
       <Card>
         <CardHeader className="border-b border-ink-100 bg-ink-50/60">
           <CardTitle>New intake</CardTitle>
-          <CardDescription>
-            <span className="font-medium text-ink-600">Full name</span> and{" "}
-            <span className="font-medium text-ink-600">email</span> are required. Re-using an email logs a timeline
-            snapshot instead of creating a second profile — you can still attach them to an open role where noted below.
-          </CardDescription>
         </CardHeader>
         <CardContent className="pt-6">
           <form action={createCandidate} className="grid gap-4 sm:grid-cols-2">

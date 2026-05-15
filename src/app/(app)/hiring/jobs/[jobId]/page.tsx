@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input, Label, Select, Textarea } from "@/components/ui/input";
 import { DepartmentNameField } from "@/components/workspace/department-name-field";
 import { ApplicationStageControl } from "../../_components/application-stage-control";
@@ -138,7 +138,6 @@ export default async function HiringJobDetailPage(props: Props) {
       <Card className="border-sky-100/80 bg-gradient-to-br from-sky-50/50 to-white">
         <CardHeader className="border-b border-ink-100 pb-4">
           <CardTitle className="text-base">Posting summary</CardTitle>
-          <CardDescription>Shown on this job record. Edit only when requirements or links change.</CardDescription>
         </CardHeader>
         <CardContent className="pt-5 grid gap-4 sm:grid-cols-2 text-sm">
           <SummaryRow label="Department" value={job.department ? `${job.department.emoji ?? ""} ${job.department.name}`.trim() : "—"} />
@@ -208,7 +207,6 @@ export default async function HiringJobDetailPage(props: Props) {
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <CardTitle>Edit posting</CardTitle>
-                <CardDescription>Role details stay in sync wherever recruiters view them.</CardDescription>
               </div>
               <Button asChild variant="ghost" size="md">
                 <Link href={`/hiring/jobs/${jobId}`}>Cancel</Link>
@@ -356,7 +354,6 @@ export default async function HiringJobDetailPage(props: Props) {
       <Card>
         <CardHeader className="border-b border-ink-100">
           <CardTitle>Applicants</CardTitle>
-          <CardDescription>Move stages here or from the Pipeline board.</CardDescription>
         </CardHeader>
         <CardContent className="p-0">
           <div className="overflow-x-auto">

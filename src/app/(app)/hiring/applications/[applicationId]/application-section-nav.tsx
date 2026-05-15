@@ -70,9 +70,7 @@ export function HiringApplicationSectionNav() {
             ))}
           </ul>
         </nav>
-      ) : (
-        <p className="px-3 pb-2 text-[11px] text-ink-400">Expand to jump to Summary, Notes, Attachments…</p>
-      )}
+      ) : null}
     </div>
   );
 }

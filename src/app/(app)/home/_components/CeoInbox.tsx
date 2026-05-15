@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Megaphone } from "lucide-react";
 
 export async function CeoInbox() {
@@ -12,7 +12,6 @@ export async function CeoInbox() {
         <CardTitle className="flex items-center gap-2">
           <Megaphone className="size-4 text-orange-500" /> CEO Inbox
         </CardTitle>
-        <CardDescription>Messages from the team</CardDescription>
       </CardHeader>
       <CardContent>
         <div className="text-3xl font-bold text-ink-700">{unreadCount}</div>

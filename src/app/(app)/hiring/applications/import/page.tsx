@@ -1,12 +1,11 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { headers } from "next/headers";
 import { prisma } from "@/lib/prisma";
 import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
 import { requireAppViewer } from "@/lib/app-viewer";
 import { BulkResumeImportClient, type SerializedImportBatch } from "../_components/bulk-resume-import-client";
-import { isLlmResumeParsingConfigured } from "@/lib/hiring-resume-llm";
+import { resumeImportMarkPendingAsManualReady } from "@/lib/hiring-resume-import-process";
 
 const RECRUITER_ROLES = ["CEO", "ADMIN", "HR"];
 
@@ -20,11 +19,6 @@ export default async function BulkResumeImportPage(props: Props) {
 
   const sp = await props.searchParams;
   const batchParam = typeof sp.batch === "string" ? sp.batch : undefined;
-
-  const h = await headers();
-  const host = h.get("x-forwarded-host") ?? h.get("host") ?? "";
-  const proto = h.get("x-forwarded-proto") ?? "https";
-  const webhookBaseUrl = host ? `${proto}://${host}` : "";
 
   const openJobs = await prisma.hiringJob.findMany({
     where: { status: "OPEN" },
@@ -40,7 +34,14 @@ export default async function BulkResumeImportPage(props: Props) {
         id: batchParam,
         expiresAt: { gt: new Date() },
       },
-      include: { items: { orderBy: { createdAt: "asc" } } },
+      select: {
+        id: true,
+        sourceChannel: true,
+        applicationSource: true,
+        targetJobId: true,
+        expiresAt: true,
+        createdById: true,
+      },
     });
 
     if (!batch) {
@@ -51,14 +52,21 @@ export default async function BulkResumeImportPage(props: Props) {
       redirect("/hiring/applications/import");
     }
 
+    await resumeImportMarkPendingAsManualReady(batch.id);
+
+    const items = await prisma.hiringResumeImportItem.findMany({
+      where: { batchId: batch.id },
+      orderBy: { createdAt: "asc" },
+    });
+
     initialBatch = {
       id: batch.id,
       sourceChannel: batch.sourceChannel,
       applicationSource: batch.applicationSource,
       targetJobId: batch.targetJobId,
       expiresAt: batch.expiresAt.toISOString(),
-      revision: batch.items.map((i) => `${i.id}:${i.status}`).join("|"),
-      items: batch.items.map((it) => ({
+      revision: items.map((i) => `${i.id}:${i.status}`).join("|"),
+      items: items.map((it) => ({
         id: it.id,
         fileName: it.fileName,
         resumeUrl: it.resumeUrl,
@@ -74,7 +82,7 @@ export default async function BulkResumeImportPage(props: Props) {
       <PageHeader
         title="Bulk résumé import"
         emoji="📤"
-        subtitle="Upload multiple résumés, review parsed fields, then create candidates linked to one open posting."
+        subtitle="Upload multiple résumés, enter each candidate’s details, then import them against one open posting."
         action={
           <div className="flex flex-col gap-2 items-end">
             <Link href="/hiring/applications">
@@ -90,8 +98,6 @@ export default async function BulkResumeImportPage(props: Props) {
         key={`${initialBatch?.id ?? "new"}:${initialBatch?.revision ?? ""}`}
         openJobs={openJobs}
         initialBatch={initialBatch}
-        webhookBaseUrl={webhookBaseUrl}
-        llmResumeParsingEnabled={isLlmResumeParsingConfigured()}
       />
     </div>
   );

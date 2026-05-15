@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { UsersRound } from "lucide-react";
@@ -29,7 +29,6 @@ export async function TeamSpotlight() {
           <CardTitle className="flex items-center gap-2">
             <UsersRound className="size-4 text-sky-500" /> The Team
           </CardTitle>
-          <CardDescription>Say hello to your colleagues</CardDescription>
         </div>
         <Link href="/people" className="text-xs font-medium text-sky-600 hover:underline">
           View all →

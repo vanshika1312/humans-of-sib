@@ -124,6 +124,26 @@ function resolveChatCompletionsUrl(baseNormalized: string): { ok: true; url: str
   }
 }
 
+/** Max waits after HTTP 429 (so 3 total attempts). Free-tier models throttle aggressively. */
+const LLM_HTTP_429_RETRY_WAITS = 2;
+
+/**
+ * Parses `Retry-After` seconds (OpenRouter may send numeric seconds).
+ * Ignores HTTP-date form.
+ */
+function parseRetryAfterSecondsRetryAfterHeader(header: string | null): number | null {
+  if (header === null || header === undefined) return null;
+  const t = header.trim();
+  if (!/^\d+$/.test(t)) return null;
+  const sec = Number.parseInt(t, 10);
+  if (!Number.isFinite(sec) || sec < 0 || sec > 3600) return null;
+  return sec;
+}
+
+function delayMs(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 /**
  * `fetch()` header values must be ByteString / ISO-8859-1 (code points ≤ 0xFF). Unicode-only
  * characters such as em dash (U+2014) cause "Cannot convert argument to a ByteString" before send.
@@ -265,25 +285,48 @@ Rules:
     };
   }
 
+  const chatBody = JSON.stringify({
+    model,
+    temperature: 0.1,
+    response_format: { type: "json_object" },
+    messages: [
+      { role: "system", content: system },
+      {
+        role: "user",
+        content: `Résumé text:\n---\n${bodyText}\n---`,
+      },
+    ],
+  });
+
   let response: Response;
   try {
-    response = await fetch(chatUrlResult.url, {
-      method: "POST",
-      headers,
-      signal: AbortSignal.timeout(LLM_CHAT_COMPLETION_TIMEOUT_MS),
-      body: JSON.stringify({
+    for (let waitRound = 0; waitRound <= LLM_HTTP_429_RETRY_WAITS; waitRound++) {
+      response = await fetch(chatUrlResult.url, {
+        method: "POST",
+        headers,
+        signal: AbortSignal.timeout(LLM_CHAT_COMPLETION_TIMEOUT_MS),
+        body: chatBody,
+      });
+
+      const is429 = response.status === 429;
+      if (!is429 || waitRound >= LLM_HTTP_429_RETRY_WAITS) break;
+
+      let waitSec =
+        parseRetryAfterSecondsRetryAfterHeader(response.headers.get("Retry-After")) ??
+        Math.min(12, 2 ** (waitRound + 1));
+      waitSec = Math.min(waitSec, 45);
+      console.warn("[hiring-resume-llm] HTTP 429 from provider; retrying after delay", {
+        waitSec,
+        waitRound,
         model,
-        temperature: 0.1,
-        response_format: { type: "json_object" },
-        messages: [
-          { role: "system", content: system },
-          {
-            role: "user",
-            content: `Résumé text:\n---\n${bodyText}\n---`,
-          },
-        ],
-      }),
-    });
+      });
+      try {
+        await response.arrayBuffer();
+      } catch {
+        /* ignore drain errors */
+      }
+      await delayMs(waitSec * 1000);
+    }
   } catch (err) {
     const timedOut = isFetchTimeoutError(err);
     const chain = collectErrorChain(err);
@@ -308,9 +351,13 @@ Rules:
       response.status === 401
         ? " Wrong or mismatched API key for this base URL. For OpenRouter use OPENROUTER_API_KEY and optional OPENROUTER_BASE_URL, or HIRING_RESUME_PARSE_BASE_URL=https://openrouter.ai/api/v1 with an OpenRouter key."
         : "";
+    const hint429 =
+      response.status === 429
+        ? " Rate limit (often strict on `:free` models): wait a minute, try again later, add OpenRouter credits, or switch OPENROUTER_MODEL to a paid model."
+        : "";
     return {
       ok: false,
-      error: `Résumé parsing failed (HTTP ${response.status}).${suffix}${hint401} Fill fields manually.`,
+      error: `Résumé parsing failed (HTTP ${response.status}).${suffix}${hint401}${hint429} Fill fields manually.`,
       parsed: stubParsed,
     };
   }

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar } from "@/components/ui/avatar";
 import { formatDate } from "@/lib/utils";
 import { Cake } from "lucide-react";
@@ -24,7 +24,6 @@ export async function UpcomingCelebrations() {
         <CardTitle className="flex items-center gap-2">
           <Cake className="size-4 text-sun-600" /> Coming up
         </CardTitle>
-        <CardDescription>Birthdays &amp; work-aversaries</CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
         {upcoming.length === 0 && <p className="text-sm text-ink-400">Nothing in the next 2 weeks.</p>}
