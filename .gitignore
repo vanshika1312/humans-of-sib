@@ -2,6 +2,8 @@
 
 # dependencies
 /node_modules
+# pnpm content-addressable store (never commit — huge; use global/store dir instead)
+.pnpm-store/
 /.pnp
 .pnp.*
 .yarn/*
