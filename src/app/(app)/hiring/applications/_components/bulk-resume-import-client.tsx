@@ -371,7 +371,9 @@ export function BulkResumeImportClient(props: {
                       />
                     </td>
                     <td className="px-3 py-2 whitespace-nowrap">
-                      {r.resumeUrl.startsWith("/hiring-uploads/") ? (
+                      {(r.resumeUrl.startsWith("/") ||
+                        r.resumeUrl.startsWith("http://") ||
+                        r.resumeUrl.startsWith("https://")) ? (
                         <a
                           href={r.resumeUrl}
                           target="_blank"

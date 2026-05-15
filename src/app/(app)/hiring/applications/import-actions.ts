@@ -10,6 +10,7 @@ import {
   RESUME_IMPORT_STAGING_CONCURRENCY,
   stageResumeImportItemFromBuffer,
 } from "@/lib/hiring-resume-import-process";
+import { isBulkImportStoredResumeUrl } from "@/lib/hiring-resume-upload";
 
 type HiringTxnClient = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
 
@@ -243,7 +244,7 @@ export async function commitBulkResumeImport(
       continue;
     }
 
-    if (!item.resumeUrl?.startsWith("/hiring-uploads/")) {
+    if (!isBulkImportStoredResumeUrl(item.resumeUrl)) {
       results.push({
         itemId: row.itemId,
         ok: false,
