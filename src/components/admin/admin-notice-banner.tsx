@@ -5,14 +5,17 @@ export function AdminNoticeBanner({ code, detail }: { code?: string; detail?: st
   const msg = ADMIN_MUTATION_MESSAGES[code];
   if (!msg) return null;
 
+  const isSuccess = code === "member_deleted";
   const isSoft = ["salary_create_blocked", "invite_failed", "invite_resent"].includes(code);
 
   return (
     <div
       className={
-        isSoft
-          ? "mb-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950"
-          : "mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900"
+        isSuccess
+          ? "mb-6 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-950"
+          : isSoft
+            ? "mb-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950"
+            : "mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900"
       }
     >
       <div>{msg}</div>

@@ -10,7 +10,7 @@ import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Input, Select, Label, Textarea } from "@/components/ui/input";
 import { DepartmentNameField } from "@/components/workspace/department-name-field";
-import { updateMember, resendOnboardingInvite } from "../../actions";
+import { updateMember, resendOnboardingInvite, deleteMember } from "../../actions";
 import { AdminNoticeBanner } from "@/components/admin/admin-notice-banner";
 import { displayName } from "@/lib/user-display-name";
 import { firstSearchParam } from "@/lib/search-param";
@@ -79,6 +79,7 @@ async function EditMemberPageBody({ id }: { id: string }) {
   const isCeoOrAdmin = ["CEO", "ADMIN"].includes(me.role);
   const action = updateMember.bind(null, id);
   const resend = resendOnboardingInvite.bind(null, id);
+  const removeMember = deleteMember.bind(null, id);
   const dn = displayName(member);
 
   return (
@@ -383,6 +384,36 @@ async function EditMemberPageBody({ id }: { id: string }) {
           </form>
         </CardContent>
       </Card>
+
+      {isCeoOrAdmin && (
+        <Card className="mt-6 border-red-200 bg-red-50/40">
+          <CardContent className="pt-6 space-y-4">
+            <div>
+              <div className="text-sm font-semibold text-red-800">Danger zone</div>
+              <p className="text-sm text-ink-600 mt-1">
+                Permanently delete this member and related HR data (attendance, leaves, wins, etc.).
+                Department head and reporting lines are cleared first. This cannot be undone.
+              </p>
+            </div>
+            <form action={removeMember} className="space-y-3 max-w-md">
+              <div>
+                <Label htmlFor="confirmEmail">Type their official email to confirm</Label>
+                <Input
+                  id="confirmEmail"
+                  name="confirmEmail"
+                  type="email"
+                  autoComplete="off"
+                  placeholder={member.email}
+                  aria-label="Confirm official email before delete"
+                />
+              </div>
+              <Button type="submit" variant="danger" size="sm">
+                Delete member permanently
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

@@ -12,6 +12,7 @@ import {
   isWorkspacePowerUser,
   parseEmployeeStatus,
   parseRole,
+  remainingAdminPeers,
 } from "@/lib/admin-mutations";
 import { sendEmployeeOnboardingInvite } from "@/lib/email";
 import { allocateEmployeeCode } from "@/lib/next-employee-code";
@@ -294,4 +295,77 @@ export async function updateMember(userId: string, fd: FormData) {
   }
 
   redirect("/admin");
+}
+
+/**
+ * Permanently removes a member and dependent rows (CEO / Admin only).
+ * Clears FK blockers (manager chain, dept head, incentive sheets, etc.) before deleting the user.
+ */
+export async function deleteMember(userId: string, fd: FormData) {
+  const me = await requireAdmin();
+
+  if (!isWorkspacePowerUser(me.role)) {
+    redirect(`/admin/team/${userId}?notice=${encodeURIComponent("member_delete_forbidden")}`);
+  }
+  if (me.id === userId) {
+    redirect(`/admin/team/${userId}?notice=${encodeURIComponent("member_delete_self")}`);
+  }
+
+  const typed = ((fd.get("confirmEmail") as string) ?? "").trim().toLowerCase();
+  const target = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { id: true, email: true, role: true },
+  });
+  if (!target) redirect("/admin");
+
+  if (typed !== target.email.toLowerCase()) {
+    redirect(`/admin/team/${userId}?notice=${encodeURIComponent("member_delete_confirm_mismatch")}`);
+  }
+
+  if (target.role === "ADMIN") {
+    const otherAdmins = await remainingAdminPeers(userId);
+    if (otherAdmins === 0) {
+      redirect(`/admin/team/${userId}?notice=${encodeURIComponent("member_delete_last_admin")}`);
+    }
+  }
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.department.updateMany({ where: { headId: userId }, data: { headId: null } });
+      await tx.user.updateMany({ where: { managerId: userId }, data: { managerId: null } });
+      await tx.regularisationRequest.updateMany({
+        where: { reviewedById: userId },
+        data: { reviewedById: null },
+      });
+      await tx.leaveRequest.updateMany({
+        where: { approverId: userId },
+        data: { approverId: null },
+      });
+      await tx.cEOFeedback.updateMany({
+        where: { respondedById: userId },
+        data: { respondedById: null },
+      });
+      await tx.incentiveSheet.updateMany({
+        where: { lockedById: userId },
+        data: { lockedById: null, lockedAt: null },
+      });
+      await tx.incentiveSheet.updateMany({
+        where: { approvedById: userId },
+        data: { approvedById: null, approvedAt: null },
+      });
+      await tx.saleEntry.updateMany({
+        where: { userId },
+        data: { sheetId: null },
+      });
+      await tx.incentiveSheet.deleteMany({ where: { userId } });
+      await tx.oKR.updateMany({ where: { userId }, data: { parentId: null } });
+      await tx.oKR.deleteMany({ where: { userId } });
+      await tx.user.delete({ where: { id: userId } });
+    });
+  } catch (err) {
+    console.error("[Humans of SIB] deleteMember failed", err);
+    redirect(`/admin/team/${userId}?notice=${encodeURIComponent("member_delete_failed")}`);
+  }
+
+  redirect(`/admin?notice=${encodeURIComponent("member_deleted")}`);
 }

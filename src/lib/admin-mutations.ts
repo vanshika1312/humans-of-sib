@@ -68,4 +68,12 @@ export const ADMIN_MUTATION_MESSAGES: Record<string, string> = {
     "The onboarding email could not be sent (check RESEND / BREVO and NEXT_PUBLIC_APP_URL). Use Resend invite on the member’s edit page.",
   invite_resent: "A new onboarding email was sent.",
   missing_name_or_email: "First name, last name, and official email are required.",
+  member_delete_forbidden: "Only CEO or Workspace Admin can permanently delete a member.",
+  member_delete_self: "You can’t delete your own account from here.",
+  member_delete_last_admin: "Can’t delete the last Workspace Admin — promote another Admin first.",
+  member_delete_confirm_mismatch:
+    "Confirmation email didn’t match this profile — nothing was deleted.",
+  member_deleted: "Member record was permanently removed.",
+  member_delete_failed:
+    "Could not delete this member (database still references them). Try again or adjust related data.",
 };
