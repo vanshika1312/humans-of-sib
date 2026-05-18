@@ -1,30 +1,33 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 import { Paperclip, MessageSquareText, Trash2, GripVertical, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Input, Label, Textarea } from "@/components/ui/input";
+import { Input, Label, Select, Textarea } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { displayName } from "@/lib/user-display-name";
-import type { ClientBoardTask } from "./task-kanban-types";
+import type { ClientBoardStage, ClientBoardTask } from "./task-kanban-types";
 import {
   addPersonalTaskAttachment,
   addTaskComment,
   deleteBoardTask,
   deletePersonalTaskAttachment,
   deleteTaskComment,
+  updateBoardTaskStage,
   updateBoardTaskDetails,
 } from "./board-actions";
 
 export function TaskDrawer({
   task,
+  stages,
   ownerUserId,
   viewerId,
   readOnlyBoard,
   onClose,
 }: {
   task: ClientBoardTask;
+  stages: ClientBoardStage[];
   ownerUserId: string;
   viewerId: string;
   readOnlyBoard: boolean;
@@ -33,12 +36,8 @@ export function TaskDrawer({
   const [, startTransition] = useTransition();
   const [title, setTitle] = useState(task.title);
   const [desc, setDesc] = useState(task.description ?? "");
-  const canEditOwnedTask = !readOnlyBoard;
-
-  useEffect(() => {
-    setTitle(task.title);
-    setDesc(task.description ?? "");
-  }, [task.id, task.title, task.description]);
+  const [selectedStageId, setSelectedStageId] = useState(task.stageId);
+  const canEditOwnedTask = !readOnlyBoard || task.assignedBy?.id === viewerId || task.assignedTo.id === viewerId;
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-ink-900/40 p-4 md:p-6" role="presentation">
@@ -74,6 +73,50 @@ export function TaskDrawer({
         </header>
 
         <div className="flex-1 overflow-y-auto px-4 py-3 space-y-5">
+          <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+            <p>
+              Assigned to <span className="font-medium text-slate-800">{displayName(task.assignedTo)}</span>
+            </p>
+            <p className="mt-1">
+              Assigned by{" "}
+              <span className="font-medium text-slate-800">
+                {task.assignedBy ? displayName(task.assignedBy) : displayName(task.assignedTo)}
+              </span>
+            </p>
+          </div>
+
+          {canEditOwnedTask && (
+            <div>
+              <Label htmlFor="task-stage">Status</Label>
+              <div className="mt-1 flex items-center gap-2">
+                <Select id="task-stage" value={selectedStageId} onChange={(e) => setSelectedStageId(e.target.value)}>
+                  {stages.map((stage) => (
+                    <option key={stage.id} value={stage.id}>
+                      {stage.title}
+                    </option>
+                  ))}
+                </Select>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() =>
+                    startTransition(async () => {
+                      const result = await updateBoardTaskStage(task.id, selectedStageId);
+                      if (!result.ok) {
+                        toast.error(result.error || "Could not update status");
+                        return;
+                      }
+                      toast.success("Status updated");
+                    })
+                  }
+                >
+                  Update status
+                </Button>
+              </div>
+            </div>
+          )}
+
           <div>
             <Label htmlFor="task-desc">Description</Label>
             <Textarea
@@ -177,13 +220,11 @@ export function TaskDrawer({
             <ul className="space-y-3 mb-3">
               {task.comments.map((c) => {
                 const dn = displayName({
-                  id: c.author.id,
                   name: c.author.name,
                   firstName: c.author.firstName,
                   lastName: c.author.lastName,
-                  email: c.author.email,
                 });
-                const showDel = viewerId === c.authorId || viewerId === ownerUserId;
+                const showDel = viewerId === c.authorId || canEditOwnedTask;
                 return (
                   <li key={c.id} className={cn("rounded-lg border px-3 py-2 bg-ink-50/80 text-sm space-y-1")}>
                     <div className="flex justify-between gap-2 text-[11px] text-ink-500">

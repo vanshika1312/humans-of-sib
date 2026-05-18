@@ -10,6 +10,7 @@ import { RouteBodyFallback } from "@/components/app-route-body-fallback";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { getOrCreatePersonalTaskBoard } from "@/lib/personal-task-board-setup";
 import { AddBoardColumnDialog } from "./add-board-column-dialog";
+import { AssignTaskDialog, type AssignableTaskMember } from "./assign-task-dialog";
 import type { ClientBoard } from "./task-kanban-types";
 import { loadPersonalTaskBoardForModal } from "./board-actions";
 import { TaskKanbanBoardLoader } from "./task-kanban-board-loader";
@@ -46,40 +47,15 @@ async function MyTasksPageBody({ searchParams }: { searchParams: SearchParams })
     departmentId: true,
   } as const;
 
-  const [directReports, deptPeers] = await Promise.all([
-    prisma.user.findMany({
-      where: { managerId: viewer.id, status: "ACTIVE", id: { not: viewer.id } },
-      select: memberSelect,
-      orderBy: [{ firstName: "asc" }, { email: "asc" }],
-    }),
-    viewer.role === "DEPT_HEAD" && viewer.headedDept
-      ? prisma.user.findMany({
-          where: {
-            departmentId: viewer.headedDept.id,
-            status: "ACTIVE",
-            id: { not: viewer.id },
-          },
-          select: memberSelect,
-          orderBy: [{ firstName: "asc" }, { email: "asc" }],
-        })
-      : Promise.resolve([]),
-  ]);
+  const allActiveMembers = await prisma.user.findMany({
+    where: { status: "ACTIVE", id: { not: viewer.id } },
+    select: memberSelect,
+    orderBy: [{ firstName: "asc" }, { email: "asc" }],
+  });
 
   const teamLinks = (() => {
     const byId = new Map<string, TeamMemberForTasks>();
-    for (const u of directReports) {
-      if (u.status === "EXITED") continue;
-      byId.set(u.id, {
-        id: u.id,
-        name: u.name,
-        firstName: u.firstName,
-        lastName: u.lastName,
-        email: u.email,
-        image: u.image,
-        title: u.title,
-      });
-    }
-    for (const u of deptPeers) {
+    for (const u of allActiveMembers) {
       if (u.status === "EXITED") continue;
       byId.set(u.id, {
         id: u.id,
@@ -94,33 +70,59 @@ async function MyTasksPageBody({ searchParams }: { searchParams: SearchParams })
     return Array.from(byId.values()).sort((a, b) => displayName(a).localeCompare(displayName(b)));
   })();
 
-  const teamIds = teamLinks.map((u) => u.id);
+  const assignableMembers: AssignableTaskMember[] = teamLinks.map((u) => ({
+    id: u.id,
+    name: u.name,
+    firstName: u.firstName,
+    lastName: u.lastName,
+    email: u.email,
+    title: u.title,
+  }));
 
-  let openCounts: Record<string, number> = {};
-  if (teamIds.length > 0) {
-    openCounts = Object.fromEntries(
-      await Promise.all(
-        teamIds.map(async (uid) => {
-          const n = await prisma.personalTask.count({
-            where: {
-              board: { ownerUserId: uid },
-              stage: { isFinishedColumn: false },
-            },
-          });
-          return [uid, n] as const;
-        }),
-      ),
-    );
-  }
+  const assignedByMeTasks = await prisma.personalTask.findMany({
+    where: {
+      assignedByUserId: viewer.id,
+      assignedToUserId: { not: viewer.id },
+    },
+    select: {
+      id: true,
+      title: true,
+      updatedAt: true,
+      assignedTo: {
+        select: {
+          id: true,
+          name: true,
+          firstName: true,
+          lastName: true,
+          email: true,
+          image: true,
+          title: true,
+        },
+      },
+      stage: {
+        select: {
+          title: true,
+          isFinishedColumn: true,
+        },
+      },
+    },
+    orderBy: [{ updatedAt: "desc" }],
+  });
 
-  const showTeamSection =
-    teamLinks.length > 0 || ["HR", "CEO", "ADMIN"].includes(viewer.role);
+  const trackedCounts = assignedByMeTasks.reduce<Record<string, number>>((acc, task) => {
+    if (!task.stage.isFinishedColumn) {
+      acc[task.assignedTo.id] = (acc[task.assignedTo.id] ?? 0) + 1;
+    }
+    return acc;
+  }, {});
+
+  const showTeamSection = teamLinks.length > 0;
 
   const prismaViewerBoard = await getOrCreatePersonalTaskBoard(viewer.id);
   const clientBoardMine = serializePersonalBoardForClient(prismaViewerBoard);
 
   /** Deep link `/my-tasks?userId=` → modal open with SSR-prefetched board */
-  let initialTeamOverlay: { userId: string; board: ClientBoard } | null = null;
+  let initialTeamOverlay: { userId: string; board: ClientBoard; initialOpenTaskId: string | null } | null = null;
   let peekTeamMemberCard: TeamMemberForTasks | null = null;
 
   const urlPeerIdRaw = typeof sp.userId === "string" ? sp.userId.trim() : "";
@@ -129,7 +131,12 @@ async function MyTasksPageBody({ searchParams }: { searchParams: SearchParams })
   if (urlPeerId) {
     const rBoard = await loadPersonalTaskBoardForModal(urlPeerId);
     if (rBoard.ok) {
-      initialTeamOverlay = { userId: urlPeerId, board: rBoard.board };
+      initialTeamOverlay = {
+        userId: urlPeerId,
+        board: rBoard.board,
+        initialOpenTaskId:
+          initialTaskParam && rBoard.board.tasks.some((task) => task.id === initialTaskParam) ? initialTaskParam : null,
+      };
       peekTeamMemberCard =
         teamLinks.find((m) => m.id === urlPeerId) ??
         (await prisma.user.findUnique({
@@ -156,39 +163,75 @@ async function MyTasksPageBody({ searchParams }: { searchParams: SearchParams })
             My tasks
           </h1>
           <p className="mt-1 text-sm text-ink-500">
-            Kanban board in the style of Jira: drag cards between columns, drag column headers to reorder statuses, open a
-            card for details, attach files, and comment — rename columns, mark a column as done, and add or remove empty
-            columns.
+            Use your personal board for your own work, assign tasks across the organisation, and track only the tasks you
+            delegated without seeing someone else&apos;s full list unless your role already allows it.
           </p>
         </div>
+        <AssignTaskDialog members={assignableMembers} />
       </div>
+
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Assigned by me</CardTitle>
+          <CardDescription>
+            Track delegated tasks without opening someone&apos;s full board. Click any task to jump into a filtered teammate view.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="pt-0">
+          {assignedByMeTasks.length === 0 ? (
+            <p className="text-sm text-ink-500">You haven&apos;t assigned any tasks to teammates yet.</p>
+          ) : (
+            <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+              {assignedByMeTasks.map((task) => (
+                <Link
+                  key={task.id}
+                  href={`/my-tasks?userId=${encodeURIComponent(task.assignedTo.id)}&task=${encodeURIComponent(task.id)}`}
+                  className="rounded-xl border bg-white px-4 py-3 shadow-sm transition hover:border-sky-300 hover:shadow-md"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate font-semibold text-ink-800">{task.title}</p>
+                      <p className="mt-1 text-sm text-ink-500">
+                        Assigned to {displayName(task.assignedTo)}
+                        {task.assignedTo.title ? ` · ${task.assignedTo.title}` : ""}
+                      </p>
+                    </div>
+                    <span
+                      className={`shrink-0 rounded-full px-2 py-1 text-[11px] font-semibold ${
+                        task.stage.isFinishedColumn
+                          ? "bg-emerald-100 text-emerald-700"
+                          : "bg-sky-100 text-sky-700"
+                      }`}
+                    >
+                      {task.stage.title}
+                    </span>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {showTeamSection && (
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="text-base">Team tasks</CardTitle>
+            <CardTitle className="text-base">People tasks</CardTitle>
             <CardDescription>
-              Click a teammate — their board opens over a blurred backdrop. Your board stays below.
+              Click anyone in the organisation to track the tasks you assigned to them. Existing manager, HR, CEO, and admin
+              visibility still opens the full board when allowed.
             </CardDescription>
           </CardHeader>
           <CardContent className="pt-0 space-y-4">
             {teamLinks.length > 0 || initialTeamOverlay ? (
               <TeamTaskMemberCards
                 members={teamLinks}
-                openCounts={openCounts}
+                trackedCounts={trackedCounts}
                 viewerId={viewer.id}
                 peekMember={peekTeamMemberCard}
                 initialOverlay={initialTeamOverlay}
               />
             ) : null}
-            {teamLinks.length === 0 && ["HR", "CEO", "ADMIN"].includes(viewer.role) && (
-              <Link
-                href="/people"
-                className="inline-flex text-sm font-medium text-sky-600 hover:text-sky-700 hover:underline"
-              >
-                Browse People — open links use the same overlay when you&apos;re allowed to view someone&apos;s board
-              </Link>
-            )}
           </CardContent>
         </Card>
       )}
@@ -210,6 +253,7 @@ async function MyTasksPageBody({ searchParams }: { searchParams: SearchParams })
             viewerId={viewer.id}
             readOnly={false}
             initialOpenTaskId={
+              !urlPeerId &&
               initialTaskParam &&
               prismaViewerBoard.tasks.some((t) => t.id === initialTaskParam)
                 ? initialTaskParam

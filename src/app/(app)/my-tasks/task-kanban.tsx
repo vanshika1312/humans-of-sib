@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import type { CSSProperties, HTMLAttributes } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -30,6 +30,7 @@ import { GripVertical, MessageSquareText, Paperclip, Trash2 } from "lucide-react
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
+import { displayName } from "@/lib/user-display-name";
 import { cn } from "@/lib/utils";
 import { stageColumnShell, taskCardSurface } from "@/lib/personal-task-board-tint";
 import {
@@ -87,6 +88,7 @@ function SortableCard(props: {
   readOnly: boolean;
   attachCount: number;
   commentCount: number;
+  metaLabel?: string | null;
   onOpen: () => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: props.id });
@@ -118,6 +120,7 @@ function SortableCard(props: {
         <p className="text-slate-800 font-medium text-sm leading-snug group-hover:text-sky-700 transition-colors">
           {props.title}
         </p>
+        {props.metaLabel ? <p className="mt-1 truncate text-[11px] text-slate-500">{props.metaLabel}</p> : null}
         <div className="flex items-center gap-2 mt-1 text-[11px] text-slate-500">
           <span className="inline-flex items-center gap-0.5">
             <Paperclip className="size-3.5" /> {props.attachCount}
@@ -143,8 +146,6 @@ function StageHeader(props: {
   const [, startTransition] = useTransition();
   const [editing, setEditing] = useState(false);
   const [label, setLabel] = useState(stage.title);
-
-  useEffect(() => setLabel(stage.title), [stage.title, stage.id]);
 
   return (
     <div className="shrink-0 border-b border-slate-300/70 pb-2 mb-2">
@@ -252,8 +253,11 @@ function SortableStageColumn(props: {
   bucketIds: string[];
   taskById: Record<string, ClientBoardTask | undefined>;
   onOpenTask: (id: string) => void;
+  onTaskAdded: (stageId: string, task: ClientBoardTask) => void;
+  refreshBoard: () => void;
 }) {
-  const { stage, stageIndex, ownerUserId, readOnly, bucketIds, taskById, onOpenTask } = props;
+  const { stage, stageIndex, ownerUserId, readOnly, bucketIds, taskById, onOpenTask, onTaskAdded, refreshBoard } = props;
+  const [addingTask, startAddTransition] = useTransition();
 
   const {
     attributes,
@@ -285,6 +289,7 @@ function SortableStageColumn(props: {
       )}
     >
       <StageHeader
+        key={`${stage.id}:${stage.title}`}
         ownerUserId={ownerUserId}
         readOnly={readOnly}
         stage={stage}
@@ -307,6 +312,13 @@ function SortableStageColumn(props: {
                     readOnly={readOnly}
                     attachCount={t.attachments.length}
                     commentCount={t.comments.length}
+                    metaLabel={
+                      t.assignedTo.id === ownerUserId
+                        ? t.assignedBy && t.assignedBy.id !== ownerUserId
+                          ? `Assigned by ${displayName(t.assignedBy)}`
+                          : null
+                        : `Assigned to ${displayName(t.assignedTo)}`
+                    }
                     onOpen={() => onOpenTask(tid)}
                   />
                 </li>
@@ -317,8 +329,22 @@ function SortableStageColumn(props: {
 
         {!readOnly && (
           <form
-            action={addBoardTask.bind(null, ownerUserId, stage.id)}
             className="mt-2 flex shrink-0 gap-1 border-t border-slate-300/60 pt-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              const form = e.currentTarget;
+              const fd = new FormData(form);
+              startAddTransition(async () => {
+                const r = await addBoardTask(ownerUserId, stage.id, fd);
+                if (r.ok && r.task) {
+                  form.reset();
+                  onTaskAdded(stage.id, r.task);
+                  refreshBoard();
+                  return;
+                }
+                toast.error("Could not add card.");
+              });
+            }}
           >
             <Label htmlFor={`add-${stage.id}`} className="sr-only mb-0">
               New card
@@ -327,11 +353,18 @@ function SortableStageColumn(props: {
               id={`add-${stage.id}`}
               name="title"
               placeholder="Create issue"
+              disabled={addingTask}
               className="h-8 flex-1 border-slate-300/80 bg-white text-sm placeholder:text-slate-400"
               maxLength={500}
             />
-            <Button type="submit" variant="outline" size="sm" className="h-8 shrink-0 text-xs font-medium">
-              Add
+            <Button
+              type="submit"
+              variant="outline"
+              size="sm"
+              className="h-8 shrink-0 text-xs font-medium"
+              disabled={addingTask}
+            >
+              {addingTask ? "…" : "Add"}
             </Button>
           </form>
         )}
@@ -360,17 +393,16 @@ export function TaskKanbanBoard({
 
   const orderedStages = useMemo(
     () => [...board.stages].sort((a, b) => a.sortOrder - b.sortOrder),
-    [board.stages, board.updatedAtMs],
+    [board.stages],
   );
   const stageOrderIds = useMemo(() => orderedStages.map((s) => s.id), [orderedStages]);
   const columnSortableIds = useMemo(() => stageOrderIds.map((id) => COL_PREFIX + id), [stageOrderIds]);
 
-  const baselineBuckets = useMemo(() => bucketsFromBoard(board), [board.updatedAtMs, board.id]);
-  const [buckets, setBuckets] = useState(baselineBuckets);
+  /** Initialize buckets from the server payload; remounts handle resync after refreshes. */
+  const [buckets, setBuckets] = useState(() => bucketsFromBoard(board));
+  const [tasks, setTasks] = useState(board.tasks);
 
-  useEffect(() => setBuckets(baselineBuckets), [baselineBuckets]);
-
-  const taskById = useMemo(() => Object.fromEntries(board.tasks.map((t) => [t.id, t])), [board.tasks, board.updatedAtMs]);
+  const taskById = useMemo(() => Object.fromEntries(tasks.map((t) => [t.id, t])), [tasks]);
 
   const [activeId, setActiveId] = useState<string | null>(null);
   const [, startTransition] = useTransition();
@@ -381,7 +413,6 @@ export function TaskKanbanBoard({
   );
 
   const [openTaskId, setOpenTaskId] = useState(initialOpenTaskId);
-  useEffect(() => setOpenTaskId(initialOpenTaskId), [initialOpenTaskId]);
 
   function syncUrl(taskId: string | null) {
     if (suppressUrlSync) return;
@@ -562,6 +593,14 @@ export function TaskKanbanBoard({
                       setOpenTaskId(tid);
                       syncUrl(tid);
                     }}
+                    onTaskAdded={(stageId, task) => {
+                      setTasks((current) => [...current, task]);
+                      setBuckets((current) => ({
+                        ...current,
+                        [stageId]: [...(current[stageId] ?? []), task.id],
+                      }));
+                    }}
+                    refreshBoard={() => router.refresh()}
                   />
                 ))}
               </SortableContext>
@@ -598,7 +637,9 @@ export function TaskKanbanBoard({
 
       {drawerTask && (
         <TaskDrawer
+          key={drawerTask.id}
           task={drawerTask}
+          stages={orderedStages}
           ownerUserId={ownerUserId}
           viewerId={viewerId}
           readOnlyBoard={readOnly}

@@ -1,9 +1,11 @@
+import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { auth, signOut } from "@/auth";
 import { displayName } from "@/lib/user-display-name";
 import { requireAppViewer } from "@/lib/app-viewer";
 import { AppSidebar } from "@/components/shell/app-sidebar";
 import { Topbar } from "@/components/shell/topbar";
+import { RouteLoadingFallback } from "@/components/ui/route-loading-fallback";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const session = await auth();
@@ -32,7 +34,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           signOutAction={signOutAction}
         />
         <main className="flex-1 px-4 md:px-8 py-6 md:py-8 max-w-6xl w-full mx-auto">
-          {children}
+          <Suspense fallback={<RouteLoadingFallback label="Loading page…" />}>{children}</Suspense>
         </main>
       </div>
     </div>

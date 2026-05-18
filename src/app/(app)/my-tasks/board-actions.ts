@@ -6,7 +6,12 @@ import { prisma } from "@/lib/prisma";
 import type { Role } from "@/generated/prisma";
 import { getOrCreatePersonalTaskBoard } from "@/lib/personal-task-board-setup";
 import { serializePersonalBoardForClient } from "@/lib/personal-board-client";
-import { canViewPersonalTasks } from "@/lib/personal-tasks-access";
+import {
+  canAssignPersonalTasks,
+  canEditPersonalTask,
+  canViewPersonalTask,
+  canViewPersonalTasks,
+} from "@/lib/personal-tasks-access";
 import type { ClientBoard } from "./task-kanban-types";
 import { persistTaskAttachmentFile } from "@/lib/task-attachment-upload";
 
@@ -18,7 +23,7 @@ async function sessionViewer() {
   if (!email) return null;
   return prisma.user.findUnique({
     where: { email },
-    select: { id: true, role: true, headedDept: { select: { id: true } } },
+    select: { id: true, role: true, status: true, headedDept: { select: { id: true } } },
   });
 }
 
@@ -28,35 +33,73 @@ async function requireOwner(ownerUserId: string) {
   return v;
 }
 
-async function viewerCanAccessBoard(
-  viewerId: string,
-  viewerRole: Role,
-  headedDeptId: string | null,
-  boardOwnerId: string,
-) {
-  if (viewerId === boardOwnerId) return true;
-  const owner = await prisma.user.findUnique({
-    where: { id: boardOwnerId },
-    select: { id: true, managerId: true, departmentId: true },
-  });
-  if (!owner) return false;
-  return canViewPersonalTasks({
-    viewerUserId: viewerId,
-    viewerRole,
-    ownerUserId: owner.id,
-    ownerManagerId: owner.managerId,
-    ownerDepartmentId: owner.departmentId,
-    viewerHeadedDepartmentId: headedDeptId,
-  });
-}
-
 async function viewerCanComment(viewerId: string, viewerRole: Role, headedDeptId: string | null, taskId: string) {
   const t = await prisma.personalTask.findUnique({
     where: { id: taskId },
-    select: { board: { select: { ownerUserId: true } } },
+    select: {
+      assignedByUserId: true,
+      board: {
+        select: {
+          ownerUserId: true,
+          owner: { select: { managerId: true, departmentId: true } },
+        },
+      },
+    },
   });
   if (!t) return false;
-  return viewerCanAccessBoard(viewerId, viewerRole, headedDeptId, t.board.ownerUserId);
+  return canViewPersonalTask({
+    viewerUserId: viewerId,
+    viewerRole,
+    ownerUserId: t.board.ownerUserId,
+    ownerManagerId: t.board.owner.managerId,
+    ownerDepartmentId: t.board.owner.departmentId,
+    viewerHeadedDepartmentId: headedDeptId,
+    assignedByUserId: t.assignedByUserId,
+  });
+}
+
+async function getTaskAccess(taskId: string, viewerId: string, viewerRole: Role, headedDeptId: string | null) {
+  const task = await prisma.personalTask.findUnique({
+    where: { id: taskId },
+    select: {
+      id: true,
+      boardId: true,
+      stageId: true,
+      assignedToUserId: true,
+      assignedByUserId: true,
+      board: {
+        select: {
+          ownerUserId: true,
+          owner: {
+            select: {
+              managerId: true,
+              departmentId: true,
+            },
+          },
+        },
+      },
+    },
+  });
+
+  if (!task) return null;
+
+  const canEdit = canEditPersonalTask({
+    viewerUserId: viewerId,
+    ownerUserId: task.board.ownerUserId,
+    assignedByUserId: task.assignedByUserId,
+  });
+
+  const canView = canViewPersonalTask({
+    viewerUserId: viewerId,
+    viewerRole,
+    ownerUserId: task.board.ownerUserId,
+    ownerManagerId: task.board.owner.managerId,
+    ownerDepartmentId: task.board.owner.departmentId,
+    viewerHeadedDepartmentId: headedDeptId,
+    assignedByUserId: task.assignedByUserId,
+  });
+
+  return { task, canEdit, canView };
 }
 
 function nu(s: unknown, max?: number): string {
@@ -95,10 +138,120 @@ export async function loadPersonalTaskBoardForModal(
     ownerDepartmentId: owner.departmentId,
     viewerHeadedDepartmentId: v.headedDept?.id ?? null,
   });
-  if (!okView) return { ok: false, error: "You can’t view this board." };
+  const canTrackAssignedTasks = canAssignPersonalTasks({
+    viewerUserId: v.id,
+    viewerStatus: v.status,
+    assigneeUserId: owner.id,
+    assigneeStatus: owner.status,
+  });
+  if (!okView && !canTrackAssignedTasks) return { ok: false, error: "You can’t view this board." };
 
   const boardPayload = await getOrCreatePersonalTaskBoard(peerUserId);
-  return { ok: true, board: serializePersonalBoardForClient(boardPayload) };
+  const visibleBoard = okView
+    ? boardPayload
+    : {
+        ...boardPayload,
+        tasks: boardPayload.tasks.filter((task) => task.assignedByUserId === v.id),
+      };
+  return { ok: true, board: serializePersonalBoardForClient(visibleBoard) };
+}
+
+export async function assignTaskToUser(
+  formData: FormData,
+): Promise<{ ok: boolean; error?: string; userId?: string; taskId?: string }> {
+  const viewer = await sessionViewer();
+  if (!viewer) return { ok: false, error: "Unauthorized" };
+
+  const title = nu(formData.get("title"), 500);
+  const description = nu(formData.get("description"), 32000);
+  const assignedToUserId = nu(formData.get("assignedToUserId"), 191);
+  if (!title.length) return { ok: false, error: "Task title is required." };
+  if (!assignedToUserId.length) return { ok: false, error: "Choose a teammate." };
+
+  const assignee = await prisma.user.findUnique({
+    where: { id: assignedToUserId },
+    select: { id: true, status: true },
+  });
+  if (!assignee || assignee.status !== "ACTIVE") {
+    return { ok: false, error: "Assignee not found." };
+  }
+
+  const canAssign = canAssignPersonalTasks({
+    viewerUserId: viewer.id,
+    viewerStatus: viewer.status,
+    assigneeUserId: assignee.id,
+    assigneeStatus: assignee.status,
+  });
+  if (!canAssign) return { ok: false, error: "You can’t assign tasks right now." };
+
+  const board = await getOrCreatePersonalTaskBoard(assignee.id);
+  const targetStage =
+    board.stages.find((stage) => !stage.isFinishedColumn) ??
+    board.stages[0];
+  if (!targetStage) return { ok: false, error: "No stage available on that board." };
+
+  const agg = await prisma.personalTask.aggregate({
+    where: { stageId: targetStage.id },
+    _max: { sortOrder: true },
+  });
+
+  const created = await prisma.$transaction(async (tx) => {
+    const task = await tx.personalTask.create({
+      data: {
+        boardId: board.id,
+        stageId: targetStage.id,
+        title,
+        description: description.length > 0 ? description : null,
+        sortOrder: (agg._max.sortOrder ?? 0) + 1,
+        assignedToUserId: assignee.id,
+        assignedByUserId: viewer.id,
+      },
+    });
+    await tx.personalTaskBoard.update({
+      where: { id: board.id },
+      data: { updatedAt: new Date() },
+    });
+    return task;
+  });
+
+  revalidateTasks();
+  return { ok: true, userId: assignee.id, taskId: created.id };
+}
+
+export async function updateBoardTaskStage(taskId: string, stageId: string) {
+  const viewer = await sessionViewer();
+  if (!viewer) return { ok: false as const, error: "Unauthorized" };
+
+  const access = await getTaskAccess(taskId, viewer.id, viewer.role as Role, viewer.headedDept?.id ?? null);
+  if (!access?.canEdit) return { ok: false as const, error: "No access." };
+
+  const targetStage = await prisma.personalTaskStage.findFirst({
+    where: { id: stageId, board: { ownerUserId: access.task.assignedToUserId } },
+    select: { id: true },
+  });
+  if (!targetStage) return { ok: false as const, error: "Stage not found." };
+
+  const agg = await prisma.personalTask.aggregate({
+    where: { stageId },
+    _max: { sortOrder: true },
+  });
+
+  await prisma.$transaction(async (tx) => {
+    await tx.personalTask.update({
+      where: { id: taskId },
+      data: {
+        stageId,
+        sortOrder: (agg._max.sortOrder ?? 0) + 1,
+      },
+    });
+    await tx.personalTaskBoard.update({
+      where: { id: access.task.boardId },
+      data: { updatedAt: new Date() },
+    });
+  });
+
+  revalidateTasks();
+  return { ok: true as const };
 }
 
 export async function persistBoardLayout(ownerUserId: string, layout: Record<string, string[]>) {
@@ -146,46 +299,114 @@ export async function persistBoardLayout(ownerUserId: string, layout: Record<str
   return { ok: true as const };
 }
 
-export async function addBoardTask(ownerUserId: string, stageId: string, formData: FormData) {
+export async function addBoardTask(
+  ownerUserId: string,
+  stageId: string,
+  formData: FormData,
+): Promise<{ ok: boolean; task?: ClientBoard["tasks"][number] }> {
   const viewer = await requireOwner(ownerUserId);
-  if (!viewer) return;
+  if (!viewer) return { ok: false };
+
   const title = nu(formData.get("title"), 500);
-  if (!title.length) return;
+  if (!title.length) return { ok: false };
 
   const board = await prisma.personalTaskBoard.findFirst({
     where: { ownerUserId, stages: { some: { id: stageId } } },
     select: { id: true },
   });
-  if (!board) return;
+  if (!board) return { ok: false };
 
   const agg = await prisma.personalTask.aggregate({
     where: { stageId },
     _max: { sortOrder: true },
   });
 
-  await prisma.personalTask.create({
-    data: {
-      boardId: board.id,
-      stageId,
-      title,
-      sortOrder: (agg._max.sortOrder ?? 0) + 1,
-    },
+  const created = await prisma.$transaction(async (tx) => {
+    const task = await tx.personalTask.create({
+      data: {
+        boardId: board.id,
+        stageId,
+        title,
+        sortOrder: (agg._max.sortOrder ?? 0) + 1,
+        assignedToUserId: ownerUserId,
+        assignedByUserId: viewer.id,
+      },
+      include: {
+        assignedTo: {
+          select: {
+            id: true,
+            name: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+            image: true,
+          },
+        },
+        assignedBy: {
+          select: {
+            id: true,
+            name: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+            image: true,
+          },
+        },
+      },
+    });
+    await tx.personalTaskBoard.update({
+      where: { id: board.id },
+      data: { updatedAt: new Date() },
+    });
+    return task;
   });
   revalidateTasks();
+  return {
+    ok: true,
+    task: {
+      id: created.id,
+      stageId: created.stageId,
+      title: created.title,
+      description: created.description,
+      sortOrder: created.sortOrder,
+      assignedTo: {
+        id: created.assignedTo.id,
+        name: created.assignedTo.name,
+        firstName: created.assignedTo.firstName,
+        lastName: created.assignedTo.lastName,
+        email: created.assignedTo.email,
+        image: created.assignedTo.image,
+      },
+      assignedBy: created.assignedBy
+        ? {
+            id: created.assignedBy.id,
+            name: created.assignedBy.name,
+            firstName: created.assignedBy.firstName,
+            lastName: created.assignedBy.lastName,
+            email: created.assignedBy.email,
+            image: created.assignedBy.image,
+          }
+        : null,
+      attachments: [],
+      comments: [],
+    },
+  };
 }
 
 export async function deleteBoardTask(ownerUserId: string, taskId: string) {
-  const viewer = await requireOwner(ownerUserId);
+  const viewer = await sessionViewer();
   if (!viewer) return;
-  await prisma.personalTask.deleteMany({
-    where: { id: taskId, board: { ownerUserId } },
-  });
+  const access = await getTaskAccess(taskId, viewer.id, viewer.role as Role, viewer.headedDept?.id ?? null);
+  if (!access?.canEdit) return;
+  await prisma.personalTask.delete({ where: { id: taskId } });
   revalidateTasks();
 }
 
 export async function updateBoardTaskDetails(ownerUserId: string, taskId: string, formData: FormData) {
-  const viewer = await requireOwner(ownerUserId);
+  const viewer = await sessionViewer();
   if (!viewer) return;
+  const access = await getTaskAccess(taskId, viewer.id, viewer.role as Role, viewer.headedDept?.id ?? null);
+  if (!access?.canEdit) return;
   const titleRaw = formData.get("title");
   const title = typeof titleRaw === "string" ? titleRaw.trim().slice(0, 500) : "";
   const descriptionRaw = nu(formData.get("description"), 32000);
@@ -199,7 +420,7 @@ export async function updateBoardTaskDetails(ownerUserId: string, taskId: string
   if (Object.keys(data).length === 0) return;
 
   await prisma.personalTask.updateMany({
-    where: { id: taskId, board: { ownerUserId } },
+    where: { id: taskId },
     data,
   });
   revalidateTasks();
@@ -365,11 +586,26 @@ export async function deleteTaskComment(commentId: string) {
 
   const row = await prisma.personalTaskComment.findUnique({
     where: { id: commentId },
-    include: { task: { include: { board: { select: { ownerUserId: true } } } } },
+    include: {
+      task: {
+        include: {
+          board: {
+            select: {
+              ownerUserId: true,
+            },
+          },
+        },
+      },
+    },
   });
   if (!row) return { ok: false as const };
 
-  if (row.authorId !== v.id && row.task.board.ownerUserId !== v.id) return { ok: false as const };
+  const canEditTask = canEditPersonalTask({
+    viewerUserId: v.id,
+    ownerUserId: row.task.board.ownerUserId,
+    assignedByUserId: row.task.assignedByUserId,
+  });
+  if (row.authorId !== v.id && !canEditTask) return { ok: false as const };
 
   await prisma.personalTaskComment.delete({ where: { id: commentId } });
   revalidateTasks();
@@ -381,14 +617,11 @@ export async function addPersonalTaskAttachment(
   taskId: string,
   formData: FormData,
 ): Promise<{ ok: boolean; error?: string }> {
-  const viewer = await requireOwner(ownerUserId);
+  const viewer = await sessionViewer();
   if (!viewer) return { ok: false, error: "Unauthorized" };
 
-  const task = await prisma.personalTask.findFirst({
-    where: { id: taskId, board: { ownerUserId } },
-    select: { id: true },
-  });
-  if (!task) return { ok: false, error: "Task not found." };
+  const access = await getTaskAccess(taskId, viewer.id, viewer.role as Role, viewer.headedDept?.id ?? null);
+  if (!access?.canEdit) return { ok: false, error: "Task not found." };
 
   const file = formData.get("file");
   const stored = await persistTaskAttachmentFile(file);
@@ -417,13 +650,21 @@ export async function addPersonalTaskAttachment(
 }
 
 export async function deletePersonalTaskAttachment(ownerUserId: string, attachmentId: string) {
-  const viewer = await requireOwner(ownerUserId);
+  const viewer = await sessionViewer();
   if (!viewer) return { ok: false as const };
 
-  const n = await prisma.personalTaskAttachment.deleteMany({
-    where: { id: attachmentId, task: { board: { ownerUserId } } },
+  const attachment = await prisma.personalTaskAttachment.findUnique({
+    where: { id: attachmentId },
+    select: {
+      taskId: true,
+    },
   });
-  if (n.count !== 1) return { ok: false as const };
+  if (!attachment) return { ok: false as const };
+
+  const access = await getTaskAccess(attachment.taskId, viewer.id, viewer.role as Role, viewer.headedDept?.id ?? null);
+  if (!access?.canEdit) return { ok: false as const };
+
+  await prisma.personalTaskAttachment.delete({ where: { id: attachmentId } });
   revalidateTasks();
   return { ok: true as const };
 }

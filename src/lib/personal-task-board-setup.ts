@@ -39,6 +39,26 @@ const boardInclude = Prisma.validator<Prisma.PersonalTaskBoardInclude>()({
           },
         },
       },
+      assignedTo: {
+        select: {
+          id: true,
+          name: true,
+          firstName: true,
+          lastName: true,
+          email: true,
+          image: true,
+        },
+      },
+      assignedBy: {
+        select: {
+          id: true,
+          name: true,
+          firstName: true,
+          lastName: true,
+          email: true,
+          image: true,
+        },
+      },
     },
   },
 });

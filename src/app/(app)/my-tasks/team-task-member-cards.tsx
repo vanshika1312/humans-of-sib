@@ -24,22 +24,23 @@ export type TeamMemberForTasks = {
 
 export function TeamTaskMemberCards({
   members,
-  openCounts,
+  trackedCounts,
   viewerId,
   peekMember,
   initialOverlay,
 }: {
   members: TeamMemberForTasks[];
-  openCounts: Record<string, number>;
+  trackedCounts: Record<string, number>;
   viewerId: string;
   /** Resolved profile when opening overlay from `/my-tasks?userId=` (may be outside the visible team grid). */
   peekMember: TeamMemberForTasks | null;
   /** When present (e.g. `/my-tasks?userId=`), open overlay on mount with this board already loaded */
-  initialOverlay: { userId: string; board: ClientBoard } | null;
+  initialOverlay: { userId: string; board: ClientBoard; initialOpenTaskId: string | null } | null;
 }) {
   const router = useRouter();
   const [overlayUserId, setOverlayUserId] = useState<string | null>(() => initialOverlay?.userId ?? null);
   const [overlayBoard, setOverlayBoard] = useState<ClientBoard | null>(() => initialOverlay?.board ?? null);
+  const [overlayTaskId, setOverlayTaskId] = useState<string | null>(() => initialOverlay?.initialOpenTaskId ?? null);
   const [loadingOverlay, startTransition] = useTransition();
 
   const selected =
@@ -58,12 +59,14 @@ export function TeamTaskMemberCards({
   function closeOverlay() {
     setOverlayUserId(null);
     setOverlayBoard(null);
+    setOverlayTaskId(null);
   }
 
-  function openOverlay(userId: string) {
+  function openOverlay(userId: string, taskId?: string | null) {
     if (userId === viewerId) return;
     setOverlayUserId(userId);
     setOverlayBoard(null);
+    setOverlayTaskId(taskId ?? null);
     startTransition(async () => {
       const r = await loadPersonalTaskBoardForModal(userId);
       if (!r.ok) {
@@ -106,7 +109,7 @@ export function TeamTaskMemberCards({
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {members.map((u) => {
           const dn = displayName(u);
-          const open = openCounts[u.id] ?? 0;
+          const open = trackedCounts[u.id] ?? 0;
           const isHighlighted = overlayUserId === u.id;
 
           return (
@@ -127,7 +130,7 @@ export function TeamTaskMemberCards({
                 </div>
                 <div className="mt-0.5 truncate text-xs text-ink-500">{u.title || "Team member"}</div>
                 <div className="mt-1 text-[11px] text-ink-400">
-                  {open === 0 ? "No active tasks on board" : `${open} active on board`}
+                  {open === 0 ? "No active tasks assigned by you" : `${open} active tasks assigned by you`}
                 </div>
               </div>
               <ChevronRight className="size-5 shrink-0 text-ink-300 transition-colors group-hover:text-sky-500" aria-hidden />
@@ -178,7 +181,7 @@ export function TeamTaskMemberCards({
                   ownerUserId={overlayUserId}
                   viewerId={viewerId}
                   readOnly
-                  initialOpenTaskId={null}
+                  initialOpenTaskId={overlayTaskId}
                   suppressUrlSync
                 />
               ) : (

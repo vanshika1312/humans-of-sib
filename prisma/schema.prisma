@@ -180,6 +180,8 @@ model User {
   hiringJobsRemovedFromList        HiringJob[]                      @relation("HiringJobRemovedBy")
 
   personalTaskBoard                PersonalTaskBoard?
+  personalTasksAssignedTo          PersonalTask[]       @relation("PersonalTaskAssignedTo")
+  personalTasksAssignedBy          PersonalTask[]       @relation("PersonalTaskAssignedBy")
   personalTaskAttachmentsUploaded PersonalTaskAttachment[] @relation("TaskAttachmentUploader")
   personalTaskCommentsAuthored    PersonalTaskComment[] @relation("TaskCommentAuthor")
 
@@ -597,6 +599,10 @@ model PersonalTask {
   id           String                     @id @default(cuid())
   boardId      String
   board        PersonalTaskBoard          @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  assignedToUserId String
+  assignedTo   User                       @relation("PersonalTaskAssignedTo", fields: [assignedToUserId], references: [id], onDelete: Cascade)
+  assignedByUserId String?
+  assignedBy   User?                      @relation("PersonalTaskAssignedBy", fields: [assignedByUserId], references: [id], onDelete: SetNull)
   stageId      String
   stage        PersonalTaskStage          @relation(fields: [stageId], references: [id], onDelete: Restrict)
   title        String                     @db.VarChar(500)
@@ -610,6 +616,8 @@ model PersonalTask {
   updatedAt DateTime @updatedAt
 
   @@index([boardId])
+  @@index([assignedToUserId])
+  @@index([assignedByUserId])
   @@index([stageId, sortOrder])
 }
 

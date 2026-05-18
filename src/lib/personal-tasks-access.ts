@@ -1,4 +1,4 @@
-import type { Role } from "@/generated/prisma";
+import type { EmployeeStatus, Role } from "@/generated/prisma";
 
 const HR_EXEC_ROLES: Role[] = ["HR", "CEO", "ADMIN"];
 
@@ -80,6 +80,46 @@ export function canViewPersonalTasks(args: {
 
 export function canEditPersonalTasks(viewerUserId: string, ownerUserId: string): boolean {
   return viewerUserId === ownerUserId;
+}
+
+export function canAssignPersonalTasks(args: {
+  viewerUserId: string;
+  viewerStatus: EmployeeStatus;
+  assigneeUserId: string;
+  assigneeStatus: EmployeeStatus;
+}): boolean {
+  if (args.viewerStatus !== "ACTIVE") return false;
+  if (args.assigneeStatus !== "ACTIVE") return false;
+  return args.viewerUserId !== "";
+}
+
+export function canEditPersonalTask(args: {
+  viewerUserId: string;
+  ownerUserId: string;
+  assignedByUserId: string | null;
+}): boolean {
+  if (args.viewerUserId === args.ownerUserId) return true;
+  return args.assignedByUserId === args.viewerUserId;
+}
+
+export function canViewPersonalTask(args: {
+  viewerUserId: string;
+  viewerRole: Role;
+  ownerUserId: string;
+  ownerManagerId: string | null;
+  ownerDepartmentId: string | null;
+  viewerHeadedDepartmentId: string | null;
+  assignedByUserId: string | null;
+}): boolean {
+  if (canEditPersonalTask(args)) return true;
+  return canViewPersonalTasks({
+    viewerUserId: args.viewerUserId,
+    viewerRole: args.viewerRole,
+    ownerUserId: args.ownerUserId,
+    ownerManagerId: args.ownerManagerId,
+    ownerDepartmentId: args.ownerDepartmentId,
+    viewerHeadedDepartmentId: args.viewerHeadedDepartmentId,
+  });
 }
 
 export function roleLabel(role: Role): string {

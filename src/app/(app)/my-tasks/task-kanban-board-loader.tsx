@@ -28,5 +28,20 @@ export type TaskKanbanBoardLoaderProps = {
 };
 
 export function TaskKanbanBoardLoader(props: TaskKanbanBoardLoaderProps) {
-  return <TaskKanbanBoard {...props} />;
+  const boardKey = [
+    props.board.id,
+    props.board.updatedAtMs,
+    props.initialOpenTaskId ?? "",
+    props.board.stages
+      .map((stage) => `${stage.id}:${stage.sortOrder}:${stage.title}:${stage.isFinishedColumn ? 1 : 0}`)
+      .join("|"),
+    props.board.tasks
+      .map(
+        (task) =>
+          `${task.id}:${task.stageId}:${task.sortOrder}:${task.title}:${task.assignedTo.id}:${task.assignedBy?.id ?? ""}:${task.attachments.length}:${task.comments.length}`,
+      )
+      .join("|"),
+  ].join("~");
+
+  return <TaskKanbanBoard key={boardKey} {...props} />;
 }

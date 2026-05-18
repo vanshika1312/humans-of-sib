@@ -7,6 +7,15 @@ export type ClientTaskAuthor = {
   image: string | null;
 };
 
+export type ClientTaskAssignee = {
+  id: string;
+  name: string | null;
+  firstName: string | null;
+  lastName: string | null;
+  email: string;
+  image: string | null;
+};
+
 export type ClientTaskComment = {
   id: string;
   authorId: string;
@@ -30,6 +39,8 @@ export type ClientBoardTask = {
   title: string;
   description: string | null;
   sortOrder: number;
+  assignedTo: ClientTaskAssignee;
+  assignedBy: ClientTaskAssignee | null;
   attachments: ClientTaskAttachment[];
   comments: ClientTaskComment[];
 };

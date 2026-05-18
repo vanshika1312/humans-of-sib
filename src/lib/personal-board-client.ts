@@ -18,6 +18,24 @@ export function serializePersonalBoardForClient(board: PersonalBoardPayload): Cl
       title: t.title,
       description: t.description,
       sortOrder: t.sortOrder,
+      assignedTo: {
+        id: t.assignedTo.id,
+        name: t.assignedTo.name,
+        firstName: t.assignedTo.firstName,
+        lastName: t.assignedTo.lastName,
+        email: t.assignedTo.email,
+        image: t.assignedTo.image,
+      },
+      assignedBy: t.assignedBy
+        ? {
+            id: t.assignedBy.id,
+            name: t.assignedBy.name,
+            firstName: t.assignedBy.firstName,
+            lastName: t.assignedBy.lastName,
+            email: t.assignedBy.email,
+            image: t.assignedBy.image,
+          }
+        : null,
       attachments: t.attachments.map((a) => ({
         id: a.id,
         fileName: a.fileName,
