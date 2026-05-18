@@ -11,6 +11,7 @@ import {
   stageResumeImportItemFromBuffer,
 } from "@/lib/hiring-resume-import-process";
 import { isBulkImportStoredResumeUrl } from "@/lib/hiring-resume-upload";
+import { hiringJobAcceptingApplications } from "@/lib/hiring-job-active";
 
 type HiringTxnClient = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
 
@@ -43,13 +44,16 @@ async function hiringAttachApplication(
   },
 ) {
   const [job, cand] = await Promise.all([
-    tx.hiringJob.findUnique({ where: { id: args.jobId }, select: { title: true, status: true } }),
+    tx.hiringJob.findFirst({
+      where: hiringJobAcceptingApplications(args.jobId),
+      select: { title: true, status: true },
+    }),
     tx.hiringCandidate.findUnique({
       where: { id: args.candidateId },
       select: { fullName: true, email: true },
     }),
   ]);
-  if (!job || job.status !== "OPEN") throw new Error("JOB_NOT_OPEN");
+  if (!job) throw new Error("JOB_NOT_OPEN");
   const pipelineStageId = await defaultAppliedPipelineStageIdInTxn(tx);
   const app = await tx.hiringApplication.create({
     data: {
@@ -110,7 +114,7 @@ export async function createBulkResumeImportFromUpload(formData: FormData): Prom
   if (!jobId) return { ok: false, error: "Choose an open job posting." };
 
   const job = await prisma.hiringJob.findFirst({
-    where: { id: jobId, status: "OPEN" },
+    where: hiringJobAcceptingApplications(jobId),
     select: { id: true },
   });
   if (!job) return { ok: false, error: "That posting is not open." };
@@ -201,7 +205,7 @@ export async function commitBulkResumeImport(
   }
 
   const jobOpen = await prisma.hiringJob.findFirst({
-    where: { id: batch.targetJobId, status: "OPEN" },
+    where: hiringJobAcceptingApplications(batch.targetJobId),
     select: { id: true },
   });
   if (!jobOpen) {

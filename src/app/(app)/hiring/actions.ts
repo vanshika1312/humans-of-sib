@@ -17,6 +17,10 @@ import { departmentIdFromForm } from "@/lib/department-resolve";
 import { normalizeExternalApplyUrl } from "@/lib/hiring-external-apply-url";
 import { persistHiringResumeFile } from "@/lib/hiring-resume-upload";
 import { defaultAppliedPipelineStageIdInTxn } from "@/lib/hiring-pipeline";
+import {
+  hiringJobAcceptingApplications,
+  hiringJobActiveClause,
+} from "@/lib/hiring-job-active";
 
 async function mergeResumeForIntake(formData: FormData): Promise<{ resumeUrl: string | null; error: string | null }> {
   const drive = nu(String(formData.get("resumeDriveUrl")));
@@ -60,13 +64,16 @@ async function hiringAttachApplication(
   },
 ) {
   const [job, cand] = await Promise.all([
-    tx.hiringJob.findUnique({ where: { id: args.jobId }, select: { title: true, status: true } }),
+    tx.hiringJob.findFirst({
+      where: hiringJobAcceptingApplications(args.jobId),
+      select: { title: true, status: true },
+    }),
     tx.hiringCandidate.findUnique({
       where: { id: args.candidateId },
       select: { fullName: true, email: true },
     }),
   ]);
-  if (!job || job.status !== "OPEN") throw new Error("JOB_NOT_OPEN");
+  if (!job) throw new Error("JOB_NOT_OPEN");
   const pipelineStageId = await defaultAppliedPipelineStageIdInTxn(tx);
   const app = await tx.hiringApplication.create({
     data: {
@@ -107,6 +114,20 @@ async function requireHiringUser() {
   const me = await prisma.user.findUnique({ where: { email: session!.user!.email! } });
   if (!me || !HR_GATE.includes(me.role)) redirect("/home");
   return me;
+}
+
+async function assertJobNotRemovedFromList(jobId: string) {
+  const row = await prisma.hiringJob.findUnique({
+    where: { id: jobId },
+    select: { deletedAt: true },
+  });
+  if (!row) redirect("/hiring/jobs");
+  if (row.deletedAt) {
+    redirect(
+      `/hiring/jobs/${jobId}?error=` +
+        encodeURIComponent("This posting was removed from listings — restore it from Removed postings first."),
+    );
+  }
 }
 
 function safeHiringReturnPath(raw: unknown): `/hiring${string}` {
@@ -232,6 +253,7 @@ export async function createJob(formData: FormData) {
 
 export async function updateJobPosting(jobId: string, formData: FormData) {
   await requireHiringUser();
+  await assertJobNotRemovedFromList(jobId);
   const title = String(formData.get("title") || "").trim();
   if (!title) {
     redirect(`/hiring/jobs/${jobId}?error=` + encodeURIComponent("Job title cannot be empty."));
@@ -298,6 +320,7 @@ export async function updateJobPosting(jobId: string, formData: FormData) {
 
 export async function closeJobPosting(jobId: string, formData: FormData) {
   await requireHiringUser();
+  await assertJobNotRemovedFromList(jobId);
   const returnTo = String(formData.get("returnTo") || "list").trim();
 
   await prisma.hiringJob.update({
@@ -312,43 +335,54 @@ export async function closeJobPosting(jobId: string, formData: FormData) {
   redirect("/hiring/jobs?closed=1");
 }
 
-/** Permanently removes a **closed** job and its applications (candidates remain). HR / Admin / CEO only. */
-export async function deleteClosedJobPosting(jobId: string, formData: FormData) {
-  await requireHiringUser();
-  const confirmTitle = String(formData.get("confirmTitle") ?? "").trim();
+/** Soft-removes a **closed** posting from careers/lists (restore from Job openings → Removed postings). */
+export async function deleteClosedJobPosting(jobId: string) {
+  const me = await requireHiringUser();
 
   const job = await prisma.hiringJob.findUnique({
     where: { id: jobId },
-    select: { id: true, title: true, status: true },
+    select: { id: true, status: true, deletedAt: true },
   });
   if (!job) redirect("/hiring/jobs");
+
+  if (job.deletedAt) {
+    redirect("/hiring/jobs");
+  }
 
   if (job.status !== "CLOSED") {
     redirect(
       `/hiring/jobs/${jobId}?error=` +
-        encodeURIComponent("Only closed postings can be permanently deleted."),
+        encodeURIComponent("Only closed postings can be removed from the list."),
     );
   }
 
-  if (confirmTitle.toLowerCase() !== job.title.trim().toLowerCase()) {
-    redirect(
-      `/hiring/jobs/${jobId}?error=` +
-        encodeURIComponent("Job title didn’t match — posting was not deleted."),
-    );
-  }
-
-  try {
-    await prisma.hiringJob.delete({ where: { id: jobId } });
-  } catch (err) {
-    console.error("[Humans of SIB] deleteClosedJobPosting failed", err);
-    redirect(
-      `/hiring/jobs/${jobId}?error=` +
-        encodeURIComponent("Could not delete this posting. Try again or contact support."),
-    );
-  }
+  await prisma.hiringJob.update({
+    where: { id: jobId },
+    data: { deletedAt: new Date(), deletedById: me.id },
+  });
 
   invalidateHiring();
   redirect("/hiring/jobs?deleted=1");
+}
+
+export async function restoreClosedJobPosting(jobId: string) {
+  await requireHiringUser();
+
+  const job = await prisma.hiringJob.findUnique({
+    where: { id: jobId },
+    select: { deletedAt: true },
+  });
+  if (!job?.deletedAt) {
+    redirect("/hiring/jobs");
+  }
+
+  await prisma.hiringJob.update({
+    where: { id: jobId },
+    data: { deletedAt: null, deletedById: null },
+  });
+
+  invalidateHiring(jobId);
+  redirect("/hiring/jobs?restored=1");
 }
 
 export async function createCandidate(formData: FormData) {
@@ -368,7 +402,7 @@ export async function createCandidate(formData: FormData) {
   let targetJobId: string | null = null;
   if (targetJobIdRaw) {
     const openJob = await prisma.hiringJob.findFirst({
-      where: { id: targetJobIdRaw, status: "OPEN" },
+      where: hiringJobAcceptingApplications(targetJobIdRaw),
       select: { id: true },
     });
     if (!openJob) {
@@ -502,12 +536,18 @@ export async function createApplication(jobId: string, formData: FormData) {
   try {
     await prisma.$transaction(async (tx) => {
       const [job, cand] = await Promise.all([
-        tx.hiringJob.findUnique({ where: { id: jobId }, select: { title: true } }),
+        tx.hiringJob.findFirst({
+          where: hiringJobAcceptingApplications(jobId),
+          select: { title: true },
+        }),
         tx.hiringCandidate.findUnique({
           where: { id: candidateId },
           select: { fullName: true, email: true },
         }),
       ]);
+      if (!job || !cand) {
+        throw new Error("CREATE_APPLICATION_BLOCKED");
+      }
       const pipelineStageId = await defaultAppliedPipelineStageIdInTxn(tx);
       const app = await tx.hiringApplication.create({
         data: {
@@ -532,6 +572,14 @@ export async function createApplication(jobId: string, formData: FormData) {
     revalidatePath(`/hiring/timeline/${candidateId}`);
     redirect(`/hiring/jobs/${jobId}?applied=1`);
   } catch (e: unknown) {
+    if (e instanceof Error && e.message === "CREATE_APPLICATION_BLOCKED") {
+      redirect(
+        `/hiring/jobs/${jobId}?error=` +
+          encodeURIComponent(
+            "This posting isn’t open for applications or was removed from listings — restore it first if needed.",
+          ),
+      );
+    }
     const dup =
       typeof e === "object" &&
       e !== null &&
@@ -546,7 +594,6 @@ export async function createApplication(jobId: string, formData: FormData) {
     redirect(`/hiring/jobs/${jobId}?error=` + encodeURIComponent("Could not add this application."));
   }
 }
-
 export async function updateApplicationStage(applicationId: string, formData: FormData) {
   const me = await requireHiringUser();
   const pipelineStageIdRaw = String(formData.get("pipelineStageId") || "").trim();
@@ -773,6 +820,369 @@ export async function deleteHiringApplicationAttachment(attachmentId: string, fo
   await prisma.hiringApplicationAttachment.delete({ where: { id: attachmentId } });
   invalidateHiring(att.application.jobId, att.applicationId);
   redirect(`/hiring/applications/${att.applicationId}?attachmentRemoved=1`);
+}
+
+export async function moveHiringApplicationToJob(applicationId: string, formData: FormData) {
+  const me = await requireHiringUser();
+  const targetJobId = String(formData.get("targetJobId") || "").trim();
+  if (!targetJobId) {
+    redirect(`/hiring/applications/${applicationId}?error=` + encodeURIComponent("Choose a job posting."));
+  }
+
+  const app = await prisma.hiringApplication.findUnique({
+    where: { id: applicationId },
+    select: {
+      id: true,
+      candidateId: true,
+      jobId: true,
+      pipelineStageId: true,
+    },
+  });
+  if (!app) {
+    redirect("/hiring/applications?error=" + encodeURIComponent("Application not found."));
+  }
+
+  if (targetJobId === app.jobId) {
+    redirect(`/hiring/applications/${applicationId}?error=` + encodeURIComponent("Already on that posting."));
+  }
+
+  const targetJob = await prisma.hiringJob.findFirst({
+    where: {
+      id: targetJobId,
+      ...hiringJobActiveClause,
+      NOT: { status: "DRAFT" },
+    },
+    select: { id: true, title: true },
+  });
+  if (!targetJob) {
+    redirect(
+      `/hiring/applications/${applicationId}?error=` +
+        encodeURIComponent("That posting isn’t available — choose another job (draft or removed postings are excluded)."),
+    );
+  }
+
+  const dup = await prisma.hiringApplication.findFirst({
+    where: { candidateId: app.candidateId, jobId: targetJobId },
+    select: { id: true },
+  });
+  if (dup) {
+    redirect(
+      `/hiring/applications/${applicationId}?error=` +
+        encodeURIComponent(
+          "This candidate already has a submission on that posting — open that application or delete one first.",
+        ),
+    );
+  }
+
+  const oldJob = await prisma.hiringJob.findUnique({
+    where: { id: app.jobId },
+    select: { title: true },
+  });
+
+  const previousJobId = app.jobId;
+
+  await prisma.$transaction(async (tx) => {
+    const newStageId = await defaultAppliedPipelineStageIdInTxn(tx);
+    await tx.hiringApplication.update({
+      where: { id: applicationId },
+      data: {
+        jobId: targetJobId,
+        pipelineStageId: newStageId,
+        updatedAt: new Date(),
+      },
+    });
+    await tx.hiringActivity.create({
+      data: {
+        kind: "APPLICATION_STAGE_CHANGED",
+        summary: `Submission moved from “${oldJob?.title ?? "Previous posting"}” to “${targetJob.title}” (funnel reset to applied stage).`,
+        payloadJson: JSON.stringify({
+          fromJobId: previousJobId,
+          toJobId: targetJobId,
+          previousPipelineStageId: app.pipelineStageId,
+          newPipelineStageId: newStageId,
+          movedToOpening: true,
+        }),
+        candidateId: app.candidateId,
+        applicationId,
+        actorUserId: me.id,
+      },
+    });
+  });
+
+  invalidateHiring(previousJobId, applicationId);
+  invalidateHiring(targetJobId, applicationId);
+  revalidatePath(`/hiring/applications/${applicationId}`);
+  redirect(`/hiring/applications/${applicationId}?jobMoved=1`);
+}
+
+const BULK_APPLICATION_LIMIT = 400;
+
+function applicationIdsFromBulkForm(formData: FormData): string[] {
+  const raw = formData.getAll("applicationId");
+  const ids = [...new Set(raw.map((x) => String(x ?? "").trim()).filter(Boolean))];
+  return ids.slice(0, BULK_APPLICATION_LIMIT);
+}
+
+export async function bulkDeleteHiringApplications(formData: FormData) {
+  await requireHiringUser();
+  const returnPath = safeHiringReturnPath(formData.get("returnPath"));
+  const ids = applicationIdsFromBulkForm(formData);
+  if (!ids.length) {
+    redirect(
+      mergeHiringReturnQuery(returnPath, {
+        error: "Select at least one application.",
+      }),
+    );
+  }
+
+  const apps = await prisma.hiringApplication.findMany({
+    where: { id: { in: ids } },
+    select: { id: true, jobId: true, candidateId: true },
+  });
+
+  if (!apps.length) {
+    redirect(
+      mergeHiringReturnQuery(returnPath, {
+        error: "No matching applications — refresh and try again.",
+      }),
+    );
+  }
+
+  await prisma.hiringApplication.deleteMany({
+    where: { id: { in: apps.map((a) => a.id) } },
+  });
+
+  for (const jid of new Set(apps.map((a) => a.jobId))) {
+    invalidateHiring(jid);
+  }
+  for (const cid of new Set(apps.map((a) => a.candidateId))) {
+    revalidatePath(`/hiring/timeline/${cid}`);
+  }
+  revalidatePath("/hiring/applications");
+
+  const deleted = apps.length;
+  const notFound = ids.length - deleted;
+  redirect(
+    mergeHiringReturnQuery(returnPath, {
+      bulkDeleted: String(deleted),
+      ...(notFound > 0
+        ? {
+            error: `${notFound} selected row(s) were not found (list may have changed).`,
+          }
+        : {}),
+    }),
+  );
+}
+
+export async function bulkUpdateApplicationStages(formData: FormData) {
+  const me = await requireHiringUser();
+  const returnPath = safeHiringReturnPath(formData.get("returnPath"));
+  const pipelineStageIdRaw = String(formData.get("pipelineStageId") || "").trim();
+  const ids = applicationIdsFromBulkForm(formData);
+  if (!ids.length) {
+    redirect(
+      mergeHiringReturnQuery(returnPath, {
+        error: "Select at least one application.",
+      }),
+    );
+  }
+
+  const nextStage = await prisma.hiringPipelineStage.findUnique({
+    where: { id: pipelineStageIdRaw },
+    select: { id: true, key: true, label: true },
+  });
+  if (!nextStage || !pipelineStageIdRaw) {
+    redirect(
+      mergeHiringReturnQuery(returnPath, {
+        error: "Pick a valid pipeline stage.",
+      }),
+    );
+  }
+
+  const apps = await prisma.hiringApplication.findMany({
+    where: { id: { in: ids } },
+    include: {
+      job: { select: { title: true } },
+      candidate: { select: { fullName: true } },
+      pipelineStage: { select: { key: true, label: true } },
+    },
+  });
+
+  let updated = 0;
+  for (const before of apps) {
+    if (before.pipelineStageId === nextStage.id) continue;
+    try {
+      await prisma.$transaction(async (tx) => {
+        await tx.hiringApplication.update({
+          where: { id: before.id },
+          data: { pipelineStageId: nextStage.id },
+        });
+        await tx.hiringActivity.create({
+          data: {
+            kind: "APPLICATION_STAGE_CHANGED",
+            summary: `${before.candidate.fullName ?? "Candidate"} · ${before.job.title ?? "Job"}: ${before.pipelineStage.label} → ${nextStage.label}`,
+            payloadJson: JSON.stringify({
+              applicationId: before.id,
+              jobId: before.jobId,
+              fromStageKey: before.pipelineStage.key,
+              toStageKey: nextStage.key,
+              fromStageLabel: before.pipelineStage.label,
+              toStageLabel: nextStage.label,
+              bulk: true,
+            }),
+            candidateId: before.candidateId,
+            applicationId: before.id,
+            actorUserId: me.id,
+          },
+        });
+      });
+      invalidateHiring(before.jobId, before.id);
+      revalidatePath(`/hiring/timeline/${before.candidateId}`);
+      updated++;
+    } catch {
+      /* skip row on failure */
+    }
+  }
+
+  const noopAll =
+    apps.length > 0 && apps.every((a) => a.pipelineStageId === nextStage.id);
+
+  redirect(
+    mergeHiringReturnQuery(returnPath, {
+      bulkStageUpdated: String(updated),
+      ...(apps.length === 0
+        ? { error: "No matching applications — refresh and try again." }
+        : {}),
+      ...(updated === 0 && apps.length > 0 && !noopAll
+        ? { error: "Could not update stages — try again." }
+        : {}),
+    }),
+  );
+}
+
+export async function bulkMoveHiringApplicationsToJob(formData: FormData) {
+  const me = await requireHiringUser();
+  const returnPath = safeHiringReturnPath(formData.get("returnPath"));
+  const targetJobId = String(formData.get("targetJobId") || "").trim();
+  const ids = applicationIdsFromBulkForm(formData);
+  if (!targetJobId || !ids.length) {
+    redirect(
+      mergeHiringReturnQuery(returnPath, {
+        error: "Choose a posting and at least one application.",
+      }),
+    );
+  }
+
+  const targetJob = await prisma.hiringJob.findFirst({
+    where: {
+      id: targetJobId,
+      ...hiringJobActiveClause,
+      NOT: { status: "DRAFT" },
+    },
+    select: { id: true, title: true },
+  });
+  if (!targetJob) {
+    redirect(
+      mergeHiringReturnQuery(returnPath, {
+        error: "That posting isn’t available — draft or removed postings are excluded.",
+      }),
+    );
+  }
+
+  const apps = await prisma.hiringApplication.findMany({
+    where: { id: { in: ids } },
+    select: {
+      id: true,
+      candidateId: true,
+      jobId: true,
+      pipelineStageId: true,
+      job: { select: { title: true } },
+      pipelineStage: { select: { label: true, key: true } },
+    },
+  });
+
+  let moved = 0;
+  let skippedDuplicate = 0;
+  let skippedSameJob = 0;
+
+  for (const app of apps) {
+    if (app.jobId === targetJobId) {
+      skippedSameJob++;
+      continue;
+    }
+    const dup = await prisma.hiringApplication.findFirst({
+      where: { candidateId: app.candidateId, jobId: targetJobId },
+      select: { id: true },
+    });
+    if (dup) {
+      skippedDuplicate++;
+      continue;
+    }
+
+    const previousJobId = app.jobId;
+    const oldJobTitle = app.job.title;
+
+    await prisma.$transaction(async (tx) => {
+      const newStageId = await defaultAppliedPipelineStageIdInTxn(tx);
+      await tx.hiringApplication.update({
+        where: { id: app.id },
+        data: {
+          jobId: targetJobId,
+          pipelineStageId: newStageId,
+          updatedAt: new Date(),
+        },
+      });
+      await tx.hiringActivity.create({
+        data: {
+          kind: "APPLICATION_STAGE_CHANGED",
+          summary: `Submission moved from “${oldJobTitle ?? "Previous posting"}” to “${targetJob.title}” (funnel reset to applied stage).`,
+          payloadJson: JSON.stringify({
+            movedToOpening: true,
+            fromJobId: previousJobId,
+            toJobId: targetJobId,
+            previousPipelineStageId: app.pipelineStageId,
+            newPipelineStageId: newStageId,
+            bulk: true,
+          }),
+          candidateId: app.candidateId,
+          applicationId: app.id,
+          actorUserId: me.id,
+        },
+      });
+    });
+
+    invalidateHiring(previousJobId, app.id);
+    invalidateHiring(targetJobId, app.id);
+    revalidatePath(`/hiring/timeline/${app.candidateId}`);
+    moved++;
+  }
+
+  const skippedNotFound = ids.length - apps.length;
+  const skippedTotal = skippedDuplicate + skippedSameJob + skippedNotFound;
+  redirect(
+    mergeHiringReturnQuery(returnPath, {
+      bulkMoved: String(moved),
+      ...(skippedTotal > 0 ? { bulkMoveSkipped: String(skippedTotal) } : {}),
+    }),
+  );
+}
+
+export async function deleteHiringApplication(applicationId: string) {
+  await requireHiringUser();
+  const app = await prisma.hiringApplication.findUnique({
+    where: { id: applicationId },
+    select: { jobId: true, candidateId: true },
+  });
+  if (!app) {
+    redirect("/hiring/applications?error=" + encodeURIComponent("Application not found."));
+  }
+
+  await prisma.hiringApplication.delete({ where: { id: applicationId } });
+
+  invalidateHiring(app.jobId);
+  revalidatePath("/hiring/applications");
+  revalidatePath(`/hiring/timeline/${app.candidateId}`);
+  redirect("/hiring/applications?applicationDeleted=1");
 }
 
 export async function updateHiringCandidate(candidateId: string, formData: FormData) {

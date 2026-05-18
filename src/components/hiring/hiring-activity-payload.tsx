@@ -4,14 +4,21 @@ import type { ReactNode } from "react";
 type HiringActivityPayloadBlockProps = {
   kind: HiringActivityKind;
   payloadJson: string;
+  /** Candidate timeline: hide raw JSON / technical disclosure UI; show human-readable extras only. */
+  timelineSurface?: boolean;
 };
 
 /** Turn stored audit JSON into a short, recruiter-friendly recap (timeline / duplicate intake UI). */
-export function HiringActivityPayloadBlock({ kind, payloadJson }: HiringActivityPayloadBlockProps) {
+export function HiringActivityPayloadBlock({
+  kind,
+  payloadJson,
+  timelineSurface,
+}: HiringActivityPayloadBlockProps) {
   let parsed: unknown;
   try {
     parsed = JSON.parse(payloadJson) as unknown;
   } catch {
+    if (timelineSurface) return null;
     return (
       <details className="mt-3 rounded-lg border border-ink-100 bg-ink-50/50 text-left">
         <summary className="cursor-pointer px-3 py-2 text-xs font-medium text-ink-500 hover:text-ink-700 select-none">
@@ -24,7 +31,16 @@ export function HiringActivityPayloadBlock({ kind, payloadJson }: HiringActivity
     );
   }
 
-  const extra = readableExtras(kind, parsed);
+  const extra = readableExtras(kind, parsed, { timelineSurface });
+
+  if (timelineSurface) {
+    if (!extra) return null;
+    return (
+      <div className="mt-3 rounded-lg border border-ink-100 bg-ink-50/50 px-3 py-2 text-left text-xs text-ink-600">
+        {extra}
+      </div>
+    );
+  }
 
   return (
     <details className="mt-3 rounded-lg border border-ink-100 bg-ink-50/50 text-left">
@@ -39,7 +55,11 @@ export function HiringActivityPayloadBlock({ kind, payloadJson }: HiringActivity
   );
 }
 
-function readableExtras(kind: HiringActivityKind, payload: unknown): ReactNode | null {
+function readableExtras(
+  kind: HiringActivityKind,
+  payload: unknown,
+  opts?: { timelineSurface?: boolean },
+): ReactNode | null {
   if (!payload || typeof payload !== "object") return null;
   const o = payload as Record<string, unknown>;
 
@@ -142,9 +162,14 @@ function readableExtras(kind: HiringActivityKind, payload: unknown): ReactNode |
           </ul>
         );
       }
-      return <p className="text-ink-500">Profile fields changed — expand below for the full snapshot.</p>;
+      return opts?.timelineSurface ? (
+        <p className="text-ink-500">Profile fields updated.</p>
+      ) : (
+        <p className="text-ink-500">Profile fields changed — expand below for the full snapshot.</p>
+      );
     }
     case "CANDIDATE_CREATED":
+      if (opts?.timelineSurface) return null;
       return <p className="text-ink-500">Intake snapshot — expand below only if you need the raw payload.</p>;
     default:
       return null;

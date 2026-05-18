@@ -200,7 +200,9 @@ export default async function CandidateTimelinePage(props: Props) {
                       By {ev.actor?.name ?? ev.actor?.email}
                     </p>
                   )}
-                  {ev.payloadJson ? <HiringActivityPayloadBlock kind={ev.kind} payloadJson={ev.payloadJson} /> : null}
+                  {ev.payloadJson ? (
+                    <HiringActivityPayloadBlock kind={ev.kind} payloadJson={ev.payloadJson} timelineSurface />
+                  ) : null}
                 </li>
               ))}
             </ul>

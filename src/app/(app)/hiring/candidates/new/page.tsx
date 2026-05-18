@@ -10,6 +10,7 @@ import { HIRING_ACTIVITY_KIND_LABEL } from "@/lib/hiring-activity-kind-copy";
 import { HiringActivityPayloadBlock } from "@/components/hiring/hiring-activity-payload";
 import type { HiringActivityKind } from "@/generated/prisma";
 import { formatDate } from "@/lib/utils";
+import { hiringOpenJobsWhere } from "@/lib/hiring-job-active";
 
 type Props = {
   searchParams: Promise<{
@@ -28,7 +29,7 @@ export default async function AddCandidatePage(props: Props) {
   const dupNotice = firstSearchParam(searchParams.notice) === "duplicate";
 
   const openJobs = await prisma.hiringJob.findMany({
-    where: { status: "OPEN" },
+    where: hiringOpenJobsWhere(),
     orderBy: { title: "asc" },
     select: { id: true, title: true },
   });

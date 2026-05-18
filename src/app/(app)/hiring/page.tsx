@@ -11,6 +11,7 @@ import { approveHiringRequisition, rejectHiringRequisition } from "./actions";
 import { firstSearchParam } from "@/lib/search-param";
 import { formatCalendarDate } from "@/lib/calendar-date";
 import { loadPipelineStagesOrdered, funnelActiveFilter } from "@/lib/hiring-pipeline";
+import { hiringJobActiveClause, hiringOpenJobsWhere } from "@/lib/hiring-job-active";
 
 export default async function HiringOverviewPage(props: {
   searchParams: Promise<{ reqApproved?: string; reqRejected?: string; reqError?: string }>;
@@ -30,13 +31,14 @@ export default async function HiringOverviewPage(props: {
     openJobs,
     openAppByJobStage,
   ] = await Promise.all([
-    prisma.hiringJob.count({ where: { status: "OPEN" } }),
+    prisma.hiringJob.count({ where: { status: "OPEN", ...hiringJobActiveClause } }),
     prisma.hiringCandidate.count(),
     prisma.hiringApplication.groupBy({
       by: ["pipelineStageId"],
+      where: { job: hiringJobActiveClause },
       _count: { _all: true },
     }),
-    prisma.hiringJob.count({ where: { status: "CLOSED" } }),
+    prisma.hiringJob.count({ where: { status: "CLOSED", ...hiringJobActiveClause } }),
     prisma.hiringRequisition.findMany({
       where: { status: "PENDING" },
       orderBy: { createdAt: "asc" },
@@ -47,7 +49,7 @@ export default async function HiringOverviewPage(props: {
     }),
     loadPipelineStagesOrdered(),
     prisma.hiringJob.findMany({
-      where: { status: "OPEN" },
+      where: hiringOpenJobsWhere(),
       orderBy: { updatedAt: "desc" },
       select: {
         id: true,
@@ -58,7 +60,7 @@ export default async function HiringOverviewPage(props: {
     }),
     prisma.hiringApplication.groupBy({
       by: ["jobId", "pipelineStageId"],
-      where: { job: { status: "OPEN" } },
+      where: { job: hiringOpenJobsWhere() },
       _count: { _all: true },
     }),
   ]);

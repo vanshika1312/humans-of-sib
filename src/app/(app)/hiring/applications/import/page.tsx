@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { requireAppViewer } from "@/lib/app-viewer";
 import { BulkResumeImportClient, type SerializedImportBatch } from "../_components/bulk-resume-import-client";
 import { resumeImportMarkPendingAsManualReady } from "@/lib/hiring-resume-import-process";
+import { hiringOpenJobsWhere } from "@/lib/hiring-job-active";
 
 const RECRUITER_ROLES = ["CEO", "ADMIN", "HR"];
 
@@ -21,7 +22,7 @@ export default async function BulkResumeImportPage(props: Props) {
   const batchParam = typeof sp.batch === "string" ? sp.batch : undefined;
 
   const openJobs = await prisma.hiringJob.findMany({
-    where: { status: "OPEN" },
+    where: hiringOpenJobsWhere(),
     orderBy: { title: "asc" },
     select: { id: true, title: true },
   });

@@ -6,6 +6,7 @@ import {
   RESUME_IMPORT_STAGING_CONCURRENCY,
   stageResumeImportItemFromBuffer,
 } from "@/lib/hiring-resume-import-process";
+import { hiringJobAcceptingApplications } from "@/lib/hiring-job-active";
 
 const BATCH_TTL_DAYS = 7;
 
@@ -28,7 +29,7 @@ export async function POST(req: Request) {
   }
 
   const job = await prisma.hiringJob.findFirst({
-    where: { id: jobId, status: "OPEN" },
+    where: hiringJobAcceptingApplications(jobId),
     select: { id: true },
   });
   if (!job) {

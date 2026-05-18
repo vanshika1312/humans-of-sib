@@ -177,6 +177,7 @@ model User {
   hiringInterviewTemplatesAuthored HiringInterviewQuestionTemplate[] @relation("HiringInterviewTemplateAuthor")
   hiringApplicationReviewsAuthored HiringApplicationReview[]         @relation("HiringApplicationReviewAuthor")
   hiringResumeImportBatchesCreated HiringResumeImportBatch[]        @relation("HiringResumeImportBatchCreator")
+  hiringJobsRemovedFromList        HiringJob[]                      @relation("HiringJobRemovedBy")
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -299,11 +300,17 @@ model HiringJob {
   /// If this job came from an approved headcount request.
   sourcingRequisition HiringRequisition?
 
+  /// If set, hidden from careers + active job lists — restore from Hiring → Job openings → Removed postings.
+  deletedAt    DateTime?
+  deletedById  String?
+  deletedBy    User? @relation("HiringJobRemovedBy", fields: [deletedById], references: [id], onDelete: SetNull)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([status])
   @@index([departmentId])
+  @@index([deletedAt])
 }
 
 model HiringRequisition {

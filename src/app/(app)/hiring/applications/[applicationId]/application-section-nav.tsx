@@ -9,6 +9,7 @@ const STORAGE_KEY = "hosib-application-section-nav-expanded";
 const LINKS = [
   { href: "#section-summary", label: "Summary" },
   { href: "#section-details", label: "Application details" },
+  { href: "#section-move-delete", label: "Move / delete" },
   { href: "#section-notes", label: "Notes" },
   { href: "#section-attachments", label: "Attachments" },
   { href: "#section-tags", label: "Tags" },
@@ -25,11 +26,13 @@ export function HiringApplicationSectionNav() {
   useEffect(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw === "0") setExpanded(false);
+      queueMicrotask(() => {
+        if (raw === "0") setExpanded(false);
+        setReady(true);
+      });
     } catch {
-      /* ignore */
+      queueMicrotask(() => setReady(true));
     }
-    setReady(true);
   }, []);
 
   function toggle(next: boolean) {

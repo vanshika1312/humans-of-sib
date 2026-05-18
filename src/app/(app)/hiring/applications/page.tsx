@@ -1,18 +1,13 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma";
-import { PageHeader, EmptyState } from "@/components/ui/page-header";
+import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ApplicationStageControl } from "../_components/application-stage-control";
-import { formatDate } from "@/lib/utils";
-import {
-  applicationSourceLabel,
-  formatHiringJobLocation,
-  splitCandidateFullName,
-} from "@/lib/hiring-application-display";
+import { ApplicationsTableWithBulk } from "../_components/applications-table-with-bulk";
 import { firstSearchParam } from "@/lib/search-param";
 import { loadPipelineStagesOrdered } from "@/lib/hiring-pipeline";
+import { hiringJobActiveClause } from "@/lib/hiring-job-active";
 
 type Props = {
   searchParams: Promise<{
@@ -20,11 +15,22 @@ type Props = {
     moved?: string | string[];
     added?: string | string[];
     linked?: string | string[];
+    applicationDeleted?: string | string[];
+    bulkDeleted?: string | string[];
+    bulkStageUpdated?: string | string[];
+    bulkMoved?: string | string[];
+    bulkMoveSkipped?: string | string[];
     q?: string | string[];
     job?: string | string[];
     stage?: string | string[];
   }>;
 };
+
+function parseNonNegativeInt(raw: string | undefined): number | null {
+  if (raw === undefined || raw === "") return null;
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
 
 function applicationsReturnPath(opts: {
   q?: string | null;
@@ -45,13 +51,18 @@ export default async function ApplicationsPage(props: Props) {
   const flashMoved = firstSearchParam(searchParams.moved) === "1";
   const flashAdded = firstSearchParam(searchParams.added) === "1";
   const flashLinked = firstSearchParam(searchParams.linked) === "1";
+  const flashApplicationDeleted = firstSearchParam(searchParams.applicationDeleted) === "1";
+  const bulkDeletedCount = parseNonNegativeInt(firstSearchParam(searchParams.bulkDeleted));
+  const bulkStageUpdatedCount = parseNonNegativeInt(firstSearchParam(searchParams.bulkStageUpdated));
+  const bulkMovedCount = parseNonNegativeInt(firstSearchParam(searchParams.bulkMoved));
+  const bulkMoveSkippedCount = parseNonNegativeInt(firstSearchParam(searchParams.bulkMoveSkipped));
 
   const qRaw = firstSearchParam(searchParams.q)?.trim() ?? "";
   const jobFilter = firstSearchParam(searchParams.job)?.trim() ?? "";
   const stageFilter = firstSearchParam(searchParams.stage)?.trim() ?? "";
   const filtersActive = !!(qRaw || jobFilter || stageFilter);
 
-  const clauses: Prisma.HiringApplicationWhereInput[] = [];
+  const clauses: Prisma.HiringApplicationWhereInput[] = [{ job: hiringJobActiveClause }];
   if (jobFilter) clauses.push({ jobId: jobFilter });
   if (stageFilter) clauses.push({ pipelineStageId: stageFilter });
   if (qRaw) {
@@ -65,7 +76,7 @@ export default async function ApplicationsPage(props: Props) {
   }
   const where: Prisma.HiringApplicationWhereInput = clauses.length ? { AND: clauses } : {};
 
-  const [pipelineStagesOrdered, rows, jobsForFilter] = await Promise.all([
+  const [pipelineStagesOrdered, rows, jobsForFilter, jobsForBulkMove] = await Promise.all([
     loadPipelineStagesOrdered(),
     prisma.hiringApplication.findMany({
       where,
@@ -84,13 +95,38 @@ export default async function ApplicationsPage(props: Props) {
       },
     }),
     prisma.hiringJob.findMany({
+      where: hiringJobActiveClause,
       select: { id: true, title: true },
       orderBy: { title: "asc" },
       take: 250,
     }),
+    prisma.hiringJob.findMany({
+      where: {
+        ...hiringJobActiveClause,
+        NOT: { status: "DRAFT" },
+      },
+      select: { id: true, title: true },
+      orderBy: { title: "asc" },
+      take: 400,
+    }),
   ]);
 
   const stageSelectOptions = pipelineStagesOrdered.map((s) => ({ id: s.id, label: s.label }));
+
+  const serializedRows = rows.map((app) => ({
+    id: app.id,
+    appliedAtIso: app.appliedAt.toISOString(),
+    applicationSource: app.applicationSource,
+    candidate: {
+      fullName: app.candidate.fullName,
+      email: app.candidate.email,
+      phone: app.candidate.phone,
+      candidateLocation: app.candidate.candidateLocation,
+      source: app.candidate.source,
+    },
+    job: app.job,
+    pipelineStageId: app.pipelineStageId,
+  }));
 
   const returnPath = applicationsReturnPath({
     q: qRaw || null,
@@ -133,6 +169,40 @@ export default async function ApplicationsPage(props: Props) {
       {flashMoved && (
         <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
           Stage updated.
+        </div>
+      )}
+      {flashApplicationDeleted && (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+          Application removed — the candidate profile was not deleted.
+        </div>
+      )}
+      {bulkDeletedCount !== null && bulkDeletedCount > 0 && (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+          Removed {bulkDeletedCount} submission{bulkDeletedCount === 1 ? "" : "s"} — candidate profiles were kept.
+        </div>
+      )}
+      {bulkStageUpdatedCount !== null && (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+          {bulkStageUpdatedCount === 0
+            ? "No funnel updates needed — every selected row was already on that stage."
+            : `Updated funnel stage for ${bulkStageUpdatedCount} submission${bulkStageUpdatedCount === 1 ? "" : "s"}.`}
+        </div>
+      )}
+      {bulkMovedCount !== null && bulkMovedCount > 0 && (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+          Moved {bulkMovedCount} submission{bulkMovedCount === 1 ? "" : "s"} to the chosen posting.
+          {bulkMoveSkippedCount !== null && bulkMoveSkippedCount > 0 ? (
+            <span className="block mt-1 text-emerald-800">
+              Skipped {bulkMoveSkippedCount} (already on that posting, duplicate candidate on target, or row no longer
+              found).
+            </span>
+          ) : null}
+        </div>
+      )}
+      {bulkMovedCount !== null && bulkMovedCount === 0 && bulkMoveSkippedCount !== null && bulkMoveSkippedCount > 0 && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+          No submissions moved — skipped {bulkMoveSkippedCount} (already on that posting, duplicate on target, or rows
+          not found).
         </div>
       )}
       {flashError && (
@@ -205,118 +275,13 @@ export default async function ApplicationsPage(props: Props) {
           </form>
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm min-w-[1100px]">
-            <thead className="sticky top-0 z-[1] bg-ink-50/95 backdrop-blur-sm border-b border-ink-100">
-              <tr className="text-left text-[10px] font-semibold uppercase tracking-wider text-ink-400">
-                <th className="px-4 py-3 whitespace-nowrap">Date applied</th>
-                <th className="px-4 py-3 whitespace-nowrap">First name</th>
-                <th className="px-4 py-3 whitespace-nowrap">Last name</th>
-                <th className="px-4 py-3 min-w-[180px]">Email</th>
-                <th className="px-4 py-3 whitespace-nowrap">Phone</th>
-                <th className="px-4 py-3 min-w-[140px]">Role applied for</th>
-                <th className="px-4 py-3 min-w-[120px]">Job location</th>
-                <th className="px-4 py-3 min-w-[120px]">Candidate location</th>
-                <th className="px-4 py-3 min-w-[120px]">Source / job portal</th>
-                <th className="px-4 py-3 min-w-[200px]">Stage</th>
-                <th className="px-4 py-3 whitespace-nowrap">Application</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-ink-100">
-              {rows.length === 0 ? (
-                <tr>
-                  <td colSpan={11} className="px-4 py-6">
-                    {filtersActive ? (
-                      <div className="rounded-xl border border-dashed border-ink-200 bg-ink-50/40 px-6 py-12 text-center text-sm text-ink-500">
-                        No applications match these filters —{" "}
-                        <Link href="/hiring/applications" className="font-semibold text-sky-700 hover:underline">
-                          clear filters
-                        </Link>
-                        .
-                      </div>
-                    ) : (
-                      <EmptyState
-                        emoji="📥"
-                        title="No applications yet"
-                        description="Add candidates one at a time or drop a batch of résumés — everything lands against open postings."
-                        action={
-                          <div className="flex flex-wrap gap-3 justify-center">
-                            <Link href="/hiring/candidates/new">
-                              <Button variant="accent" size="md">
-                                Add candidate
-                              </Button>
-                            </Link>
-                            <Link href="/hiring/applications/import">
-                              <Button variant="outline" size="md">
-                                Bulk import
-                              </Button>
-                            </Link>
-                          </div>
-                        }
-                      />
-                    )}
-                  </td>
-                </tr>
-              ) : (
-                rows.map((app) => {
-                  const { firstName, lastName } = splitCandidateFullName(app.candidate.fullName);
-                  const portal = applicationSourceLabel(
-                    app.applicationSource,
-                    app.candidate.source,
-                  );
-                  const jobLoc = formatHiringJobLocation(app.job);
-                  return (
-                    <tr key={app.id} className="align-top hover:bg-ink-50/40 transition-colors">
-                      <td className="px-4 py-3 whitespace-nowrap text-ink-600 tabular-nums">
-                        {formatDate(app.appliedAt)}
-                      </td>
-                      <td className="px-4 py-3 font-medium text-ink-800">
-                        <Link href={`/hiring/applications/${app.id}`} className="text-sky-800 hover:underline">
-                          {firstName}
-                        </Link>
-                      </td>
-                      <td className="px-4 py-3 text-ink-800">
-                        <Link href={`/hiring/applications/${app.id}`} className="hover:underline">
-                          {lastName}
-                        </Link>
-                      </td>
-                      <td className="px-4 py-3 text-ink-600 break-all">{app.candidate.email}</td>
-                      <td className="px-4 py-3 text-ink-600 whitespace-nowrap">{app.candidate.phone ?? "—"}</td>
-                      <td className="px-4 py-3">
-                        <Link
-                          href={`/hiring/jobs/${app.job.id}`}
-                          className="font-medium text-sky-800 hover:underline"
-                        >
-                          {app.job.title}
-                        </Link>
-                      </td>
-                      <td className="px-4 py-3 text-ink-600">{jobLoc}</td>
-                      <td className="px-4 py-3 text-ink-600">{app.candidate.candidateLocation ?? "—"}</td>
-                      <td className="px-4 py-3 text-ink-600">{portal}</td>
-                      <td className="px-4 py-3">
-                        <ApplicationStageControl
-                          applicationId={app.id}
-                          currentStageId={app.pipelineStageId}
-                          stages={stageSelectOptions}
-                          returnPath={returnPath}
-                          compact
-                        />
-                      </td>
-                      <td className="px-4 py-3">
-                        <Link
-                          href={`/hiring/applications/${app.id}`}
-                          className="text-xs font-semibold text-sky-700 hover:underline whitespace-nowrap"
-                        >
-                          Open application →
-                        </Link>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
+        <ApplicationsTableWithBulk
+          rows={serializedRows}
+          filtersActive={filtersActive}
+          stageSelectOptions={stageSelectOptions}
+          jobsForBulkMove={jobsForBulkMove}
+          returnPath={returnPath}
+        />
       </div>
     </div>
   );

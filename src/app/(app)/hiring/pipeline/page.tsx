@@ -9,6 +9,7 @@ import { ApplicationStageControl } from "../_components/application-stage-contro
 import { formatDate, cn } from "@/lib/utils";
 import { firstSearchParam } from "@/lib/search-param";
 import type { Prisma } from "@/generated/prisma";
+import { hiringJobActiveClause } from "@/lib/hiring-job-active";
 
 type Props = {
   searchParams: Promise<{
@@ -220,6 +221,7 @@ export default async function HiringPipelinePage(props: Props) {
   const [pipelineStagesOrdered, rows] = await Promise.all([
     loadPipelineStagesOrdered(),
     prisma.hiringApplication.findMany({
+      where: { job: hiringJobActiveClause },
       orderBy: { appliedAt: "desc" },
       include: pipelineInclude,
     }),

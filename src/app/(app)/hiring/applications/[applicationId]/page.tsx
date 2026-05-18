@@ -20,11 +20,14 @@ import {
   addHiringApplicationAttachment,
   createHiringApplicationReview,
   deleteHiringApplicationAttachment,
+  moveHiringApplicationToJob,
   updateHiringApplicationNotes,
 } from "../../actions";
+import { DeleteApplicationForm } from "../../_components/delete-application-form";
 import { ApplicationStageControl } from "../../_components/application-stage-control";
 import { HiringApplicationSectionNav } from "./application-section-nav";
 import { CopyTextButton } from "@/components/ui/copy-text-button";
+import { hiringJobActiveClause } from "@/lib/hiring-job-active";
 import { firstSearchParam } from "@/lib/search-param";
 import { cn } from "@/lib/utils";
 
@@ -38,6 +41,7 @@ type Props = {
     attachmentRemoved?: string | string[];
     moved?: string | string[];
     reviewSaved?: string | string[];
+    jobMoved?: string | string[];
   }>;
 };
 
@@ -53,6 +57,7 @@ export default async function HiringApplicationDetailPage(props: Props) {
   const attachmentRemoved = firstSearchParam(sp.attachmentRemoved) === "1";
   const moved = firstSearchParam(sp.moved) === "1";
   const reviewSaved = firstSearchParam(sp.reviewSaved) === "1";
+  const jobMoved = firstSearchParam(sp.jobMoved) === "1";
 
   const app = await prisma.hiringApplication.findUnique({
     where: { id: applicationId },
@@ -78,11 +83,21 @@ export default async function HiringApplicationDetailPage(props: Props) {
 
   if (!app) notFound();
 
-  const [pipelineStagesOrdered, interviewTemplates] = await Promise.all([
+  const [pipelineStagesOrdered, interviewTemplates, moveTargetJobs] = await Promise.all([
     loadPipelineStagesOrdered(),
     prisma.hiringInterviewQuestionTemplate.findMany({
       where: { category: "QUESTIONNAIRE_GUIDE", pipelineStageId: app.pipelineStageId },
       orderBy: [{ sortOrder: "asc" }, { updatedAt: "desc" }],
+    }),
+    prisma.hiringJob.findMany({
+      where: {
+        ...hiringJobActiveClause,
+        NOT: { status: "DRAFT" },
+        id: { not: app.jobId },
+      },
+      orderBy: { title: "asc" },
+      select: { id: true, title: true },
+      take: 400,
     }),
   ]);
 
@@ -113,6 +128,7 @@ export default async function HiringApplicationDetailPage(props: Props) {
   const profileResumeHref = app.candidate.resumeUrl?.trim();
 
   const reviewAction = createHiringApplicationReview.bind(null, applicationId);
+  const moveJobAction = moveHiringApplicationToJob.bind(null, applicationId);
 
   return (
     <div className="flex flex-col lg:flex-row gap-8 lg:gap-10 items-start pb-14">
@@ -203,6 +219,11 @@ export default async function HiringApplicationDetailPage(props: Props) {
             Pipeline stage updated.
           </div>
         )}
+        {jobMoved && (
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+            Submission moved to another posting — funnel reset to the applied stage for that opening.
+          </div>
+        )}
         {reviewSaved && (
           <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
             Feedback saved on this submission.
@@ -246,7 +267,13 @@ export default async function HiringApplicationDetailPage(props: Props) {
                             By {ev.actor?.name ?? ev.actor?.email}
                           </p>
                         )}
-                        {ev.payloadJson ? <HiringActivityPayloadBlock kind={ev.kind} payloadJson={ev.payloadJson} /> : null}
+                        {ev.payloadJson ? (
+                          <HiringActivityPayloadBlock
+                            kind={ev.kind}
+                            payloadJson={ev.payloadJson}
+                            timelineSurface
+                          />
+                        ) : null}
                       </li>
                     ))}
                   </ul>
@@ -332,6 +359,59 @@ export default async function HiringApplicationDetailPage(props: Props) {
                         }
                       />
                     </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </section>
+
+            <section id="section-move-delete" className="scroll-mt-24">
+              <Card className="border-ink-200">
+                <CardHeader className="border-b border-ink-100 bg-ink-50/60">
+                  <CardTitle>Move or remove submission</CardTitle>
+                  <CardDescription>
+                    Change which opening this candidate is tied to, or delete this submission only (candidate profile
+                    stays).
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="pt-6 space-y-6">
+                  <div className="space-y-3 max-w-xl">
+                    <h3 className="text-[11px] font-semibold uppercase tracking-wider text-ink-500">Move to another posting</h3>
+                    {moveTargetJobs.length === 0 ? (
+                      <p className="text-sm text-ink-500">
+                        No other active postings available — create a job or restore a removed posting first.
+                      </p>
+                    ) : (
+                      <form action={moveJobAction} className="flex flex-col sm:flex-row flex-wrap gap-3 sm:items-end">
+                        <div className="flex-1 min-w-[200px]">
+                          <Label htmlFor="targetJobId">Target opening</Label>
+                          <Select id="targetJobId" name="targetJobId" required defaultValue="" className="mt-1.5">
+                            <option value="" disabled>
+                              Choose posting…
+                            </option>
+                            {moveTargetJobs.map((j) => (
+                              <option key={j.id} value={j.id}>
+                                {j.title}
+                              </option>
+                            ))}
+                          </Select>
+                        </div>
+                        <Button type="submit" variant="outline">
+                          Move submission
+                        </Button>
+                      </form>
+                    )}
+                    <p className="text-xs text-ink-400 leading-relaxed">
+                      Draft jobs and removed-from-list postings are excluded. If the candidate already applied to the
+                      target opening, open that application instead.
+                    </p>
+                  </div>
+                  <div className="border-t border-ink-100 pt-5 space-y-3">
+                    <h3 className="text-[11px] font-semibold uppercase tracking-wider text-red-700">Danger zone</h3>
+                    <p className="text-sm text-ink-600 max-w-xl">
+                      Deletes this application row only — attachments and feedback here are removed. Pipeline history on
+                      this submission is removed; the person&apos;s candidate record remains.
+                    </p>
+                    <DeleteApplicationForm applicationId={applicationId} />
                   </div>
                 </CardContent>
               </Card>

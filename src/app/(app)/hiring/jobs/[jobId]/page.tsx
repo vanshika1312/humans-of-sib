@@ -9,7 +9,9 @@ import { Input, Label, Select, Textarea } from "@/components/ui/input";
 import { DepartmentNameField } from "@/components/workspace/department-name-field";
 import { ApplicationStageControl } from "../../_components/application-stage-control";
 import { formatDate } from "@/lib/utils";
-import { updateJobPosting, closeJobPosting, deleteClosedJobPosting } from "../../actions";
+import { updateJobPosting, closeJobPosting, restoreClosedJobPosting } from "../../actions";
+import { SoftRemoveClosedJobForm } from "../../_components/soft-remove-closed-job-form";
+import { displayName } from "@/lib/user-display-name";
 import { firstSearchParam } from "@/lib/search-param";
 import { HIRING_JOB_STATUSES, JOB_STATUS_LABEL } from "@/lib/hiring-copy";
 import type { HiringJobStatus } from "@/generated/prisma";
@@ -43,6 +45,7 @@ export default async function HiringJobDetailPage(props: Props) {
       where: { id: jobId },
       include: {
         department: true,
+        deletedBy: { select: { firstName: true, lastName: true, name: true, email: true } },
         applications: {
           orderBy: { appliedAt: "desc" },
           include: {
@@ -61,7 +64,8 @@ export default async function HiringJobDetailPage(props: Props) {
   if (!job) notFound();
 
   const editAction = updateJobPosting.bind(null, jobId);
-  const deleteClosedAction = deleteClosedJobPosting.bind(null, jobId);
+
+  const isRemovedFromList = Boolean(job.deletedAt);
 
   const headerBits = [
     job.workArrangement ? WORK_ARRANGEMENT_LABEL[job.workArrangement] : null,
@@ -90,17 +94,27 @@ export default async function HiringJobDetailPage(props: Props) {
               </Link>
             </div>
             <div className="flex flex-wrap gap-2 sm:justify-end">
-              <Button asChild variant="outline" size="md">
-                <Link href={`/hiring/jobs/${jobId}?edit=1`}>Edit posting</Link>
-              </Button>
-              {job.status !== "CLOSED" ? (
-                <form action={closeJobPosting.bind(null, jobId)}>
-                  <input type="hidden" name="returnTo" value="detail" />
-                  <Button type="submit" variant="outline" size="md">
-                    Close job
+              {!isRemovedFromList ? (
+                <>
+                  <Button asChild variant="outline" size="md">
+                    <Link href={`/hiring/jobs/${jobId}?edit=1`}>Edit posting</Link>
+                  </Button>
+                  {job.status !== "CLOSED" ? (
+                    <form action={closeJobPosting.bind(null, jobId)}>
+                      <input type="hidden" name="returnTo" value="detail" />
+                      <Button type="submit" variant="outline" size="md">
+                        Close job
+                      </Button>
+                    </form>
+                  ) : null}
+                </>
+              ) : (
+                <form action={restoreClosedJobPosting.bind(null, jobId)}>
+                  <Button type="submit" variant="accent" size="md">
+                    Restore posting
                   </Button>
                 </form>
-              ) : null}
+              )}
             </div>
           </div>
         }
@@ -114,6 +128,17 @@ export default async function HiringJobDetailPage(props: Props) {
           </Badge>
         )}
       </div>
+
+      {isRemovedFromList && job.deletedAt ? (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+          <p className="font-semibold">Removed from listings</p>
+          <p className="text-amber-900/90 mt-1 leading-relaxed">
+            Removed {formatDate(job.deletedAt)}
+            {job.deletedBy ? ` · by ${displayName(job.deletedBy)}` : ""}. Careers and job lists hide this posting until you
+            restore it (button above or Hiring → Job openings → Removed postings).
+          </p>
+        </div>
+      ) : null}
 
       {flashClosed && (
         <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
@@ -202,7 +227,7 @@ export default async function HiringJobDetailPage(props: Props) {
         </div>
       )}
 
-      {showEditForm ? (
+      {showEditForm && !isRemovedFromList ? (
         <Card id="job-edit">
           <CardHeader className="border-b border-ink-100 bg-ink-50/60">
             <div className="flex flex-wrap items-start justify-between gap-3">
@@ -408,33 +433,13 @@ export default async function HiringJobDetailPage(props: Props) {
         </CardContent>
       </Card>
 
-      {job.status === "CLOSED" ? (
+      {job.status === "CLOSED" && !isRemovedFromList ? (
         <Card className="border-red-200 bg-red-50/40">
           <CardHeader className="border-b border-red-100 pb-4">
             <CardTitle className="text-base text-red-900">Danger zone</CardTitle>
           </CardHeader>
-          <CardContent className="pt-5 space-y-4">
-            <p className="text-sm text-ink-600">
-              Permanently delete this closed posting and all of its applications (reviews, attachments, activity).
-              Candidate profiles stay in the database if they applied elsewhere too. This cannot be undone.
-            </p>
-            <form action={deleteClosedAction} className="space-y-3 max-w-lg">
-              <div>
-                <Label htmlFor="confirmTitle">Type the job title to confirm</Label>
-                <Input
-                  id="confirmTitle"
-                  name="confirmTitle"
-                  type="text"
-                  autoComplete="off"
-                  placeholder={job.title}
-                  aria-label="Type job title to confirm deletion"
-                  className="mt-1.5"
-                />
-              </div>
-              <Button type="submit" variant="danger" size="sm">
-                Delete closed posting permanently
-              </Button>
-            </form>
+          <CardContent className="pt-5">
+            <SoftRemoveClosedJobForm jobId={jobId} layout="stacked" />
           </CardContent>
         </Card>
       ) : null}

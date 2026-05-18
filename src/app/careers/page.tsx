@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { WORK_ARRANGEMENT_LABEL } from "@/lib/hiring-job-copy";
+import { hiringOpenJobsWhere } from "@/lib/hiring-job-active";
 
 export const dynamic = "force-dynamic";
 
@@ -12,7 +13,7 @@ export const metadata: Metadata = {
 
 export default async function CareersPage() {
   const jobs = await prisma.hiringJob.findMany({
-    where: { status: "OPEN" },
+    where: hiringOpenJobsWhere(),
     orderBy: [{ updatedAt: "desc" }],
     include: { department: { select: { name: true, emoji: true } } },
   });
