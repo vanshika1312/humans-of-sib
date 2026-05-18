@@ -28,6 +28,7 @@ export function TeamTaskMemberCards({
   viewerId,
   peekMember,
   initialOverlay,
+  showGrid = true,
 }: {
   members: TeamMemberForTasks[];
   trackedCounts: Record<string, number>;
@@ -36,6 +37,8 @@ export function TeamTaskMemberCards({
   peekMember: TeamMemberForTasks | null;
   /** When present (e.g. `/my-tasks?userId=`), open overlay on mount with this board already loaded */
   initialOverlay: { userId: string; board: ClientBoard; initialOpenTaskId: string | null } | null;
+  /** Render the clickable member grid (overlay still works). */
+  showGrid?: boolean;
 }) {
   const router = useRouter();
   const [overlayUserId, setOverlayUserId] = useState<string | null>(() => initialOverlay?.userId ?? null);
@@ -45,6 +48,20 @@ export function TeamTaskMemberCards({
 
   const selected =
     overlayUserId != null ? members.find((m) => m.id === overlayUserId) ?? (peekMember?.id === overlayUserId ? peekMember : null) : null;
+
+  /**
+   * When navigating within `/my-tasks` (e.g. clicking "Assigned by me" cards),
+   * this component typically stays mounted. Sync the overlay state from the new server props.
+   *
+   * Important: we intentionally do *not* clear state when `initialOverlay` becomes null,
+   * because we strip `userId` from the URL after hydration while keeping the overlay open.
+   */
+  useEffect(() => {
+    if (!initialOverlay?.userId) return;
+    setOverlayUserId(initialOverlay.userId);
+    setOverlayBoard(initialOverlay.board);
+    setOverlayTaskId(initialOverlay.initialOpenTaskId ?? null);
+  }, [initialOverlay]);
 
   /** Strip legacy `userId` from URL after hydrating an overlay-from-link (keeps other params). */
   useEffect(() => {
@@ -106,38 +123,41 @@ export function TeamTaskMemberCards({
 
   return (
     <>
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-        {members.map((u) => {
-          const dn = displayName(u);
-          const open = trackedCounts[u.id] ?? 0;
-          const isHighlighted = overlayUserId === u.id;
+      {showGrid ? (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {members.map((u) => {
+            const dn = displayName(u);
+            const open = trackedCounts[u.id] ?? 0;
+            const isHighlighted = overlayUserId === u.id;
 
-          return (
-            <button
-              key={u.id}
-              type="button"
-              onClick={() => openOverlay(u.id)}
-              className={cn(
-                "group flex w-full cursor-pointer items-center gap-3 rounded-xl border bg-white px-4 py-3.5 text-left shadow-sm transition-all hairline hover:border-sky-300 hover:shadow-md",
-                isHighlighted && "border-sky-200 shadow-md ring-2 ring-sky-400",
-                loadingOverlay && overlayUserId === u.id && !overlayBoard && "opacity-75",
-              )}
-            >
-              <Avatar src={u.image} name={dn} size="lg" className="ring-ink-100 group-hover:ring-sky-100" />
-              <div className="min-w-0 flex-1">
-                <div className="truncate font-semibold text-ink-800 transition-colors group-hover:text-sky-700">
-                  {dn}
+            return (
+              <button
+                key={u.id}
+                type="button"
+                onClick={() => openOverlay(u.id)}
+                className={cn(
+                  "group flex w-full cursor-pointer items-center gap-3 rounded-xl border bg-white px-4 py-3.5 text-left shadow-sm transition-all hairline hover:border-sky-300 hover:shadow-md",
+                  isHighlighted && "border-sky-200 shadow-md ring-2 ring-sky-400",
+                  loadingOverlay && overlayUserId === u.id && !overlayBoard && "opacity-75",
+                )}
+              >
+                <Avatar src={u.image} name={dn} size="lg" className="ring-ink-100 group-hover:ring-sky-100" />
+                <div className="min-w-0 flex-1">
+                  <div className="truncate font-semibold text-ink-800 transition-colors group-hover:text-sky-700">{dn}</div>
+                  <div className="mt-0.5 truncate text-xs text-ink-500">{u.title || "Team member"}</div>
+                  <div className="mt-1 text-[11px] text-ink-400">
+                    {open === 0 ? "No open tasks" : `${open} open ${open === 1 ? "task" : "tasks"}`}
+                  </div>
                 </div>
-                <div className="mt-0.5 truncate text-xs text-ink-500">{u.title || "Team member"}</div>
-                <div className="mt-1 text-[11px] text-ink-400">
-                  {open === 0 ? "No active tasks assigned by you" : `${open} active tasks assigned by you`}
-                </div>
-              </div>
-              <ChevronRight className="size-5 shrink-0 text-ink-300 transition-colors group-hover:text-sky-500" aria-hidden />
-            </button>
-          );
-        })}
-      </div>
+                <ChevronRight
+                  className="size-5 shrink-0 text-ink-300 transition-colors group-hover:text-sky-500"
+                  aria-hidden
+                />
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
 
       {overlayUserId ? (
         <div className="fixed inset-0 z-[100]">

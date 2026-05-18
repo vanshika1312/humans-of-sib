@@ -53,9 +53,24 @@ async function MyTasksPageBody({ searchParams }: { searchParams: SearchParams })
     orderBy: [{ firstName: "asc" }, { email: "asc" }],
   });
 
+  const assignableMembers: AssignableTaskMember[] = allActiveMembers.map((u) => ({
+    id: u.id,
+    name: u.name,
+    firstName: u.firstName,
+    lastName: u.lastName,
+    email: u.email,
+    title: u.title,
+  }));
+
+  const canSeeTeamTaskSummaries = viewer.role === "ADMIN" || viewer.role === "MANAGER";
+
   const teamLinks = (() => {
+    if (!canSeeTeamTaskSummaries) return [];
+    const source =
+      viewer.role === "MANAGER" ? allActiveMembers.filter((u) => u.managerId === viewer.id) : allActiveMembers;
+
     const byId = new Map<string, TeamMemberForTasks>();
-    for (const u of allActiveMembers) {
+    for (const u of source) {
       if (u.status === "EXITED") continue;
       byId.set(u.id, {
         id: u.id,
@@ -69,15 +84,6 @@ async function MyTasksPageBody({ searchParams }: { searchParams: SearchParams })
     }
     return Array.from(byId.values()).sort((a, b) => displayName(a).localeCompare(displayName(b)));
   })();
-
-  const assignableMembers: AssignableTaskMember[] = teamLinks.map((u) => ({
-    id: u.id,
-    name: u.name,
-    firstName: u.firstName,
-    lastName: u.lastName,
-    email: u.email,
-    title: u.title,
-  }));
 
   const assignedByMeTasks = await prisma.personalTask.findMany({
     where: {
@@ -109,14 +115,33 @@ async function MyTasksPageBody({ searchParams }: { searchParams: SearchParams })
     orderBy: [{ updatedAt: "desc" }],
   });
 
-  const trackedCounts = assignedByMeTasks.reduce<Record<string, number>>((acc, task) => {
-    if (!task.stage.isFinishedColumn) {
-      acc[task.assignedTo.id] = (acc[task.assignedTo.id] ?? 0) + 1;
+  const trackedCounts: Record<string, number> = {};
+  if (canSeeTeamTaskSummaries && teamLinks.length > 0) {
+    const teamIds = teamLinks.map((u) => u.id);
+    const boards = await prisma.personalTaskBoard.findMany({
+      where: { ownerUserId: { in: teamIds } },
+      select: { id: true, ownerUserId: true },
+    });
+    const boardIds = boards.map((b) => b.id);
+    const ownerByBoardId = new Map(boards.map((b) => [b.id, b.ownerUserId]));
+    if (boardIds.length > 0) {
+      const counts = await prisma.personalTask.groupBy({
+        by: ["boardId"],
+        where: {
+          boardId: { in: boardIds },
+          stage: { isFinishedColumn: false },
+        },
+        _count: { _all: true },
+      });
+      for (const c of counts) {
+        const ownerUserId = ownerByBoardId.get(c.boardId);
+        if (!ownerUserId) continue;
+        trackedCounts[ownerUserId] = c._count._all;
+      }
     }
-    return acc;
-  }, {});
+  }
 
-  const showTeamSection = teamLinks.length > 0;
+  const showTeamGrid = canSeeTeamTaskSummaries && teamLinks.length > 0;
 
   const prismaViewerBoard = await getOrCreatePersonalTaskBoard(viewer.id);
   const clientBoardMine = serializePersonalBoardForClient(prismaViewerBoard);
@@ -213,28 +238,16 @@ async function MyTasksPageBody({ searchParams }: { searchParams: SearchParams })
         </CardContent>
       </Card>
 
-      {showTeamSection && (
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">People tasks</CardTitle>
-            <CardDescription>
-              Click anyone in the organisation to track the tasks you assigned to them. Existing manager, HR, CEO, and admin
-              visibility still opens the full board when allowed.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="pt-0 space-y-4">
-            {teamLinks.length > 0 || initialTeamOverlay ? (
-              <TeamTaskMemberCards
-                members={teamLinks}
-                trackedCounts={trackedCounts}
-                viewerId={viewer.id}
-                peekMember={peekTeamMemberCard}
-                initialOverlay={initialTeamOverlay}
-              />
-            ) : null}
-          </CardContent>
-        </Card>
-      )}
+      {showTeamGrid || initialTeamOverlay ? (
+        <TeamTaskMemberCards
+          members={showTeamGrid ? teamLinks : []}
+          trackedCounts={trackedCounts}
+          viewerId={viewer.id}
+          peekMember={peekTeamMemberCard}
+          initialOverlay={initialTeamOverlay}
+          showGrid={showTeamGrid}
+        />
+      ) : null}
 
       <Card id="your-board-anchor">
         <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3 space-y-0 pb-3">

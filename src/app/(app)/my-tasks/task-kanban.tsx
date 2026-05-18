@@ -352,7 +352,7 @@ function SortableStageColumn(props: {
             <Input
               id={`add-${stage.id}`}
               name="title"
-              placeholder="Create issue"
+              placeholder="Add a new Task"
               disabled={addingTask}
               className="h-8 flex-1 border-slate-300/80 bg-white text-sm placeholder:text-slate-400"
               maxLength={500}
