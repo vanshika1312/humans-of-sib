@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import type { Role } from "@/generated/prisma";
 import { getOrCreatePersonalTaskBoard } from "@/lib/personal-task-board-setup";
 import { serializePersonalBoardForClient } from "@/lib/personal-board-client";
+import { createNotification } from "@/lib/notifications";
 import {
   canAssignPersonalTasks,
   canEditPersonalTask,
@@ -67,6 +68,7 @@ async function getTaskAccess(taskId: string, viewerId: string, viewerRole: Role,
       stageId: true,
       assignedToUserId: true,
       assignedByUserId: true,
+      title: true,
       board: {
         select: {
           ownerUserId: true,
@@ -215,6 +217,22 @@ export async function assignTaskToUser(
   });
 
   revalidateTasks();
+
+  if (assignee.id !== viewer.id) {
+    try {
+      await createNotification({
+        userId: assignee.id,
+        kind: "TASK_ASSIGNED",
+        title: "New task assigned",
+        body: title,
+        href: `/my-tasks?task=${encodeURIComponent(created.id)}`,
+        actorUserId: viewer.id,
+        meta: { taskId: created.id },
+      });
+    } catch {
+      // non-critical
+    }
+  }
   return { ok: true, userId: assignee.id, taskId: created.id };
 }
 
@@ -227,7 +245,7 @@ export async function updateBoardTaskStage(taskId: string, stageId: string) {
 
   const targetStage = await prisma.personalTaskStage.findFirst({
     where: { id: stageId, board: { ownerUserId: access.task.assignedToUserId } },
-    select: { id: true },
+    select: { id: true, title: true },
   });
   if (!targetStage) return { ok: false as const, error: "Stage not found." };
 
@@ -251,6 +269,22 @@ export async function updateBoardTaskStage(taskId: string, stageId: string) {
   });
 
   revalidateTasks();
+
+  if (access.task.assignedToUserId !== viewer.id) {
+    try {
+      await createNotification({
+        userId: access.task.assignedToUserId,
+        kind: "TASK_MOVED",
+        title: "Task moved",
+        body: `${access.task.title} → ${targetStage.title}`,
+        href: `/my-tasks?task=${encodeURIComponent(access.task.id)}`,
+        actorUserId: viewer.id,
+        meta: { taskId: access.task.id, stageId: targetStage.id },
+      });
+    } catch {
+      // non-critical
+    }
+  }
   return { ok: true as const };
 }
 
@@ -577,6 +611,26 @@ export async function addTaskComment(taskId: string, formData: FormData) {
     data: { taskId, authorId: v.id, body: bodyRaw },
   });
   revalidateTasks();
+
+  try {
+    const task = await prisma.personalTask.findUnique({
+      where: { id: taskId },
+      select: { assignedToUserId: true, title: true },
+    });
+    if (task && task.assignedToUserId !== v.id) {
+      await createNotification({
+        userId: task.assignedToUserId,
+        kind: "TASK_COMMENT",
+        title: "New comment on your task",
+        body: task.title,
+        href: `/my-tasks?task=${encodeURIComponent(taskId)}`,
+        actorUserId: v.id,
+        meta: { taskId },
+      });
+    }
+  } catch {
+    // non-critical
+  }
   return { ok: true as const };
 }
 

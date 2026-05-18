@@ -3,23 +3,79 @@
 import { useState } from "react";
 import Link from "next/link";
 import { Avatar } from "@/components/ui/avatar";
-import { LogOut, Menu, X } from "lucide-react";
+import { Bell, LogOut, Menu, X } from "lucide-react";
 import { Sidebar } from "./sidebar";
 import { cn } from "@/lib/utils";
+import { NotificationCentreModal, type NotificationItem } from "@/components/notifications/notification-centre-modal";
 
 export function Topbar({
   user,
   deptName,
   cityName,
+  unreadNotifications = 0,
   signOutAction,
 }: {
   user: { name?: string | null; email?: string | null; image?: string | null };
   deptName?: string | null;
   cityName?: string | null;
+  unreadNotifications?: number;
   signOutAction: () => Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [notifTab, setNotifTab] = useState<"all" | "unread">("all");
+  const [notifLoading, setNotifLoading] = useState(false);
+  const [notifError, setNotifError] = useState<string | null>(null);
+  const [notifData, setNotifData] = useState<{ unreadCount: number; notifications: NotificationItem[] } | null>(null);
+
+  async function loadNotifications(nextTab: "all" | "unread") {
+    setNotifLoading(true);
+    setNotifError(null);
+    try {
+      const res = await fetch(`/api/notifications?tab=${encodeURIComponent(nextTab)}`, { cache: "no-store" });
+      if (!res.ok) throw new Error("Failed to load notifications");
+      const json = (await res.json()) as { unreadCount: number; notifications: NotificationItem[] };
+      setNotifData(json);
+    } catch (e) {
+      setNotifError(e instanceof Error ? e.message : "Something went wrong");
+    } finally {
+      setNotifLoading(false);
+    }
+  }
+
+  async function markAllNotificationsRead() {
+    setNotifError(null);
+    try {
+      const res = await fetch("/api/notifications", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "mark_all_read" }),
+      });
+      if (!res.ok) throw new Error("Failed to mark all read");
+      await loadNotifications(notifTab);
+    } catch (e) {
+      setNotifError(e instanceof Error ? e.message : "Something went wrong");
+    }
+  }
+
+  async function markNotificationRead(id: string) {
+    setNotifError(null);
+    try {
+      const res = await fetch("/api/notifications", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "mark_read", id }),
+      });
+      if (!res.ok) throw new Error("Failed to mark read");
+      await loadNotifications(notifTab);
+    } catch (e) {
+      setNotifError(e instanceof Error ? e.message : "Something went wrong");
+    }
+  }
+
+  const unread = Math.max(0, Math.max(unreadNotifications || 0, notifData?.unreadCount ?? 0));
+  const unreadLabel = unread > 99 ? "99+" : String(unread);
 
   return (
     <>
@@ -52,6 +108,27 @@ export function Topbar({
                 </span>
               )}
             </div>
+
+            <button
+              type="button"
+              aria-label={unread > 0 ? `Notifications (${unread} unread)` : "Notifications"}
+              aria-haspopup="dialog"
+              aria-expanded={notifOpen}
+              onClick={() => {
+                setMenuOpen(false);
+                setNotifTab("all");
+                setNotifOpen(true);
+                void loadNotifications("all");
+              }}
+              className="relative size-9 inline-flex items-center justify-center rounded-md hover:bg-ink-100 text-ink-600"
+            >
+              <Bell className="size-5" />
+              {unread > 0 && (
+                <span className="absolute -top-1 -right-1 min-w-5 h-5 px-1 rounded-full bg-red-500 text-white text-[10px] font-semibold inline-flex items-center justify-center">
+                  {unreadLabel}
+                </span>
+              )}
+            </button>
 
             <div className="relative">
               <button
@@ -101,6 +178,22 @@ export function Topbar({
           </div>
         </div>
       </header>
+
+      <NotificationCentreModal
+        open={notifOpen}
+        onOpenChange={setNotifOpen}
+        tab={notifTab}
+        loading={notifLoading}
+        error={notifError}
+        unreadCount={notifData?.unreadCount ?? unread}
+        notifications={notifData?.notifications ?? []}
+        onTabChange={(t) => {
+          setNotifTab(t);
+          void loadNotifications(t);
+        }}
+        onMarkAllRead={() => void markAllNotificationsRead()}
+        onMarkRead={(id) => void markNotificationRead(id)}
+      />
 
       {/* Mobile drawer */}
       <div

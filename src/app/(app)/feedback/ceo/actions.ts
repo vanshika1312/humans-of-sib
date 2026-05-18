@@ -2,6 +2,7 @@
 
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { createNotification } from "@/lib/notifications";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
@@ -61,9 +62,9 @@ export async function respondCeoFeedback(id: string, formData: FormData) {
   if (!user || !["CEO", "ADMIN"].includes(user.role)) throw new Error("Forbidden");
 
   const response = String(formData.get("response") || "").trim();
-  const status = String(formData.get("status") || "ACKNOWLEDGED") as any;
+  const status = String(formData.get("status") || "ACKNOWLEDGED") as "NEW" | "ACKNOWLEDGED" | "IN_PROGRESS" | "RESOLVED" | "ARCHIVED";
 
-  await prisma.cEOFeedback.update({
+  const updated = await prisma.cEOFeedback.update({
     where: { id },
     data: {
       response: response || null,
@@ -71,7 +72,24 @@ export async function respondCeoFeedback(id: string, formData: FormData) {
       respondedAt: response ? new Date() : undefined,
       respondedById: response ? user.id : undefined,
     },
+    select: { id: true, userId: true, subject: true, anonymous: true },
   });
+
+  if (response.length > 0 && updated.userId) {
+    try {
+      await createNotification({
+        userId: updated.userId,
+        kind: "CEO_FEEDBACK_REPLY",
+        title: "CEO replied to your message",
+        body: updated.subject,
+        href: "/feedback/ceo",
+        actorUserId: user.id,
+        meta: { ceoFeedbackId: updated.id },
+      });
+    } catch {
+      // non-critical
+    }
+  }
   revalidatePath("/feedback/ceo/inbox");
   revalidatePath("/feedback/ceo");
 }

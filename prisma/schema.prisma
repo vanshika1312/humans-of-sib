@@ -39,6 +39,14 @@ enum Gender {
   PREFER_NOT_TO_SAY
 }
 
+enum NotificationKind {
+  TASK_ASSIGNED
+  TASK_MOVED
+  TASK_COMMENT
+  CEO_FEEDBACK_REPLY
+  ANNOUNCEMENT
+}
+
 model OrgCounter {
   /// Single row used to issue sequential employee IDs (SIB-00001, …).
   id               String @id @default("singleton")
@@ -185,12 +193,38 @@ model User {
   personalTaskAttachmentsUploaded PersonalTaskAttachment[] @relation("TaskAttachmentUploader")
   personalTaskCommentsAuthored    PersonalTaskComment[] @relation("TaskCommentAuthor")
 
+  notifications                   Notification[] @relation("NotificationRecipient")
+  notificationsAuthored           Notification[] @relation("NotificationActor")
+
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
   @@index([departmentId])
   @@index([cityId])
   @@index([managerId])
+}
+
+model Notification {
+  id          String           @id @default(cuid())
+  userId      String
+  user        User             @relation("NotificationRecipient", fields: [userId], references: [id], onDelete: Cascade)
+
+  kind        NotificationKind
+  title       String           @db.VarChar(200)
+  body        String?          @db.Text
+  href        String?          @db.VarChar(2048)
+
+  actorUserId String?
+  actor       User?            @relation("NotificationActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  readAt      DateTime?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  meta        Json?
+
+  @@index([userId, readAt, createdAt])
+  @@index([actorUserId])
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

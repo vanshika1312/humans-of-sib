@@ -1,5 +1,4 @@
 import { Suspense } from "react";
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ListTodo } from "lucide-react";
 import { prisma } from "@/lib/prisma";
@@ -15,6 +14,7 @@ import type { ClientBoard } from "./task-kanban-types";
 import { loadPersonalTaskBoardForModal } from "./board-actions";
 import { TaskKanbanBoardLoader } from "./task-kanban-board-loader";
 import { TeamTaskMemberCards, type TeamMemberForTasks } from "./team-task-member-cards";
+import { AssignedByMeTasks } from "./assigned-by-me-tasks";
 
 type SearchParams = Promise<{ userId?: string; task?: string }>;
 
@@ -203,38 +203,7 @@ async function MyTasksPageBody({ searchParams }: { searchParams: SearchParams })
           </CardDescription>
         </CardHeader>
         <CardContent className="pt-0">
-          {assignedByMeTasks.length === 0 ? (
-            <p className="text-sm text-ink-500">You haven&apos;t assigned any tasks to teammates yet.</p>
-          ) : (
-            <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-              {assignedByMeTasks.map((task) => (
-                <Link
-                  key={task.id}
-                  href={`/my-tasks?userId=${encodeURIComponent(task.assignedTo.id)}&task=${encodeURIComponent(task.id)}`}
-                  className="rounded-xl border bg-white px-4 py-3 shadow-sm transition hover:border-sky-300 hover:shadow-md"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="truncate font-semibold text-ink-800">{task.title}</p>
-                      <p className="mt-1 text-sm text-ink-500">
-                        Assigned to {displayName(task.assignedTo)}
-                        {task.assignedTo.title ? ` · ${task.assignedTo.title}` : ""}
-                      </p>
-                    </div>
-                    <span
-                      className={`shrink-0 rounded-full px-2 py-1 text-[11px] font-semibold ${
-                        task.stage.isFinishedColumn
-                          ? "bg-emerald-100 text-emerald-700"
-                          : "bg-sky-100 text-sky-700"
-                      }`}
-                    >
-                      {task.stage.title}
-                    </span>
-                  </div>
-                </Link>
-              ))}
-            </div>
-          )}
+          <AssignedByMeTasks initialTasks={assignedByMeTasks} />
         </CardContent>
       </Card>
 

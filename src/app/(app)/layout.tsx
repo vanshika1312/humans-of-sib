@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { auth, signOut } from "@/auth";
 import { displayName } from "@/lib/user-display-name";
 import { requireAppViewer } from "@/lib/app-viewer";
+import { countUnreadNotifications } from "@/lib/notifications";
 import { AppSidebar } from "@/components/shell/app-sidebar";
 import { Topbar } from "@/components/shell/topbar";
 import { RouteLoadingFallback } from "@/components/ui/route-loading-fallback";
@@ -22,6 +23,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     await signOut({ redirectTo: "/" });
   }
 
+  const unreadNotifications = await countUnreadNotifications(user.id);
+
   return (
     <div className="min-h-screen flex">
       <AppSidebar role={user.role} />
@@ -31,6 +34,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           user={{ name: displayName(user), email: user.email, image: user.image }}
           deptName={user.department?.name}
           cityName={user.city?.name}
+          unreadNotifications={unreadNotifications}
           signOutAction={signOutAction}
         />
         <main className="flex-1 px-4 md:px-8 py-6 md:py-8 max-w-6xl w-full mx-auto">

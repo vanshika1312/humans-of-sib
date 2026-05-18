@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input, Label, Select, Textarea } from "@/components/ui/input";
 import { displayName } from "@/lib/user-display-name";
 import { assignTaskToUser } from "./board-actions";
+import { notifyAssignedByMeRefresh } from "./my-tasks-events";
 
 export type AssignableTaskMember = {
   id: string;
@@ -52,6 +53,7 @@ export function AssignTaskDialog({ members }: { members: AssignableTaskMember[] 
         return;
       }
       closeDialog();
+      notifyAssignedByMeRefresh();
       router.push(`/my-tasks?userId=${encodeURIComponent(result.userId)}&task=${encodeURIComponent(result.taskId)}`);
       router.refresh();
     });
