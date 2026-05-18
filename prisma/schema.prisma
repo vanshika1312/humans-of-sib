@@ -179,6 +179,10 @@ model User {
   hiringResumeImportBatchesCreated HiringResumeImportBatch[]        @relation("HiringResumeImportBatchCreator")
   hiringJobsRemovedFromList        HiringJob[]                      @relation("HiringJobRemovedBy")
 
+  personalTaskBoard                PersonalTaskBoard?
+  personalTaskAttachmentsUploaded PersonalTaskAttachment[] @relation("TaskAttachmentUploader")
+  personalTaskCommentsAuthored    PersonalTaskComment[] @relation("TaskCommentAuthor")
+
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -553,6 +557,92 @@ model VerificationToken {
   expires    DateTime
 
   @@unique([identifier, token])
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// My Tasks — Trello/Notion-style board per person (manager / admin visibility)
+// ──────────────────────────────────────────────────────────────────────────────
+
+model PersonalTaskBoard {
+  id          String               @id @default(cuid())
+  ownerUserId String               @unique
+  owner       User                 @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  stages      PersonalTaskStage[]
+  tasks       PersonalTask[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([ownerUserId])
+}
+
+model PersonalTaskStage {
+  id               String               @id @default(cuid())
+  boardId          String
+  board            PersonalTaskBoard    @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  title            String               @db.VarChar(160)
+  sortOrder        Int                  @default(0)
+  /// Used for “open tasks” summaries (e.g. Done column counts as cleared).
+  isFinishedColumn Boolean              @default(false)
+
+  tasks PersonalTask[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([boardId, sortOrder])
+}
+
+model PersonalTask {
+  id           String                     @id @default(cuid())
+  boardId      String
+  board        PersonalTaskBoard          @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  stageId      String
+  stage        PersonalTaskStage          @relation(fields: [stageId], references: [id], onDelete: Restrict)
+  title        String                     @db.VarChar(500)
+  description  String?                    @db.Text
+  sortOrder    Int                        @default(0)
+
+  attachments PersonalTaskAttachment[]
+  comments    PersonalTaskComment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([boardId])
+  @@index([stageId, sortOrder])
+}
+
+model PersonalTaskAttachment {
+  id           String       @id @default(cuid())
+  taskId       String
+  task         PersonalTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  fileName     String       @db.VarChar(280)
+  url          String       @db.VarChar(2048)
+  mimeType     String?      @db.VarChar(120)
+  sizeBytes    Int?
+  uploadedById String?
+  uploadedBy   User?        @relation("TaskAttachmentUploader", fields: [uploadedById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([taskId])
+  @@index([uploadedById])
+}
+
+model PersonalTaskComment {
+  id       String       @id @default(cuid())
+  taskId   String
+  task     PersonalTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  authorId String
+  author   User         @relation("TaskCommentAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  body     String       @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([taskId, createdAt])
+  @@index([authorId])
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

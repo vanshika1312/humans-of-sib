@@ -9,8 +9,9 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatDate, relativeTime, calendarDaysSincePastDate } from "@/lib/utils";
 import { getPeopleProfileAccess, roleLabel, canSeeGovernmentIds } from "@/lib/people-profile-access";
+import { canViewPersonalTasks } from "@/lib/personal-tasks-access";
 import { displayName } from "@/lib/user-display-name";
-import { Trophy, Target, GraduationCap, Compass, ArrowLeft } from "lucide-react";
+import { Trophy, Target, GraduationCap, Compass, ArrowLeft, ListTodo } from "lucide-react";
 
 type Props = { params: Promise<{ id: string }> };
 
@@ -86,6 +87,15 @@ async function PersonPageBody({ id }: { id: string }) {
     subjectUserId: person.id,
   });
   const managerDn = person.manager ? displayName(person.manager) : null;
+
+  const canOpenTasksShortcut = canViewPersonalTasks({
+    viewerUserId: viewer.id,
+    viewerRole: viewer.role,
+    ownerUserId: person.id,
+    ownerManagerId: person.managerId,
+    ownerDepartmentId: person.departmentId,
+    viewerHeadedDepartmentId: viewer.headedDept?.id ?? null,
+  });
 
   const [wins, okrs, certs, journeyEvents] =
     access.showEngagementSections
@@ -176,6 +186,18 @@ async function PersonPageBody({ id }: { id: string }) {
               )}
             </div>
           </div>
+
+          {canOpenTasksShortcut && (
+            <div className="mt-3">
+              <Link
+                href={viewer.id === person.id ? "/my-tasks" : `/my-tasks?userId=${person.id}`}
+                className="inline-flex items-center gap-2 text-sm font-medium text-sky-600 hover:text-sky-700 hover:underline"
+              >
+                <ListTodo className="size-4 shrink-0" />
+                {viewer.id === person.id ? "Open my tasks" : "View task list"}
+              </Link>
+            </div>
+          )}
 
           {access.level === "limited" ? (
             <div className="grid sm:grid-cols-2 gap-3 mt-5 pt-5 border-t border-ink-100">

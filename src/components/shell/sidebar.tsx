@@ -26,6 +26,7 @@ import {
   Briefcase,
   Table2,
   UserSearch,
+  ListTodo,
 } from "lucide-react";
 
 const nav = [
@@ -55,6 +56,7 @@ const nav = [
     },
   ]},
   { group: "Me", items: [
+    { href: "/my-tasks", label: "My Tasks", icon: ListTodo },
     { href: "/documents", label: "Documents", icon: FileText, comingSoon: true },
     { href: "/impact", label: "Learner Impact", icon: Gem, comingSoon: true },
     { href: "/onboarding", label: "Onboarding", icon: Sparkles, comingSoon: true },

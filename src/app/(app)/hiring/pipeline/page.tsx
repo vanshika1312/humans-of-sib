@@ -200,9 +200,7 @@ function PipelineStageDashboard({
             </div>
           </>
         ) : (
-          <div className="px-4 py-12 sm:px-5 text-center">
-            <p className="text-sm text-ink-500">Select a stage card above to see applicants and update their step.</p>
-          </div>
+          <div className="min-h-[88px] bg-white/80" aria-hidden />
         )}
       </div>
     </div>
@@ -240,7 +238,6 @@ export default async function HiringPipelinePage(props: Props) {
       <PageHeader
         title="Pipeline"
         emoji="🧭"
-        subtitle={`Stages show as a horizontal summary — pick one to open the list (${pipelineStagesOrdered.length} configured). Manage labels and order under Hiring → Stages.`}
         action={
           <div className="flex flex-wrap gap-2">
             <Link href="/hiring/candidates/new">
@@ -262,12 +259,7 @@ export default async function HiringPipelinePage(props: Props) {
         }
       />
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm text-ink-500 max-w-2xl">
-          <strong className="text-ink-700">By job</strong> gives each role its own row of stage cards.{" "}
-          <strong className="text-ink-700">All applicants</strong> uses one row for every submission. Click a card to load
-          that stage below.
-        </p>
+      <div className="flex flex-wrap justify-end gap-3">
         <div className="flex gap-1 p-1 bg-ink-100/70 rounded-xl border border-ink-100 shrink-0">
           <Link
             href="/hiring/pipeline?view=by-job"
