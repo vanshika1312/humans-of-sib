@@ -8,11 +8,12 @@ import { WORK_ARRANGEMENT_LABEL } from "@/lib/hiring-job-copy";
 import { closeJobPosting } from "../actions";
 import { firstSearchParam } from "@/lib/search-param";
 
-type Props = { searchParams: Promise<{ closed?: string | string[] }> };
+type Props = { searchParams: Promise<{ closed?: string | string[]; deleted?: string | string[] }> };
 
 export default async function HiringJobsPage(props: Props) {
   const sp = await props.searchParams;
   const flashClosed = firstSearchParam(sp.closed) === "1";
+  const flashDeleted = firstSearchParam(sp.deleted) === "1";
   const jobs = await prisma.hiringJob.findMany({
     orderBy: [{ updatedAt: "desc" }],
     include: {
@@ -44,6 +45,11 @@ export default async function HiringJobsPage(props: Props) {
       {flashClosed && (
         <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
           Job marked as closed.
+        </div>
+      )}
+      {flashDeleted && (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+          Closed posting was permanently deleted.
         </div>
       )}
 

@@ -9,7 +9,7 @@ import { Input, Label, Select, Textarea } from "@/components/ui/input";
 import { DepartmentNameField } from "@/components/workspace/department-name-field";
 import { ApplicationStageControl } from "../../_components/application-stage-control";
 import { formatDate } from "@/lib/utils";
-import { updateJobPosting, closeJobPosting } from "../../actions";
+import { updateJobPosting, closeJobPosting, deleteClosedJobPosting } from "../../actions";
 import { firstSearchParam } from "@/lib/search-param";
 import { HIRING_JOB_STATUSES, JOB_STATUS_LABEL } from "@/lib/hiring-copy";
 import type { HiringJobStatus } from "@/generated/prisma";
@@ -61,6 +61,7 @@ export default async function HiringJobDetailPage(props: Props) {
   if (!job) notFound();
 
   const editAction = updateJobPosting.bind(null, jobId);
+  const deleteClosedAction = deleteClosedJobPosting.bind(null, jobId);
 
   const headerBits = [
     job.workArrangement ? WORK_ARRANGEMENT_LABEL[job.workArrangement] : null,
@@ -406,6 +407,37 @@ export default async function HiringJobDetailPage(props: Props) {
           </div>
         </CardContent>
       </Card>
+
+      {job.status === "CLOSED" ? (
+        <Card className="border-red-200 bg-red-50/40">
+          <CardHeader className="border-b border-red-100 pb-4">
+            <CardTitle className="text-base text-red-900">Danger zone</CardTitle>
+          </CardHeader>
+          <CardContent className="pt-5 space-y-4">
+            <p className="text-sm text-ink-600">
+              Permanently delete this closed posting and all of its applications (reviews, attachments, activity).
+              Candidate profiles stay in the database if they applied elsewhere too. This cannot be undone.
+            </p>
+            <form action={deleteClosedAction} className="space-y-3 max-w-lg">
+              <div>
+                <Label htmlFor="confirmTitle">Type the job title to confirm</Label>
+                <Input
+                  id="confirmTitle"
+                  name="confirmTitle"
+                  type="text"
+                  autoComplete="off"
+                  placeholder={job.title}
+                  aria-label="Type job title to confirm deletion"
+                  className="mt-1.5"
+                />
+              </div>
+              <Button type="submit" variant="danger" size="sm">
+                Delete closed posting permanently
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+      ) : null}
     </div>
   );
 }

@@ -312,6 +312,45 @@ export async function closeJobPosting(jobId: string, formData: FormData) {
   redirect("/hiring/jobs?closed=1");
 }
 
+/** Permanently removes a **closed** job and its applications (candidates remain). HR / Admin / CEO only. */
+export async function deleteClosedJobPosting(jobId: string, formData: FormData) {
+  await requireHiringUser();
+  const confirmTitle = String(formData.get("confirmTitle") ?? "").trim();
+
+  const job = await prisma.hiringJob.findUnique({
+    where: { id: jobId },
+    select: { id: true, title: true, status: true },
+  });
+  if (!job) redirect("/hiring/jobs");
+
+  if (job.status !== "CLOSED") {
+    redirect(
+      `/hiring/jobs/${jobId}?error=` +
+        encodeURIComponent("Only closed postings can be permanently deleted."),
+    );
+  }
+
+  if (confirmTitle.toLowerCase() !== job.title.trim().toLowerCase()) {
+    redirect(
+      `/hiring/jobs/${jobId}?error=` +
+        encodeURIComponent("Job title didn’t match — posting was not deleted."),
+    );
+  }
+
+  try {
+    await prisma.hiringJob.delete({ where: { id: jobId } });
+  } catch (err) {
+    console.error("[Humans of SIB] deleteClosedJobPosting failed", err);
+    redirect(
+      `/hiring/jobs/${jobId}?error=` +
+        encodeURIComponent("Could not delete this posting. Try again or contact support."),
+    );
+  }
+
+  invalidateHiring();
+  redirect("/hiring/jobs?deleted=1");
+}
+
 export async function createCandidate(formData: FormData) {
   const me = await requireHiringUser();
   const fullName = String(formData.get("fullName") || "").trim();
