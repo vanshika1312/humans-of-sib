@@ -7,6 +7,7 @@ import { countUnreadNotifications } from "@/lib/notifications";
 import { AppSidebar } from "@/components/shell/app-sidebar";
 import { Topbar } from "@/components/shell/topbar";
 import { RouteLoadingFallback } from "@/components/ui/route-loading-fallback";
+import { GlobalRequestLoader } from "@/components/ui/global-request-loader";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const session = await auth();
@@ -27,6 +28,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="min-h-screen flex">
+      <GlobalRequestLoader />
       <AppSidebar role={user.role} />
 
       <div className="flex-1 min-w-0 flex flex-col">
