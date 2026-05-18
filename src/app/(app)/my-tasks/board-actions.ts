@@ -5,7 +5,9 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import type { Role } from "@/generated/prisma";
 import { getOrCreatePersonalTaskBoard } from "@/lib/personal-task-board-setup";
+import { serializePersonalBoardForClient } from "@/lib/personal-board-client";
 import { canViewPersonalTasks } from "@/lib/personal-tasks-access";
+import type { ClientBoard } from "./task-kanban-types";
 import { persistTaskAttachmentFile } from "@/lib/task-attachment-upload";
 
 const PATH = "/my-tasks";
@@ -65,6 +67,38 @@ function nu(s: unknown, max?: number): string {
 
 function revalidateTasks() {
   revalidatePath(PATH);
+}
+
+/** Load someone’s task board for the team-member overlay (respects the same rules as the old /my-tasks?userId= flow). */
+export async function loadPersonalTaskBoardForModal(
+  peerUserId: string,
+): Promise<{ ok: true; board: ClientBoard } | { ok: false; error: string }> {
+  const v = await sessionViewer();
+  if (!v) return { ok: false, error: "Unauthorized" };
+
+  const owner = await prisma.user.findUnique({
+    where: { id: peerUserId },
+    select: {
+      id: true,
+      status: true,
+      managerId: true,
+      departmentId: true,
+    },
+  });
+  if (!owner || owner.status === "EXITED") return { ok: false, error: "Person not found." };
+
+  const okView = canViewPersonalTasks({
+    viewerUserId: v.id,
+    viewerRole: v.role as Role,
+    ownerUserId: owner.id,
+    ownerManagerId: owner.managerId,
+    ownerDepartmentId: owner.departmentId,
+    viewerHeadedDepartmentId: v.headedDept?.id ?? null,
+  });
+  if (!okView) return { ok: false, error: "You can’t view this board." };
+
+  const boardPayload = await getOrCreatePersonalTaskBoard(peerUserId);
+  return { ok: true, board: serializePersonalBoardForClient(boardPayload) };
 }
 
 export async function persistBoardLayout(ownerUserId: string, layout: Record<string, string[]>) {

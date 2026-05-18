@@ -23,6 +23,8 @@ export type TaskKanbanBoardLoaderProps = {
   viewerId: string;
   readOnly: boolean;
   initialOpenTaskId: string | null;
+  /** When true, opening a task does not change the URL (e.g. team overlay). */
+  suppressUrlSync?: boolean;
 };
 
 export function TaskKanbanBoardLoader(props: TaskKanbanBoardLoaderProps) {

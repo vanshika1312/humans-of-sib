@@ -346,12 +346,15 @@ export function TaskKanbanBoard({
   viewerId,
   readOnly,
   initialOpenTaskId,
+  suppressUrlSync,
 }: {
   board: ClientBoard;
   ownerUserId: string;
   viewerId: string;
   readOnly: boolean;
   initialOpenTaskId: string | null;
+  /** Do not rewrite `/my-tasks` query params when selecting a card (nested overlay). */
+  suppressUrlSync?: boolean;
 }) {
   const router = useRouter();
 
@@ -381,6 +384,7 @@ export function TaskKanbanBoard({
   useEffect(() => setOpenTaskId(initialOpenTaskId), [initialOpenTaskId]);
 
   function syncUrl(taskId: string | null) {
+    if (suppressUrlSync) return;
     const qs = new URLSearchParams();
     if (viewerId !== ownerUserId) qs.set("userId", ownerUserId);
     if (taskId) qs.set("task", taskId);
