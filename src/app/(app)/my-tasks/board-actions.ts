@@ -7,6 +7,7 @@ import type { Role } from "@/generated/prisma";
 import { getOrCreatePersonalTaskBoard } from "@/lib/personal-task-board-setup";
 import { serializePersonalBoardForClient } from "@/lib/personal-board-client";
 import { createNotification } from "@/lib/notifications";
+import { calendarDateFromInput } from "@/lib/calendar-date";
 import {
   canAssignPersonalTasks,
   canEditPersonalTask,
@@ -15,6 +16,7 @@ import {
 } from "@/lib/personal-tasks-access";
 import type { ClientBoard } from "./task-kanban-types";
 import { persistTaskAttachmentFile } from "@/lib/task-attachment-upload";
+import type { ClientBoardTask } from "./task-kanban-types";
 
 const PATH = "/my-tasks";
 
@@ -24,8 +26,17 @@ async function sessionViewer() {
   if (!email) return null;
   return prisma.user.findUnique({
     where: { email },
-    select: { id: true, role: true, status: true, headedDept: { select: { id: true } } },
+    select: { id: true, role: true, status: true, permissions: true, headedDept: { select: { id: true } } },
   });
+}
+
+async function hasExplicitTaskBoardGrant(ownerUserId: string, viewerUserId: string): Promise<boolean> {
+  if (!ownerUserId || !viewerUserId) return false;
+  const row = await prisma.personalTaskBoardViewer.findUnique({
+    where: { ownerUserId_viewerUserId: { ownerUserId, viewerUserId } },
+    select: { id: true },
+  });
+  return !!row;
 }
 
 async function requireOwner(ownerUserId: string) {
@@ -34,7 +45,13 @@ async function requireOwner(ownerUserId: string) {
   return v;
 }
 
-async function viewerCanComment(viewerId: string, viewerRole: Role, headedDeptId: string | null, taskId: string) {
+async function viewerCanComment(
+  viewerId: string,
+  viewerRole: Role,
+  viewerPermissions: string[] | null,
+  headedDeptId: string | null,
+  taskId: string,
+) {
   const t = await prisma.personalTask.findUnique({
     where: { id: taskId },
     select: {
@@ -48,18 +65,27 @@ async function viewerCanComment(viewerId: string, viewerRole: Role, headedDeptId
     },
   });
   if (!t) return false;
+  const hasExplicitGrant = await hasExplicitTaskBoardGrant(t.board.ownerUserId, viewerId);
   return canViewPersonalTask({
     viewerUserId: viewerId,
     viewerRole,
+    viewerPermissions,
     ownerUserId: t.board.ownerUserId,
     ownerManagerId: t.board.owner.managerId,
     ownerDepartmentId: t.board.owner.departmentId,
     viewerHeadedDepartmentId: headedDeptId,
     assignedByUserId: t.assignedByUserId,
+    hasExplicitGrant,
   });
 }
 
-async function getTaskAccess(taskId: string, viewerId: string, viewerRole: Role, headedDeptId: string | null) {
+async function getTaskAccess(
+  taskId: string,
+  viewerId: string,
+  viewerRole: Role,
+  viewerPermissions: string[] | null,
+  headedDeptId: string | null,
+) {
   const task = await prisma.personalTask.findUnique({
     where: { id: taskId },
     select: {
@@ -94,11 +120,13 @@ async function getTaskAccess(taskId: string, viewerId: string, viewerRole: Role,
   const canView = canViewPersonalTask({
     viewerUserId: viewerId,
     viewerRole,
+    viewerPermissions,
     ownerUserId: task.board.ownerUserId,
     ownerManagerId: task.board.owner.managerId,
     ownerDepartmentId: task.board.owner.departmentId,
     viewerHeadedDepartmentId: headedDeptId,
     assignedByUserId: task.assignedByUserId,
+    hasExplicitGrant: await hasExplicitTaskBoardGrant(task.board.ownerUserId, viewerId),
   });
 
   return { task, canEdit, canView };
@@ -135,10 +163,12 @@ export async function loadPersonalTaskBoardForModal(
   const okView = canViewPersonalTasks({
     viewerUserId: v.id,
     viewerRole: v.role as Role,
+    viewerPermissions: v.permissions ?? null,
     ownerUserId: owner.id,
     ownerManagerId: owner.managerId,
     ownerDepartmentId: owner.departmentId,
     viewerHeadedDepartmentId: v.headedDept?.id ?? null,
+    hasExplicitGrant: await hasExplicitTaskBoardGrant(owner.id, v.id),
   });
   const canTrackAssignedTasks = canAssignPersonalTasks({
     viewerUserId: v.id,
@@ -240,7 +270,7 @@ export async function updateBoardTaskStage(taskId: string, stageId: string) {
   const viewer = await sessionViewer();
   if (!viewer) return { ok: false as const, error: "Unauthorized" };
 
-  const access = await getTaskAccess(taskId, viewer.id, viewer.role as Role, viewer.headedDept?.id ?? null);
+  const access = await getTaskAccess(taskId, viewer.id, viewer.role as Role, viewer.permissions ?? null, viewer.headedDept?.id ?? null);
   if (!access?.canEdit) return { ok: false as const, error: "No access." };
 
   const targetStage = await prisma.personalTaskStage.findFirst({
@@ -402,6 +432,7 @@ export async function addBoardTask(
       stageId: created.stageId,
       title: created.title,
       description: created.description,
+      dueDate: created.dueDate ? created.dueDate.toISOString() : null,
       sortOrder: created.sortOrder,
       assignedTo: {
         id: created.assignedTo.id,
@@ -423,6 +454,9 @@ export async function addBoardTask(
         : null,
       attachments: [],
       comments: [],
+      members: [],
+      labels: [],
+      checklists: [],
     },
   };
 }
@@ -430,7 +464,7 @@ export async function addBoardTask(
 export async function deleteBoardTask(ownerUserId: string, taskId: string) {
   const viewer = await sessionViewer();
   if (!viewer) return;
-  const access = await getTaskAccess(taskId, viewer.id, viewer.role as Role, viewer.headedDept?.id ?? null);
+  const access = await getTaskAccess(taskId, viewer.id, viewer.role as Role, viewer.permissions ?? null, viewer.headedDept?.id ?? null);
   if (!access?.canEdit) return;
   await prisma.personalTask.delete({ where: { id: taskId } });
   revalidateTasks();
@@ -439,7 +473,7 @@ export async function deleteBoardTask(ownerUserId: string, taskId: string) {
 export async function updateBoardTaskDetails(ownerUserId: string, taskId: string, formData: FormData) {
   const viewer = await sessionViewer();
   if (!viewer) return;
-  const access = await getTaskAccess(taskId, viewer.id, viewer.role as Role, viewer.headedDept?.id ?? null);
+  const access = await getTaskAccess(taskId, viewer.id, viewer.role as Role, viewer.permissions ?? null, viewer.headedDept?.id ?? null);
   if (!access?.canEdit) return;
   const titleRaw = formData.get("title");
   const title = typeof titleRaw === "string" ? titleRaw.trim().slice(0, 500) : "";
@@ -458,6 +492,299 @@ export async function updateBoardTaskDetails(ownerUserId: string, taskId: string
     data,
   });
   revalidateTasks();
+}
+
+export async function setTaskDueDate(taskId: string, dueDateYmd: string) {
+  const viewer = await sessionViewer();
+  if (!viewer) return { ok: false as const, error: "Unauthorized" };
+  const access = await getTaskAccess(taskId, viewer.id, viewer.role as Role, viewer.permissions ?? null, viewer.headedDept?.id ?? null);
+  if (!access?.canEdit) return { ok: false as const, error: "No access." };
+
+  const raw = (dueDateYmd ?? "").trim();
+  const next = raw.length === 0 ? null : calendarDateFromInput(raw);
+  if (next && Number.isNaN(next.getTime())) return { ok: false as const, error: "Invalid date." };
+
+  await prisma.$transaction(async (tx) => {
+    await tx.personalTask.update({
+      where: { id: taskId },
+      data: { dueDate: next },
+    });
+    await tx.personalTaskBoard.update({
+      where: { id: access.task.boardId },
+      data: { updatedAt: new Date() },
+    });
+  });
+
+  revalidateTasks();
+  return { ok: true as const };
+}
+
+export async function createBoardLabel(ownerUserId: string, name: string, color: string) {
+  const viewer = await requireOwner(ownerUserId);
+  if (!viewer) return { ok: false as const, error: "Unauthorized" };
+
+  const n = nu(name, 80);
+  const c = nu(color, 32);
+  if (!n.length) return { ok: false as const, error: "Label name is required." };
+  if (!c.length) return { ok: false as const, error: "Color is required." };
+
+  const board = await prisma.personalTaskBoard.findUnique({
+    where: { ownerUserId },
+    select: { id: true, _count: { select: { labels: true } } },
+  });
+  if (!board) return { ok: false as const, error: "Board not found." };
+
+  const created = await prisma.personalTaskLabel.create({
+    data: {
+      boardId: board.id,
+      name: n,
+      color: c,
+      sortOrder: board._count.labels,
+    },
+    select: { id: true, name: true, color: true, sortOrder: true },
+  });
+
+  revalidateTasks();
+  return { ok: true as const, label: created };
+}
+
+export async function setTaskLabels(taskId: string, labelIds: string[]) {
+  const viewer = await sessionViewer();
+  if (!viewer) return { ok: false as const, error: "Unauthorized" };
+  const access = await getTaskAccess(taskId, viewer.id, viewer.role as Role, viewer.permissions ?? null, viewer.headedDept?.id ?? null);
+  if (!access?.canEdit) return { ok: false as const, error: "No access." };
+
+  const ids = Array.from(new Set((labelIds ?? []).filter((id) => typeof id === "string" && id.trim().length > 0)));
+
+  const board = await prisma.personalTaskBoard.findUnique({
+    where: { id: access.task.boardId },
+    select: { id: true },
+  });
+  if (!board) return { ok: false as const, error: "Board not found." };
+
+  const validLabels = ids.length
+    ? await prisma.personalTaskLabel.findMany({
+        where: { id: { in: ids }, boardId: board.id },
+        select: { id: true },
+      })
+    : [];
+  const validIds = validLabels.map((l) => l.id);
+
+  await prisma.$transaction(async (tx) => {
+    await tx.personalTaskLabelAssignment.deleteMany({ where: { taskId } });
+    if (validIds.length > 0) {
+      await tx.personalTaskLabelAssignment.createMany({
+        data: validIds.map((labelId) => ({ taskId, labelId })),
+        skipDuplicates: true,
+      });
+    }
+    await tx.personalTaskBoard.update({ where: { id: board.id }, data: { updatedAt: new Date() } });
+  });
+
+  revalidateTasks();
+  return { ok: true as const };
+}
+
+export async function addTaskMember(taskId: string, userId: string) {
+  const viewer = await sessionViewer();
+  if (!viewer) return { ok: false as const, error: "Unauthorized" };
+  const access = await getTaskAccess(taskId, viewer.id, viewer.role as Role, viewer.permissions ?? null, viewer.headedDept?.id ?? null);
+  if (!access?.canEdit) return { ok: false as const, error: "No access." };
+
+  const targetId = nu(userId, 191);
+  if (!targetId.length) return { ok: false as const, error: "Choose a person." };
+
+  const u = await prisma.user.findUnique({
+    where: { id: targetId },
+    select: { id: true, status: true },
+  });
+  if (!u || u.status !== "ACTIVE") return { ok: false as const, error: "Person not found." };
+
+  await prisma.$transaction(async (tx) => {
+    await tx.personalTaskMember.createMany({
+      data: [{ taskId, userId: u.id }],
+      skipDuplicates: true,
+    });
+    await tx.personalTaskBoard.update({
+      where: { id: access.task.boardId },
+      data: { updatedAt: new Date() },
+    });
+  });
+
+  revalidateTasks();
+  return { ok: true as const };
+}
+
+export async function removeTaskMember(taskId: string, userId: string) {
+  const viewer = await sessionViewer();
+  if (!viewer) return { ok: false as const, error: "Unauthorized" };
+  const access = await getTaskAccess(taskId, viewer.id, viewer.role as Role, viewer.permissions ?? null, viewer.headedDept?.id ?? null);
+  if (!access?.canEdit) return { ok: false as const, error: "No access." };
+
+  const targetId = nu(userId, 191);
+  if (!targetId.length) return { ok: false as const, error: "Choose a person." };
+
+  await prisma.$transaction(async (tx) => {
+    await tx.personalTaskMember.deleteMany({ where: { taskId, userId: targetId } });
+    await tx.personalTaskBoard.update({
+      where: { id: access.task.boardId },
+      data: { updatedAt: new Date() },
+    });
+  });
+
+  revalidateTasks();
+  return { ok: true as const };
+}
+
+export async function createTaskChecklist(taskId: string, title?: string) {
+  const viewer = await sessionViewer();
+  if (!viewer) return { ok: false as const, error: "Unauthorized" };
+  const access = await getTaskAccess(taskId, viewer.id, viewer.role as Role, viewer.permissions ?? null, viewer.headedDept?.id ?? null);
+  if (!access?.canEdit) return { ok: false as const, error: "No access." };
+
+  const agg = await prisma.personalTaskChecklist.aggregate({
+    where: { taskId },
+    _max: { sortOrder: true },
+  });
+
+  const t = nu(title ?? "Checklist", 160);
+  const created = await prisma.personalTaskChecklist.create({
+    data: {
+      taskId,
+      title: t.length ? t : "Checklist",
+      sortOrder: (agg._max.sortOrder ?? -1) + 1,
+    },
+    select: { id: true },
+  });
+
+  await prisma.personalTaskBoard.update({ where: { id: access.task.boardId }, data: { updatedAt: new Date() } });
+  revalidateTasks();
+  return { ok: true as const, checklistId: created.id };
+}
+
+export async function renameChecklist(checklistId: string, title: string) {
+  const viewer = await sessionViewer();
+  if (!viewer) return { ok: false as const, error: "Unauthorized" };
+
+  const row = await prisma.personalTaskChecklist.findUnique({
+    where: { id: checklistId },
+    select: { id: true, taskId: true },
+  });
+  if (!row) return { ok: false as const, error: "Checklist not found." };
+
+  const access = await getTaskAccess(row.taskId, viewer.id, viewer.role as Role, viewer.permissions ?? null, viewer.headedDept?.id ?? null);
+  if (!access?.canEdit) return { ok: false as const, error: "No access." };
+
+  const t = nu(title, 160);
+  if (!t.length) return { ok: false as const, error: "Title is required." };
+
+  await prisma.$transaction(async (tx) => {
+    await tx.personalTaskChecklist.update({ where: { id: row.id }, data: { title: t } });
+    await tx.personalTaskBoard.update({ where: { id: access.task.boardId }, data: { updatedAt: new Date() } });
+  });
+  revalidateTasks();
+  return { ok: true as const };
+}
+
+export async function deleteChecklist(checklistId: string) {
+  const viewer = await sessionViewer();
+  if (!viewer) return { ok: false as const, error: "Unauthorized" };
+
+  const row = await prisma.personalTaskChecklist.findUnique({
+    where: { id: checklistId },
+    select: { id: true, taskId: true },
+  });
+  if (!row) return { ok: false as const, error: "Checklist not found." };
+
+  const access = await getTaskAccess(row.taskId, viewer.id, viewer.role as Role, viewer.permissions ?? null, viewer.headedDept?.id ?? null);
+  if (!access?.canEdit) return { ok: false as const, error: "No access." };
+
+  await prisma.$transaction(async (tx) => {
+    await tx.personalTaskChecklist.delete({ where: { id: row.id } });
+    await tx.personalTaskBoard.update({ where: { id: access.task.boardId }, data: { updatedAt: new Date() } });
+  });
+  revalidateTasks();
+  return { ok: true as const };
+}
+
+export async function addChecklistItem(checklistId: string, body: string) {
+  const viewer = await sessionViewer();
+  if (!viewer) return { ok: false as const, error: "Unauthorized" };
+
+  const row = await prisma.personalTaskChecklist.findUnique({
+    where: { id: checklistId },
+    select: { id: true, taskId: true },
+  });
+  if (!row) return { ok: false as const, error: "Checklist not found." };
+
+  const access = await getTaskAccess(row.taskId, viewer.id, viewer.role as Role, viewer.permissions ?? null, viewer.headedDept?.id ?? null);
+  if (!access?.canEdit) return { ok: false as const, error: "No access." };
+
+  const b = nu(body, 5000);
+  if (!b.length) return { ok: false as const, error: "Item text is required." };
+
+  const agg = await prisma.personalTaskChecklistItem.aggregate({
+    where: { checklistId: row.id },
+    _max: { sortOrder: true },
+  });
+
+  const created = await prisma.personalTaskChecklistItem.create({
+    data: {
+      checklistId: row.id,
+      body: b,
+      sortOrder: (agg._max.sortOrder ?? -1) + 1,
+    },
+    select: { id: true },
+  });
+
+  await prisma.personalTaskBoard.update({ where: { id: access.task.boardId }, data: { updatedAt: new Date() } });
+  revalidateTasks();
+  return { ok: true as const, itemId: created.id };
+}
+
+export async function toggleChecklistItem(itemId: string, isDone: boolean) {
+  const viewer = await sessionViewer();
+  if (!viewer) return { ok: false as const, error: "Unauthorized" };
+
+  const row = await prisma.personalTaskChecklistItem.findUnique({
+    where: { id: itemId },
+    select: { id: true, checklist: { select: { id: true, taskId: true } } },
+  });
+  if (!row) return { ok: false as const, error: "Item not found." };
+
+  const access = await getTaskAccess(row.checklist.taskId, viewer.id, viewer.role as Role, viewer.permissions ?? null, viewer.headedDept?.id ?? null);
+  if (!access?.canEdit) return { ok: false as const, error: "No access." };
+
+  await prisma.$transaction(async (tx) => {
+    await tx.personalTaskChecklistItem.update({
+      where: { id: row.id },
+      data: { isDone, completedAt: isDone ? new Date() : null },
+    });
+    await tx.personalTaskBoard.update({ where: { id: access.task.boardId }, data: { updatedAt: new Date() } });
+  });
+  revalidateTasks();
+  return { ok: true as const };
+}
+
+export async function deleteChecklistItem(itemId: string) {
+  const viewer = await sessionViewer();
+  if (!viewer) return { ok: false as const, error: "Unauthorized" };
+
+  const row = await prisma.personalTaskChecklistItem.findUnique({
+    where: { id: itemId },
+    select: { id: true, checklist: { select: { taskId: true } } },
+  });
+  if (!row) return { ok: false as const, error: "Item not found." };
+
+  const access = await getTaskAccess(row.checklist.taskId, viewer.id, viewer.role as Role, viewer.permissions ?? null, viewer.headedDept?.id ?? null);
+  if (!access?.canEdit) return { ok: false as const, error: "No access." };
+
+  await prisma.$transaction(async (tx) => {
+    await tx.personalTaskChecklistItem.delete({ where: { id: row.id } });
+    await tx.personalTaskBoard.update({ where: { id: access.task.boardId }, data: { updatedAt: new Date() } });
+  });
+  revalidateTasks();
+  return { ok: true as const };
 }
 
 export async function createPersonalTaskStage(ownerUserId: string, formData?: FormData) {
@@ -604,7 +931,7 @@ export async function addTaskComment(taskId: string, formData: FormData) {
   const bodyRaw = nu(formData.get("body"), 16000);
   if (bodyRaw.length < 2) return { ok: false as const, error: "Comment is too short." };
 
-  const ok = await viewerCanComment(v.id, v.role as Role, v.headedDept?.id ?? null, taskId);
+  const ok = await viewerCanComment(v.id, v.role as Role, v.permissions ?? null, v.headedDept?.id ?? null, taskId);
   if (!ok) return { ok: false as const, error: "No access." };
 
   await prisma.personalTaskComment.create({
@@ -666,6 +993,161 @@ export async function deleteTaskComment(commentId: string) {
   return { ok: true as const };
 }
 
+export async function loadBoardTaskForClient(taskId: string): Promise<
+  | { ok: true; task: ClientBoardTask }
+  | { ok: false; error: string }
+> {
+  const v = await sessionViewer();
+  if (!v) return { ok: false, error: "Unauthorized" };
+
+  const access = await getTaskAccess(taskId, v.id, v.role as Role, v.permissions ?? null, v.headedDept?.id ?? null);
+  if (!access?.canView) return { ok: false, error: "No access." };
+
+  const task = await prisma.personalTask.findUnique({
+    where: { id: taskId },
+    select: {
+      id: true,
+      stageId: true,
+      title: true,
+      description: true,
+      dueDate: true,
+      sortOrder: true,
+      assignedTo: {
+        select: {
+          id: true,
+          name: true,
+          firstName: true,
+          lastName: true,
+          email: true,
+          image: true,
+        },
+      },
+      assignedBy: {
+        select: {
+          id: true,
+          name: true,
+          firstName: true,
+          lastName: true,
+          email: true,
+          image: true,
+        },
+      },
+      attachments: {
+        orderBy: { createdAt: "desc" },
+        select: {
+          id: true,
+          fileName: true,
+          url: true,
+          mimeType: true,
+          sizeBytes: true,
+          createdAt: true,
+        },
+      },
+      comments: {
+        orderBy: { createdAt: "asc" },
+        select: {
+          id: true,
+          authorId: true,
+          body: true,
+          createdAt: true,
+          author: {
+            select: {
+              id: true,
+              name: true,
+              firstName: true,
+              lastName: true,
+              email: true,
+              image: true,
+            },
+          },
+        },
+      },
+      members: {
+        orderBy: { createdAt: "asc" },
+        select: {
+          id: true,
+          user: {
+            select: {
+              id: true,
+              name: true,
+              firstName: true,
+              lastName: true,
+              email: true,
+              image: true,
+            },
+          },
+        },
+      },
+      labelAssignments: {
+        orderBy: { createdAt: "asc" },
+        select: {
+          id: true,
+          label: {
+            select: { id: true, name: true, color: true, sortOrder: true },
+          },
+        },
+      },
+      checklists: {
+        orderBy: { sortOrder: "asc" },
+        select: {
+          id: true,
+          title: true,
+          sortOrder: true,
+          items: {
+            orderBy: { sortOrder: "asc" },
+            select: {
+              id: true,
+              body: true,
+              isDone: true,
+              sortOrder: true,
+            },
+          },
+        },
+      },
+    },
+  });
+  if (!task) return { ok: false, error: "Task not found." };
+
+  return {
+    ok: true,
+    task: {
+      id: task.id,
+      stageId: task.stageId,
+      title: task.title,
+      description: task.description,
+      dueDate: task.dueDate ? task.dueDate.toISOString() : null,
+      sortOrder: task.sortOrder,
+      assignedTo: task.assignedTo,
+      assignedBy: task.assignedBy,
+      attachments: task.attachments.map((a) => ({
+        id: a.id,
+        fileName: a.fileName,
+        url: a.url,
+        mimeType: a.mimeType,
+        sizeBytes: a.sizeBytes,
+        createdAt: a.createdAt.toISOString(),
+      })),
+      comments: task.comments.map((c) => ({
+        id: c.id,
+        authorId: c.authorId,
+        body: c.body,
+        createdAt: c.createdAt.toISOString(),
+        author: c.author,
+      })),
+      members: task.members.map((m) => m.user),
+      labels: task.labelAssignments
+        .map((a) => a.label)
+        .sort((a, b) => a.sortOrder - b.sortOrder)
+        .map((l) => ({ id: l.id, name: l.name, color: l.color })),
+      checklists: task.checklists.map((c) => ({
+        id: c.id,
+        title: c.title,
+        items: c.items.map((it) => ({ id: it.id, body: it.body, isDone: it.isDone, sortOrder: it.sortOrder })),
+      })),
+    } as unknown as ClientBoardTask,
+  };
+}
+
 export async function addPersonalTaskAttachment(
   ownerUserId: string,
   taskId: string,
@@ -674,7 +1156,7 @@ export async function addPersonalTaskAttachment(
   const viewer = await sessionViewer();
   if (!viewer) return { ok: false, error: "Unauthorized" };
 
-  const access = await getTaskAccess(taskId, viewer.id, viewer.role as Role, viewer.headedDept?.id ?? null);
+  const access = await getTaskAccess(taskId, viewer.id, viewer.role as Role, viewer.permissions ?? null, viewer.headedDept?.id ?? null);
   if (!access?.canEdit) return { ok: false, error: "Task not found." };
 
   const file = formData.get("file");
@@ -715,7 +1197,7 @@ export async function deletePersonalTaskAttachment(ownerUserId: string, attachme
   });
   if (!attachment) return { ok: false as const };
 
-  const access = await getTaskAccess(attachment.taskId, viewer.id, viewer.role as Role, viewer.headedDept?.id ?? null);
+  const access = await getTaskAccess(attachment.taskId, viewer.id, viewer.role as Role, viewer.permissions ?? null, viewer.headedDept?.id ?? null);
   if (!access?.canEdit) return { ok: false as const };
 
   await prisma.personalTaskAttachment.delete({ where: { id: attachmentId } });

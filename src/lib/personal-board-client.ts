@@ -12,11 +12,18 @@ export function serializePersonalBoardForClient(board: PersonalBoardPayload): Cl
       sortOrder: s.sortOrder,
       isFinishedColumn: s.isFinishedColumn,
     })),
+    labels: board.labels.map((l) => ({
+      id: l.id,
+      name: l.name,
+      color: l.color,
+      sortOrder: l.sortOrder,
+    })),
     tasks: board.tasks.map((t) => ({
       id: t.id,
       stageId: t.stageId,
       title: t.title,
       description: t.description,
+      dueDate: t.dueDate ? t.dueDate.toISOString() : null,
       sortOrder: t.sortOrder,
       assignedTo: {
         id: t.assignedTo.id,
@@ -57,6 +64,23 @@ export function serializePersonalBoardForClient(board: PersonalBoardPayload): Cl
           email: c.author.email,
           image: c.author.image,
         },
+      })),
+      members: t.members.map((m) => ({
+        id: m.user.id,
+        name: m.user.name,
+        firstName: m.user.firstName,
+        lastName: m.user.lastName,
+        email: m.user.email,
+        image: m.user.image,
+      })),
+      labels: t.labelAssignments
+        .map((a) => a.label)
+        .sort((a, b) => a.sortOrder - b.sortOrder)
+        .map((l) => ({ id: l.id, name: l.name, color: l.color })),
+      checklists: t.checklists.map((c) => ({
+        id: c.id,
+        title: c.title,
+        items: c.items.map((it) => ({ id: it.id, body: it.body, isDone: it.isDone, sortOrder: it.sortOrder })),
       })),
     })),
   };

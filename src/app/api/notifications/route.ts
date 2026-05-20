@@ -20,8 +20,11 @@ export async function GET(req: NextRequest) {
   const tab = req.nextUrl.searchParams.get("tab") ?? "all";
   const unreadOnly = tab === "unread";
 
-  const [unreadCount, notifications] = await Promise.all([
+  const [unreadCount, unreadMessageCount, notifications] = await Promise.all([
     prisma.notification.count({ where: { userId: me.id, readAt: null } }),
+    prisma.notification.count({
+      where: { userId: me.id, readAt: null, kind: { in: ["TASK_COMMENT", "CEO_FEEDBACK_REPLY"] } },
+    }),
     prisma.notification.findMany({
       where: { userId: me.id, ...(unreadOnly ? { readAt: null } : {}) },
       orderBy: [{ readAt: "asc" }, { createdAt: "desc" }],
@@ -38,7 +41,7 @@ export async function GET(req: NextRequest) {
     }),
   ]);
 
-  return NextResponse.json({ unreadCount, notifications });
+  return NextResponse.json({ unreadCount, unreadMessageCount, notifications });
 }
 
 const postSchema = z.discriminatedUnion("action", [
@@ -74,7 +77,12 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  const unreadCount = await prisma.notification.count({ where: { userId: me.id, readAt: null } });
-  return NextResponse.json({ ok: true, unreadCount });
+  const [unreadCount, unreadMessageCount] = await Promise.all([
+    prisma.notification.count({ where: { userId: me.id, readAt: null } }),
+    prisma.notification.count({
+      where: { userId: me.id, readAt: null, kind: { in: ["TASK_COMMENT", "CEO_FEEDBACK_REPLY"] } },
+    }),
+  ]);
+  return NextResponse.json({ ok: true, unreadCount, unreadMessageCount });
 }
 

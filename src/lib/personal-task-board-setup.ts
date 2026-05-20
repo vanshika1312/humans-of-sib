@@ -10,6 +10,10 @@ const DEFAULT_STAGES: { title: string; sortOrder: number; isFinishedColumn: bool
 
 const boardInclude = Prisma.validator<Prisma.PersonalTaskBoardInclude>()({
   stages: { orderBy: { sortOrder: "asc" } },
+  labels: {
+    orderBy: { sortOrder: "asc" },
+    select: { id: true, name: true, color: true, sortOrder: true },
+  },
   tasks: {
     orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
     include: {
@@ -57,6 +61,48 @@ const boardInclude = Prisma.validator<Prisma.PersonalTaskBoardInclude>()({
           lastName: true,
           email: true,
           image: true,
+        },
+      },
+      members: {
+        orderBy: { createdAt: "asc" },
+        select: {
+          id: true,
+          user: {
+            select: {
+              id: true,
+              name: true,
+              firstName: true,
+              lastName: true,
+              email: true,
+              image: true,
+            },
+          },
+        },
+      },
+      labelAssignments: {
+        orderBy: { createdAt: "asc" },
+        select: {
+          id: true,
+          label: {
+            select: { id: true, name: true, color: true, sortOrder: true },
+          },
+        },
+      },
+      checklists: {
+        orderBy: { sortOrder: "asc" },
+        select: {
+          id: true,
+          title: true,
+          sortOrder: true,
+          items: {
+            orderBy: { sortOrder: "asc" },
+            select: {
+              id: true,
+              body: true,
+              isDone: true,
+              sortOrder: true,
+            },
+          },
         },
       },
     },

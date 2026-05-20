@@ -12,13 +12,17 @@ export function Topbar({
   user,
   deptName,
   cityName,
-  unreadNotifications = 0,
+  unreadMessages = 0,
+  navRole,
+  navPermissions,
   signOutAction,
 }: {
   user: { name?: string | null; email?: string | null; image?: string | null };
   deptName?: string | null;
   cityName?: string | null;
-  unreadNotifications?: number;
+  unreadMessages?: number;
+  navRole?: string;
+  navPermissions?: string[];
   signOutAction: () => Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
@@ -27,7 +31,11 @@ export function Topbar({
   const [notifTab, setNotifTab] = useState<"all" | "unread">("all");
   const [notifLoading, setNotifLoading] = useState(false);
   const [notifError, setNotifError] = useState<string | null>(null);
-  const [notifData, setNotifData] = useState<{ unreadCount: number; notifications: NotificationItem[] } | null>(null);
+  const [notifData, setNotifData] = useState<{
+    unreadCount: number;
+    unreadMessageCount: number;
+    notifications: NotificationItem[];
+  } | null>(null);
 
   async function loadNotifications(nextTab: "all" | "unread") {
     setNotifLoading(true);
@@ -35,7 +43,11 @@ export function Topbar({
     try {
       const res = await fetch(`/api/notifications?tab=${encodeURIComponent(nextTab)}`, { cache: "no-store" });
       if (!res.ok) throw new Error("Failed to load notifications");
-      const json = (await res.json()) as { unreadCount: number; notifications: NotificationItem[] };
+      const json = (await res.json()) as {
+        unreadCount: number;
+        unreadMessageCount: number;
+        notifications: NotificationItem[];
+      };
       setNotifData(json);
     } catch (e) {
       setNotifError(e instanceof Error ? e.message : "Something went wrong");
@@ -53,6 +65,8 @@ export function Topbar({
         body: JSON.stringify({ action: "mark_all_read" }),
       });
       if (!res.ok) throw new Error("Failed to mark all read");
+      const json = (await res.json()) as { ok: true; unreadCount: number; unreadMessageCount: number };
+      setNotifData((prev) => (prev ? { ...prev, unreadCount: json.unreadCount, unreadMessageCount: json.unreadMessageCount } : prev));
       await loadNotifications(notifTab);
     } catch (e) {
       setNotifError(e instanceof Error ? e.message : "Something went wrong");
@@ -68,14 +82,16 @@ export function Topbar({
         body: JSON.stringify({ action: "mark_read", id }),
       });
       if (!res.ok) throw new Error("Failed to mark read");
+      const json = (await res.json()) as { ok: true; unreadCount: number; unreadMessageCount: number };
+      setNotifData((prev) => (prev ? { ...prev, unreadCount: json.unreadCount, unreadMessageCount: json.unreadMessageCount } : prev));
       await loadNotifications(notifTab);
     } catch (e) {
       setNotifError(e instanceof Error ? e.message : "Something went wrong");
     }
   }
 
-  const unread = Math.max(0, Math.max(unreadNotifications || 0, notifData?.unreadCount ?? 0));
-  const unreadLabel = unread > 99 ? "99+" : String(unread);
+  const unreadMessagesBadge = Math.max(0, Math.max(unreadMessages || 0, notifData?.unreadMessageCount ?? 0));
+  const unreadLabel = unreadMessagesBadge > 99 ? "99+" : String(unreadMessagesBadge);
 
   return (
     <>
@@ -111,7 +127,9 @@ export function Topbar({
 
             <button
               type="button"
-              aria-label={unread > 0 ? `Notifications (${unread} unread)` : "Notifications"}
+              aria-label={
+                unreadMessagesBadge > 0 ? `Notifications (${unreadMessagesBadge} unread messages)` : "Notifications"
+              }
               aria-haspopup="dialog"
               aria-expanded={notifOpen}
               onClick={() => {
@@ -123,7 +141,7 @@ export function Topbar({
               className="relative size-9 inline-flex items-center justify-center rounded-md hover:bg-ink-100 text-ink-600"
             >
               <Bell className="size-5" />
-              {unread > 0 && (
+              {unreadMessagesBadge > 0 && (
                 <span className="absolute -top-1 -right-1 min-w-5 h-5 px-1 rounded-full bg-red-500 text-white text-[10px] font-semibold inline-flex items-center justify-center">
                   {unreadLabel}
                 </span>
@@ -185,7 +203,7 @@ export function Topbar({
         tab={notifTab}
         loading={notifLoading}
         error={notifError}
-        unreadCount={notifData?.unreadCount ?? unread}
+        unreadCount={notifData?.unreadCount ?? 0}
         notifications={notifData?.notifications ?? []}
         onTabChange={(t) => {
           setNotifTab(t);
@@ -218,7 +236,7 @@ export function Topbar({
           >
             <X className="size-5" />
           </button>
-          <Sidebar onNavigate={() => setOpen(false)} />
+          <Sidebar onNavigate={() => setOpen(false)} role={navRole} permissions={navPermissions} />
         </aside>
       </div>
     </>

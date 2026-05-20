@@ -10,7 +10,7 @@ import { displayName } from "@/lib/user-display-name";
 import { cn } from "@/lib/utils";
 import { loadPersonalTaskBoardForModal } from "./board-actions";
 import { TaskKanbanBoardLoader } from "./task-kanban-board-loader";
-import type { ClientBoard } from "./task-kanban-types";
+import type { ClientBoard, ClientTaskAssignee } from "./task-kanban-types";
 
 export type TeamMemberForTasks = {
   id: string;
@@ -28,6 +28,7 @@ export function TeamTaskMemberCards({
   viewerId,
   peekMember,
   initialOverlay,
+  memberOptions,
   showGrid = true,
 }: {
   members: TeamMemberForTasks[];
@@ -37,6 +38,7 @@ export function TeamTaskMemberCards({
   peekMember: TeamMemberForTasks | null;
   /** When present (e.g. `/my-tasks?userId=`), open overlay on mount with this board already loaded */
   initialOverlay: { userId: string; board: ClientBoard; initialOpenTaskId: string | null } | null;
+  memberOptions: ClientTaskAssignee[];
   /** Render the clickable member grid (overlay still works). */
   showGrid?: boolean;
 }) {
@@ -202,6 +204,7 @@ export function TeamTaskMemberCards({
                   viewerId={viewerId}
                   readOnly
                   initialOpenTaskId={overlayTaskId}
+                  memberOptions={memberOptions}
                   suppressUrlSync
                 />
               ) : (

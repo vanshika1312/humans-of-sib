@@ -26,16 +26,18 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { GripVertical, MessageSquareText, Paperclip, Trash2 } from "lucide-react";
+import { CalendarDays, CheckSquare, GripVertical, MessageSquareText, Paperclip, Tag, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
 import { displayName } from "@/lib/user-display-name";
 import { cn } from "@/lib/utils";
 import { stageColumnShell, taskCardSurface } from "@/lib/personal-task-board-tint";
+import { formatCalendarDate } from "@/lib/calendar-date";
 import {
   addBoardTask,
   deletePersonalTaskStage,
+  loadBoardTaskForClient,
   persistBoardLayout,
   renamePersonalTaskStage,
   reorderPersonalTaskStages,
@@ -48,12 +50,56 @@ const DROP_PREFIX = "drop~";
 /** Prefix for horizontal column sortables (must not match task cuid). */
 const COL_PREFIX = "col:";
 
+function labelPillClass(color: string | null | undefined) {
+  switch (color) {
+    case "sky":
+      return "bg-sky-200 text-sky-800";
+    case "emerald":
+      return "bg-emerald-200 text-emerald-800";
+    case "amber":
+      return "bg-amber-200 text-amber-900";
+    case "rose":
+      return "bg-rose-200 text-rose-900";
+    case "violet":
+      return "bg-violet-200 text-violet-900";
+    case "slate":
+    default:
+      return "bg-slate-200 text-slate-800";
+  }
+}
+
 function cloneBuckets(b: Record<string, string[]>): Record<string, string[]> {
   const o: Record<string, string[]> = {};
   for (const k of Object.keys(b)) {
     o[k] = [...b[k]];
   }
   return o;
+}
+
+function applyBucketLayoutToTasks(
+  current: ClientBoardTask[],
+  nextBuckets: Record<string, string[]>,
+  stageIdsToUpdate: string[],
+): ClientBoardTask[] {
+  if (stageIdsToUpdate.length === 0) return current;
+
+  const nextSortByTaskId = new Map<string, { stageId: string; sortOrder: number }>();
+  for (const stageId of stageIdsToUpdate) {
+    const ids = nextBuckets[stageId] ?? [];
+    ids.forEach((taskId, idx) => {
+      nextSortByTaskId.set(taskId, { stageId, sortOrder: idx });
+    });
+  }
+
+  let changed = false;
+  const next = current.map((t) => {
+    const hit = nextSortByTaskId.get(t.id);
+    if (!hit) return t;
+    if (t.stageId === hit.stageId && t.sortOrder === hit.sortOrder) return t;
+    changed = true;
+    return { ...t, stageId: hit.stageId, sortOrder: hit.sortOrder };
+  });
+  return changed ? next : current;
 }
 
 function bucketsFromBoard(board: ClientBoard): Record<string, string[]> {
@@ -88,6 +134,10 @@ function SortableCard(props: {
   readOnly: boolean;
   attachCount: number;
   commentCount: number;
+  dueDate?: string | null;
+  labels?: { id: string; name: string; color: string }[];
+  checklistDone?: number;
+  checklistTotal?: number;
   metaLabel?: string | null;
   onOpen: () => void;
 }) {
@@ -120,6 +170,32 @@ function SortableCard(props: {
         <p className="text-slate-800 font-medium text-sm leading-snug group-hover:text-sky-700 transition-colors">
           {props.title}
         </p>
+        {props.labels && props.labels.length > 0 ? (
+          <div className="mt-1 flex flex-wrap gap-1">
+            {props.labels.slice(0, 4).map((l) => (
+              <span
+                key={l.id}
+                className={cn("inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold", labelPillClass(l.color))}
+              >
+                <Tag className="size-3 mr-1 opacity-70" aria-hidden />
+                {l.name}
+              </span>
+            ))}
+            {props.labels.length > 4 ? (
+              <span className="text-[10px] text-slate-500 font-semibold">+{props.labels.length - 4}</span>
+            ) : null}
+          </div>
+        ) : null}
+        {props.dueDate ? (
+          <p className="mt-1 inline-flex items-center gap-1 text-[11px] text-slate-600">
+            <CalendarDays className="size-3.5" aria-hidden /> {formatCalendarDate(props.dueDate)}
+          </p>
+        ) : null}
+        {props.checklistTotal && props.checklistTotal > 0 ? (
+          <p className="mt-1 inline-flex items-center gap-1 text-[11px] text-slate-600">
+            <CheckSquare className="size-3.5" aria-hidden /> {props.checklistDone ?? 0}/{props.checklistTotal}
+          </p>
+        ) : null}
         {props.metaLabel ? <p className="mt-1 truncate text-[11px] text-slate-500">{props.metaLabel}</p> : null}
         <div className="flex items-center gap-2 mt-1 text-[11px] text-slate-500">
           <span className="inline-flex items-center gap-0.5">
@@ -312,6 +388,10 @@ function SortableStageColumn(props: {
                     readOnly={readOnly}
                     attachCount={t.attachments.length}
                     commentCount={t.comments.length}
+                    dueDate={t.dueDate}
+                    labels={t.labels}
+                    checklistDone={t.checklists.reduce((n, c) => n + c.items.filter((it) => it.isDone).length, 0)}
+                    checklistTotal={t.checklists.reduce((n, c) => n + c.items.length, 0)}
                     metaLabel={
                       t.assignedTo.id === ownerUserId
                         ? t.assignedBy && t.assignedBy.id !== ownerUserId
@@ -379,6 +459,7 @@ export function TaskKanbanBoard({
   viewerId,
   readOnly,
   initialOpenTaskId,
+  memberOptions,
   suppressUrlSync,
 }: {
   board: ClientBoard;
@@ -386,6 +467,7 @@ export function TaskKanbanBoard({
   viewerId: string;
   readOnly: boolean;
   initialOpenTaskId: string | null;
+  memberOptions: ClientBoardTask["assignedTo"][];
   /** Do not rewrite `/my-tasks` query params when selecting a card (nested overlay). */
   suppressUrlSync?: boolean;
 }) {
@@ -413,6 +495,22 @@ export function TaskKanbanBoard({
   );
 
   const [openTaskId, setOpenTaskId] = useState(initialOpenTaskId);
+
+  function upsertTask(next: ClientBoardTask) {
+    setTasks((current) => {
+      const idx = current.findIndex((t) => t.id === next.id);
+      if (idx === -1) return [...current, next];
+      const copy = [...current];
+      copy[idx] = next;
+      return copy;
+    });
+  }
+
+  async function refreshSingleTask(taskId: string) {
+    const r = await loadBoardTaskForClient(taskId);
+    if (!r.ok) return;
+    upsertTask(r.task);
+  }
 
   function syncUrl(taskId: string | null) {
     if (suppressUrlSync) return;
@@ -481,7 +579,9 @@ export function TaskKanbanBoard({
 
     const activeIdRaw = activeRaw;
     const overIdRaw = String(over.id);
-    const nextBuckets = cloneBuckets(buckets);
+    const rollbackBuckets = buckets;
+    const rollbackTasks = tasks;
+    const nextBuckets = cloneBuckets(rollbackBuckets);
 
     const activeContainer = findContainer(activeIdRaw, nextBuckets, stageOrderIds);
     if (!activeContainer) {
@@ -494,6 +594,9 @@ export function TaskKanbanBoard({
 
     if (overIdRaw.startsWith(DROP_PREFIX)) {
       overContainer = overIdRaw.slice(DROP_PREFIX.length);
+    } else if (overIdRaw.startsWith("tasks-")) {
+      // SortableContext id used by dnd-kit when hovering empty list body.
+      overContainer = overIdRaw.slice("tasks-".length);
     } else if (overIdRaw.startsWith(COL_PREFIX)) {
       overContainer = overIdRaw.slice(COL_PREFIX.length);
     } else if (stageOrderIds.includes(overIdRaw)) {
@@ -524,6 +627,8 @@ export function TaskKanbanBoard({
       return;
     }
 
+    let didChange = false;
+
     if (activeContainer === overContainer) {
       let overIdx: number;
       if (overIdRaw.startsWith(DROP_PREFIX)) {
@@ -534,6 +639,7 @@ export function TaskKanbanBoard({
         overIdx = nextBuckets[overContainer].length - 1;
       }
       if (overIdx < 0) overIdx = nextBuckets[overContainer].length;
+      if (overIdx !== activeIdx) didChange = true;
       nextBuckets[activeContainer] = arrayMove(nextBuckets[activeContainer], activeIdx, overIdx);
     } else {
       nextBuckets[activeContainer] = nextBuckets[activeContainer].filter((id) => id !== activeIdRaw);
@@ -547,15 +653,27 @@ export function TaskKanbanBoard({
         activeIdRaw,
         ...nextBuckets[overContainer].slice(overIdx),
       ];
+      didChange = true;
     }
 
-    const snapshotRollback = bucketsFromBoard(board);
+    if (!didChange) {
+      clearOverlay();
+      return;
+    }
+
     setBuckets(nextBuckets);
+
+    // Keep task metadata consistent (drawer/status + stable ordering expectations)
+    setTasks((current) =>
+      applyBucketLayoutToTasks(current, nextBuckets, activeContainer === overContainer ? [activeContainer] : [activeContainer, overContainer]),
+    );
+
     startTransition(async () => {
       const pers = await persistBoardLayout(ownerUserId, nextBuckets);
       if (!pers.ok) {
         toast.error("Could not save card order.");
-        setBuckets(snapshotRollback);
+        setBuckets(rollbackBuckets);
+        setTasks(rollbackTasks);
       }
     });
     clearOverlay();
@@ -640,9 +758,15 @@ export function TaskKanbanBoard({
           key={drawerTask.id}
           task={drawerTask}
           stages={orderedStages}
+          boardLabels={board.labels}
+          memberOptions={memberOptions}
           ownerUserId={ownerUserId}
           viewerId={viewerId}
           readOnlyBoard={readOnly}
+          onTaskChanged={(t) => upsertTask(t)}
+          refreshTask={async () => {
+            router.refresh();
+          }}
           onClose={() => {
             setOpenTaskId(null);
             syncUrl(null);

@@ -32,7 +32,8 @@ export default async function NewMemberPage({
 
 async function NewMemberPageBody() {
   const me = await requireAppViewer();
-  if (!me || !ADMIN_ROLES.includes(me.role)) redirect("/home");
+  const canWriteTeam = !!me && (ADMIN_ROLES.includes(me.role) || (me.permissions ?? []).includes("ADMIN_TEAM_WRITE"));
+  if (!canWriteTeam) redirect("/home");
 
   const [managersRaw] = await Promise.all([
     prisma.user.findMany({

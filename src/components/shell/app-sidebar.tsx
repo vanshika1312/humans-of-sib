@@ -7,7 +7,7 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 
 const STORAGE_KEY = "hosib-main-sidebar-collapsed";
 
-export function AppSidebar({ role }: { role: string }) {
+export function AppSidebar({ role, permissions }: { role: string; permissions: string[] }) {
   const [collapsed, setCollapsed] = useState(false);
 
   useEffect(() => {
@@ -38,7 +38,7 @@ export function AppSidebar({ role }: { role: string }) {
       )}
     >
       <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden">
-        <Sidebar role={role} collapsed={collapsed} />
+        <Sidebar role={role} permissions={permissions} collapsed={collapsed} />
       </div>
       <div className="p-2 border-t border-ink-100 shrink-0">
         <button

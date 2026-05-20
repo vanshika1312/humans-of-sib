@@ -70,13 +70,16 @@ const nav = [
 export function Sidebar({
   onNavigate,
   role,
+  permissions,
   collapsed,
 }: {
   onNavigate?: () => void;
   role?: string;
+  permissions?: string[];
   collapsed?: boolean;
 }) {
   const pathname = usePathname();
+  const canSeeAdmin = (role && ["CEO", "ADMIN", "HR"].includes(role)) || (permissions ?? []).includes("ADMIN_PANEL");
 
   return (
     <nav className="h-full flex flex-col">
@@ -156,7 +159,7 @@ export function Sidebar({
             </ul>
           </div>
         ))}
-        {role && ["CEO", "ADMIN", "HR"].includes(role) && (
+        {canSeeAdmin && (
           <div className={cn("pb-4 border-t border-ink-100 pt-4", collapsed ? "px-0" : "px-3")}>
             {!collapsed && (
               <div className="px-3 text-[10px] font-semibold uppercase tracking-wider text-ink-300 mb-1.5">

@@ -14,6 +14,7 @@ import { updateMember, resendOnboardingInvite, deleteMember } from "../../action
 import { AdminNoticeBanner } from "@/components/admin/admin-notice-banner";
 import { displayName } from "@/lib/user-display-name";
 import { firstSearchParam } from "@/lib/search-param";
+import { PERMISSIONS } from "@/lib/permissions";
 
 const ADMIN_ROLES = ["CEO", "ADMIN", "HR"];
 
@@ -53,9 +54,10 @@ export default async function EditMemberPage({
 
 async function EditMemberPageBody({ id }: { id: string }) {
   const me = await requireAppViewer();
-  if (!me || !ADMIN_ROLES.includes(me.role)) redirect("/home");
+  const canWriteTeam = !!me && (ADMIN_ROLES.includes(me.role) || (me.permissions ?? []).includes("ADMIN_TEAM_WRITE"));
+  if (!canWriteTeam) redirect("/home");
 
-  const [member, cities, managersRaw] = await Promise.all([
+  const [member, cities, managersRaw, boardViewers] = await Promise.all([
     prisma.user.findUnique({
       where: { id },
       include: { department: true, city: true, compensation: true },
@@ -66,6 +68,11 @@ async function EditMemberPageBody({ id }: { id: string }) {
       select: { id: true, name: true, firstName: true, lastName: true, email: true },
       orderBy: { name: "asc" },
     }),
+    prisma.personalTaskBoardViewer.findMany({
+      where: { ownerUserId: id },
+      select: { viewerUserId: true },
+      orderBy: { createdAt: "asc" },
+    }),
   ]);
 
   if (!member) notFound();
@@ -75,6 +82,9 @@ async function EditMemberPageBody({ id }: { id: string }) {
       b.name || `${b.firstName} ${b.lastName}` || b.email,
     ),
   );
+
+  const boardViewerIds = new Set(boardViewers.map((r) => r.viewerUserId));
+  const memberPerms = new Set(member.permissions ?? []);
 
   const isCeoOrAdmin = ["CEO", "ADMIN"].includes(me.role);
   const action = updateMember.bind(null, id);
@@ -183,6 +193,59 @@ async function EditMemberPageBody({ id }: { id: string }) {
                     </option>
                   ))}
                 </Select>
+              </div>
+            </div>
+
+            <div className="border-t border-ink-100 pt-5 space-y-3">
+              <div className="text-xs font-semibold uppercase tracking-wider text-ink-400">Permissions</div>
+              <p className="text-xs text-ink-400 -mt-1">
+                Fine-grained access beyond role. Use this to grant restricted admin access or task visibility.
+              </p>
+              <div className="space-y-2">
+                {PERMISSIONS.map((p) => (
+                  <label key={p} className="flex items-start gap-2 text-sm text-ink-600">
+                    <input
+                      type="checkbox"
+                      name="permissions"
+                      value={p}
+                      defaultChecked={memberPerms.has(p)}
+                      className="mt-0.5 size-4 rounded border-ink-200 text-sky-600 focus:ring-sky-500"
+                    />
+                    <span className="leading-5">
+                      {p === "TASKS_VIEW_ALL"
+                        ? "View all task boards"
+                        : p === "ADMIN_PANEL"
+                          ? "Admin panel access (read-only unless write enabled)"
+                          : p === "ADMIN_TEAM_WRITE"
+                            ? "Admin panel: manage team (create/edit members)"
+                            : p}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div className="border-t border-ink-100 pt-5 space-y-3">
+              <div className="text-xs font-semibold uppercase tracking-wider text-ink-400">Task board access</div>
+              <p className="text-xs text-ink-400 -mt-1">
+                Extra people who can open this member&apos;s task board (in addition to their manager / dept head rules).
+              </p>
+              <div className="grid md:grid-cols-2 gap-2">
+                {managers.map((u) => {
+                  const label = u.name || `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() || u.email;
+                  return (
+                    <label key={u.id} className="flex items-start gap-2 text-sm text-ink-600">
+                      <input
+                        type="checkbox"
+                        name="taskBoardViewers"
+                        value={u.id}
+                        defaultChecked={boardViewerIds.has(u.id)}
+                        className="mt-0.5 size-4 rounded border-ink-200 text-sky-600 focus:ring-sky-500"
+                      />
+                      <span className="leading-5">{label}</span>
+                    </label>
+                  );
+                })}
               </div>
             </div>
 

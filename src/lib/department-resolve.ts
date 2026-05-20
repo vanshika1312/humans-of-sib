@@ -1,5 +1,5 @@
 import type { Prisma } from "@/generated/prisma";
-import { slugifyDepartmentName } from "@/lib/workspace-departments";
+import { slugifyDepartmentName, WORKSPACE_DEPARTMENTS } from "@/lib/workspace-departments";
 
 type Db = {
   department: Prisma.DepartmentDelegate;
@@ -41,11 +41,14 @@ export async function findOrCreateDepartmentByName(db: Db, rawName: string): Pro
     slug = `${base}-${n + 1}`;
   }
 
+  const presetEmoji =
+    WORKSPACE_DEPARTMENTS.find((d) => d.slug === base || d.name.trim().toLowerCase() === lower)?.emoji ?? null;
+
   const created = await db.department.create({
     data: {
       name,
       slug,
-      emoji: null,
+      emoji: presetEmoji,
     },
   });
   return { id: created.id };

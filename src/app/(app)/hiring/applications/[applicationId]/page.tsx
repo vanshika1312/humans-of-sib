@@ -35,6 +35,7 @@ type Props = {
   params: Promise<{ applicationId: string }>;
   searchParams: Promise<{
     tab?: string | string[];
+    from?: string | string[];
     error?: string | string[];
     notesSaved?: string | string[];
     attached?: string | string[];
@@ -50,6 +51,7 @@ export default async function HiringApplicationDetailPage(props: Props) {
   const sp = await props.searchParams;
 
   const tab = firstSearchParam(sp.tab);
+  const from = firstSearchParam(sp.from);
   const isTimeline = tab === "timeline";
   const flashError = firstSearchParam(sp.error);
   const notesSaved = firstSearchParam(sp.notesSaved) === "1";
@@ -122,9 +124,12 @@ export default async function HiringApplicationDetailPage(props: Props) {
       })
     : [];
 
-  const overviewHref = `/hiring/applications/${applicationId}`;
-  const timelineHref = `/hiring/applications/${applicationId}?tab=timeline`;
-  const detailReturnPath = `/hiring/applications/${applicationId}`;
+  const qsFrom = from ? `&from=${encodeURIComponent(from)}` : "";
+  const overviewHref = from
+    ? (`/hiring/applications/${applicationId}?from=${encodeURIComponent(from)}` as const)
+    : (`/hiring/applications/${applicationId}` as const);
+  const timelineHref = (`/hiring/applications/${applicationId}?tab=timeline${qsFrom}` as const);
+  const detailReturnPath = overviewHref;
   const profileResumeHref = app.candidate.resumeUrl?.trim();
 
   const reviewAction = createHiringApplicationReview.bind(null, applicationId);

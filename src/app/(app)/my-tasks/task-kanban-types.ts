@@ -33,16 +33,40 @@ export type ClientTaskAttachment = {
   createdAt: string;
 };
 
+export type ClientBoardLabel = {
+  id: string;
+  name: string;
+  color: string;
+  sortOrder: number;
+};
+
+export type ClientTaskChecklistItem = {
+  id: string;
+  body: string;
+  isDone: boolean;
+  sortOrder: number;
+};
+
+export type ClientTaskChecklist = {
+  id: string;
+  title: string;
+  items: ClientTaskChecklistItem[];
+};
+
 export type ClientBoardTask = {
   id: string;
   stageId: string;
   title: string;
   description: string | null;
+  dueDate: string | null;
   sortOrder: number;
   assignedTo: ClientTaskAssignee;
   assignedBy: ClientTaskAssignee | null;
   attachments: ClientTaskAttachment[];
   comments: ClientTaskComment[];
+  members: ClientTaskAssignee[];
+  labels: { id: string; name: string; color: string }[];
+  checklists: ClientTaskChecklist[];
 };
 
 export type ClientBoardStage = {
@@ -56,5 +80,6 @@ export type ClientBoard = {
   id: string;
   updatedAtMs: number;
   stages: ClientBoardStage[];
+  labels: ClientBoardLabel[];
   tasks: ClientBoardTask[];
 };

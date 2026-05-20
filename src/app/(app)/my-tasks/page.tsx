@@ -10,7 +10,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { getOrCreatePersonalTaskBoard } from "@/lib/personal-task-board-setup";
 import { AddBoardColumnDialog } from "./add-board-column-dialog";
 import { AssignTaskDialog, type AssignableTaskMember } from "./assign-task-dialog";
-import type { ClientBoard } from "./task-kanban-types";
+import type { ClientBoard, ClientTaskAssignee } from "./task-kanban-types";
 import { loadPersonalTaskBoardForModal } from "./board-actions";
 import { TaskKanbanBoardLoader } from "./task-kanban-board-loader";
 import { TeamTaskMemberCards, type TeamMemberForTasks } from "./team-task-member-cards";
@@ -61,6 +61,25 @@ async function MyTasksPageBody({ searchParams }: { searchParams: SearchParams })
     email: u.email,
     title: u.title,
   }));
+
+  const memberOptions: ClientTaskAssignee[] = [
+    {
+      id: viewer.id,
+      name: viewer.name,
+      firstName: viewer.firstName,
+      lastName: viewer.lastName,
+      email: viewer.email,
+      image: viewer.image,
+    },
+    ...allActiveMembers.map((u) => ({
+      id: u.id,
+      name: u.name,
+      firstName: u.firstName,
+      lastName: u.lastName,
+      email: u.email,
+      image: u.image,
+    })),
+  ];
 
   const canSeeTeamTaskSummaries = viewer.role === "ADMIN" || viewer.role === "MANAGER";
 
@@ -214,6 +233,7 @@ async function MyTasksPageBody({ searchParams }: { searchParams: SearchParams })
           viewerId={viewer.id}
           peekMember={peekTeamMemberCard}
           initialOverlay={initialTeamOverlay}
+          memberOptions={memberOptions}
           showGrid={showTeamGrid}
         />
       ) : null}
@@ -241,6 +261,7 @@ async function MyTasksPageBody({ searchParams }: { searchParams: SearchParams })
                 ? initialTaskParam
                 : null
             }
+            memberOptions={memberOptions}
           />
         </CardContent>
       </Card>

@@ -407,7 +407,10 @@ export default async function HiringJobDetailPage(props: Props) {
                   job.applications.map((a) => (
                     <tr key={a.id} className="align-top hover:bg-ink-50/30">
                       <td className="px-5 py-3">
-                        <Link href={`/hiring/applications/${a.id}`} className="font-medium text-ink-700 hover:text-sky-800 hover:underline">
+                        <Link
+                          href={`/hiring/applications/${a.id}?from=${encodeURIComponent(`/hiring/jobs/${jobId}`)}`}
+                          className="font-medium text-ink-700 hover:text-sky-800 hover:underline"
+                        >
                           {a.candidate.fullName}
                         </Link>
                         <div className="text-xs text-ink-400">{a.candidate.email}</div>

@@ -42,6 +42,18 @@ export async function countUnreadNotifications(userId: string) {
   return prisma.notification.count({ where: { userId: id, readAt: null } });
 }
 
+export async function countUnreadMessageNotifications(userId: string) {
+  const id = ns(userId, 191);
+  if (!id.length) return 0;
+  return prisma.notification.count({
+    where: {
+      userId: id,
+      readAt: null,
+      kind: { in: ["TASK_COMMENT", "CEO_FEEDBACK_REPLY"] },
+    },
+  });
+}
+
 export async function fanoutAnnouncement(args: {
   title: string;
   body?: string | null;

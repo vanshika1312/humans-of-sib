@@ -88,13 +88,23 @@ async function PersonPageBody({ id }: { id: string }) {
   });
   const managerDn = person.manager ? displayName(person.manager) : null;
 
+  const hasExplicitTasksGrant =
+    viewer.id !== person.id
+      ? !!(await prisma.personalTaskBoardViewer.findUnique({
+          where: { ownerUserId_viewerUserId: { ownerUserId: person.id, viewerUserId: viewer.id } },
+          select: { id: true },
+        }))
+      : false;
+
   const canOpenTasksShortcut = canViewPersonalTasks({
     viewerUserId: viewer.id,
     viewerRole: viewer.role,
+    viewerPermissions: viewer.permissions ?? null,
     ownerUserId: person.id,
     ownerManagerId: person.managerId,
     ownerDepartmentId: person.departmentId,
     viewerHeadedDepartmentId: viewer.headedDept?.id ?? null,
+    hasExplicitGrant: hasExplicitTasksGrant,
   });
 
   const [wins, okrs, certs, journeyEvents] =

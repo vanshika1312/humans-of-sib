@@ -39,7 +39,8 @@ export default async function AdminPage({
 
 async function AdminPageBody() {
   const me = await requireAppViewer();
-  if (!me || !ADMIN_ROLES.includes(me.role)) redirect("/home");
+  const canAccess = !!me && (ADMIN_ROLES.includes(me.role) || (me.permissions ?? []).includes("ADMIN_PANEL"));
+  if (!canAccess) redirect("/home");
 
   const [users, depts, cities] = await Promise.all([
     prisma.user.findMany({
@@ -56,6 +57,7 @@ async function AdminPageBody() {
 
   const active = users.filter((u) => u.status === "ACTIVE");
   const isCeoOrAdmin = ["CEO", "ADMIN"].includes(me.role);
+  const canWriteTeam = ADMIN_ROLES.includes(me.role) || (me.permissions ?? []).includes("ADMIN_TEAM_WRITE");
 
   return (
     <div>
@@ -64,11 +66,13 @@ async function AdminPageBody() {
         emoji="🔐"
         subtitle="Manage team members, departments, and compensation."
         action={
-          <Link href="/admin/team/new">
-            <Button variant="accent">
-              <UserPlus className="size-4" /> Add member
-            </Button>
-          </Link>
+          canWriteTeam ? (
+            <Link href="/admin/team/new">
+              <Button variant="accent">
+                <UserPlus className="size-4" /> Add member
+              </Button>
+            </Link>
+          ) : null
         }
       />
 
@@ -145,7 +149,7 @@ async function AdminPageBody() {
                       </div>
                     </td>
                     <td className="px-5 py-3 text-ink-600">
-                      {u.department ? `${u.department.emoji} ${u.department.name}` : <span className="text-ink-300">—</span>}
+                      {u.department ? `${u.department.emoji ?? ""} ${u.department.name}`.trim() : <span className="text-ink-300">—</span>}
                     </td>
                     <td className="px-5 py-3 text-ink-600">{u.city?.name || <span className="text-ink-300">—</span>}</td>
                     <td className="px-5 py-3">
@@ -167,9 +171,11 @@ async function AdminPageBody() {
                       </Badge>
                     </td>
                     <td className="px-5 py-3">
-                      <Link href={`/admin/team/${u.id}`}>
-                        <Button size="sm" variant="outline">Edit</Button>
-                      </Link>
+                      {canWriteTeam ? (
+                        <Link href={`/admin/team/${u.id}`}>
+                          <Button size="sm" variant="outline">Edit</Button>
+                        </Link>
+                      ) : null}
                     </td>
                   </tr>
                   );

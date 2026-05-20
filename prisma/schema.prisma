@@ -112,6 +112,8 @@ model User {
   gender        Gender?
 
   role          Role            @default(EMPLOYEE)
+  /// Fine-grained access flags (used to restrict/administer modules beyond Role).
+  permissions   String[]        @default([])
   status        EmployeeStatus  @default(ACTIVE)
   joinedAt      DateTime        @default(now())
   dateOfLeaving DateTime?       @db.Date
@@ -192,6 +194,12 @@ model User {
   personalTasksAssignedBy          PersonalTask[]       @relation("PersonalTaskAssignedBy")
   personalTaskAttachmentsUploaded PersonalTaskAttachment[] @relation("TaskAttachmentUploader")
   personalTaskCommentsAuthored    PersonalTaskComment[] @relation("TaskCommentAuthor")
+  personalTaskMemberships         PersonalTaskMember[]  @relation("PersonalTaskMemberUser")
+
+  /// Additional viewers allowed to open this user's task board (beyond manager/dept rules).
+  taskBoardViewersGranted PersonalTaskBoardViewer[] @relation("TaskBoardOwner")
+  /// Boards this user has been granted access to.
+  taskBoardViewerFor      PersonalTaskBoardViewer[] @relation("TaskBoardViewer")
 
   notifications                   Notification[] @relation("NotificationRecipient")
   notificationsAuthored           Notification[] @relation("NotificationActor")
@@ -202,6 +210,21 @@ model User {
   @@index([departmentId])
   @@index([cityId])
   @@index([managerId])
+}
+
+model PersonalTaskBoardViewer {
+  id          String   @id @default(cuid())
+  ownerUserId String
+  viewerUserId String
+
+  owner  User @relation("TaskBoardOwner", fields: [ownerUserId], references: [id], onDelete: Cascade)
+  viewer User @relation("TaskBoardViewer", fields: [viewerUserId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([ownerUserId, viewerUserId])
+  @@index([ownerUserId])
+  @@index([viewerUserId])
 }
 
 model Notification {
@@ -605,6 +628,7 @@ model PersonalTaskBoard {
   owner       User                 @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
   stages      PersonalTaskStage[]
   tasks       PersonalTask[]
+  labels      PersonalTaskLabel[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -641,10 +665,14 @@ model PersonalTask {
   stage        PersonalTaskStage          @relation(fields: [stageId], references: [id], onDelete: Restrict)
   title        String                     @db.VarChar(500)
   description  String?                    @db.Text
+  dueDate      DateTime?                  @db.Date
   sortOrder    Int                        @default(0)
 
   attachments PersonalTaskAttachment[]
   comments    PersonalTaskComment[]
+  members     PersonalTaskMember[]
+  checklists  PersonalTaskChecklist[]
+  labelAssignments PersonalTaskLabelAssignment[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -653,6 +681,87 @@ model PersonalTask {
   @@index([assignedToUserId])
   @@index([assignedByUserId])
   @@index([stageId, sortOrder])
+  @@index([dueDate])
+}
+
+model PersonalTaskMember {
+  id     String       @id @default(cuid())
+  taskId String
+  task   PersonalTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User         @relation("PersonalTaskMemberUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([taskId, userId])
+  @@index([taskId])
+  @@index([userId])
+}
+
+model PersonalTaskLabel {
+  id       String            @id @default(cuid())
+  boardId  String
+  board    PersonalTaskBoard @relation(fields: [boardId], references: [id], onDelete: Cascade)
+
+  name     String            @db.VarChar(80)
+  color    String            @db.VarChar(32)
+  sortOrder Int              @default(0)
+
+  assignments PersonalTaskLabelAssignment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([boardId, name])
+  @@index([boardId, sortOrder])
+}
+
+model PersonalTaskLabelAssignment {
+  id      String           @id @default(cuid())
+  taskId  String
+  task    PersonalTask     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  labelId String
+  label   PersonalTaskLabel @relation(fields: [labelId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([taskId, labelId])
+  @@index([taskId])
+  @@index([labelId])
+}
+
+model PersonalTaskChecklist {
+  id       String       @id @default(cuid())
+  taskId   String
+  task     PersonalTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  title    String       @db.VarChar(160)
+  sortOrder Int         @default(0)
+
+  items    PersonalTaskChecklistItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([taskId, sortOrder])
+}
+
+model PersonalTaskChecklistItem {
+  id          String                 @id @default(cuid())
+  checklistId String
+  checklist   PersonalTaskChecklist  @relation(fields: [checklistId], references: [id], onDelete: Cascade)
+
+  body        String                 @db.Text
+  isDone      Boolean                @default(false)
+  sortOrder   Int                    @default(0)
+  completedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([checklistId, sortOrder])
+  @@index([checklistId, isDone])
 }
 
 model PersonalTaskAttachment {

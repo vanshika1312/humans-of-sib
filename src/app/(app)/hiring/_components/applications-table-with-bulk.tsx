@@ -161,6 +161,7 @@ export function ApplicationsTableWithBulk({
 }) {
   const rowIds = useMemo(() => rows.map((r) => r.id), [rows]);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
+  const fromParam = useMemo(() => encodeURIComponent(returnPath), [returnPath]);
 
   const toggle = useCallback((id: string) => {
     setSelected((prev) => {
@@ -287,6 +288,7 @@ export function ApplicationsTableWithBulk({
                 const { firstName, lastName } = splitCandidateFullName(app.candidate.fullName);
                 const portal = applicationSourceLabel(app.applicationSource, app.candidate.source);
                 const jobLoc = formatHiringJobLocation(app.job);
+                const detailHref = `/hiring/applications/${app.id}?from=${fromParam}`;
                 return (
                   <tr key={app.id} className="align-top hover:bg-ink-50/40 transition-colors">
                     <td className="px-3 py-3">
@@ -302,12 +304,12 @@ export function ApplicationsTableWithBulk({
                       {formatDate(new Date(app.appliedAtIso))}
                     </td>
                     <td className="px-4 py-3 font-medium text-ink-800">
-                      <Link href={`/hiring/applications/${app.id}`} className="text-sky-800 hover:underline">
+                      <Link href={detailHref} className="text-sky-800 hover:underline">
                         {firstName}
                       </Link>
                     </td>
                     <td className="px-4 py-3 text-ink-800">
-                      <Link href={`/hiring/applications/${app.id}`} className="hover:underline">
+                      <Link href={detailHref} className="hover:underline">
                         {lastName}
                       </Link>
                     </td>
@@ -335,7 +337,7 @@ export function ApplicationsTableWithBulk({
                     </td>
                     <td className="px-4 py-3">
                       <Link
-                        href={`/hiring/applications/${app.id}`}
+                        href={detailHref}
                         className="text-xs font-semibold text-sky-700 hover:underline whitespace-nowrap"
                       >
                         Open application →

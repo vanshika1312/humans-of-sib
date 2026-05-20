@@ -18,18 +18,36 @@ import { sendEmployeeOnboardingInvite } from "@/lib/email";
 import { allocateEmployeeCode } from "@/lib/next-employee-code";
 import { newOnboardingSecret, onboardingInviteExpiry } from "@/lib/onboarding-invite";
 import { departmentIdFromForm } from "@/lib/department-resolve";
+import { normalizePermissions } from "@/lib/permissions";
 
 const ADMIN_ROLES = ["CEO", "ADMIN", "HR"];
 
-async function requireAdmin() {
+function canAccessAdminPanel(me: { role: string; permissions: string[] }) {
+  return ADMIN_ROLES.includes(me.role) || me.permissions.includes("ADMIN_PANEL");
+}
+
+function canWriteAdminTeam(me: { role: string; permissions: string[] }) {
+  return ADMIN_ROLES.includes(me.role) || me.permissions.includes("ADMIN_TEAM_WRITE");
+}
+
+async function requireAdminPanel() {
   const session = await auth();
-  const me = await prisma.user.findUnique({ where: { email: session!.user!.email! } });
-  if (!me || !ADMIN_ROLES.includes(me.role)) redirect("/home");
+  const me = await prisma.user.findUnique({
+    where: { email: session!.user!.email! },
+    select: { id: true, email: true, role: true, permissions: true },
+  });
+  if (!me || !canAccessAdminPanel(me)) redirect("/home");
+  return me;
+}
+
+async function requireAdminTeamWrite() {
+  const me = await requireAdminPanel();
+  if (!canWriteAdminTeam(me)) redirect("/home");
   return me;
 }
 
 export async function createMember(fd: FormData) {
-  const me = await requireAdmin();
+  const me = await requireAdminTeamWrite();
 
   const email = (fd.get("email") as string)?.toLowerCase().trim();
   const firstName = (fd.get("firstName") as string)?.trim();
@@ -132,7 +150,7 @@ export async function createMember(fd: FormData) {
 }
 
 export async function resendOnboardingInvite(userId: string) {
-  await requireAdmin();
+  await requireAdminTeamWrite();
   const baseUrl = (process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000").replace(/\/$/, "");
 
   const member = await prisma.user.findUnique({
@@ -188,7 +206,7 @@ function parseGender(v: FormDataEntryValue | null): Gender | null {
 }
 
 export async function updateMember(userId: string, fd: FormData) {
-  const me = await requireAdmin();
+  const me = await requireAdminTeamWrite();
 
   const existing = await prisma.user.findUnique({
     where: { id: userId },
@@ -231,6 +249,16 @@ export async function updateMember(userId: string, fd: FormData) {
   const phone = fd.get("phone") as string;
   const salary = fd.get("salary") as string;
   const salaryNote = fd.get("salaryNote") as string;
+  const permissions = normalizePermissions(fd.getAll("permissions"));
+  const taskBoardViewerIds = Array.from(
+    new Set(
+      fd
+        .getAll("taskBoardViewers")
+        .map((v) => String(v ?? "").trim())
+        .filter(Boolean)
+        .filter((id) => id !== userId),
+    ),
+  );
   const residentialAddress = fd.get("residentialAddress") as string;
   const emergencyContactName = fd.get("emergencyContactName") as string;
   const emergencyContactPhone = fd.get("emergencyContactPhone") as string;
@@ -253,6 +281,7 @@ export async function updateMember(userId: string, fd: FormData) {
       title: title?.trim() || null,
       role,
       status,
+      permissions,
       departmentId,
       cityId: cityId || null,
       managerId: managerId || null,
@@ -294,6 +323,14 @@ export async function updateMember(userId: string, fd: FormData) {
     });
   }
 
+  await prisma.personalTaskBoardViewer.deleteMany({ where: { ownerUserId: userId } });
+  if (taskBoardViewerIds.length > 0) {
+    await prisma.personalTaskBoardViewer.createMany({
+      data: taskBoardViewerIds.map((viewerUserId) => ({ ownerUserId: userId, viewerUserId })),
+      skipDuplicates: true,
+    });
+  }
+
   redirect("/admin");
 }
 
@@ -302,7 +339,7 @@ export async function updateMember(userId: string, fd: FormData) {
  * Clears FK blockers (manager chain, dept head, incentive sheets, etc.) before deleting the user.
  */
 export async function deleteMember(userId: string, fd: FormData) {
-  const me = await requireAdmin();
+  const me = await requireAdminTeamWrite();
 
   if (!isWorkspacePowerUser(me.role)) {
     redirect(`/admin/team/${userId}?notice=${encodeURIComponent("member_delete_forbidden")}`);
