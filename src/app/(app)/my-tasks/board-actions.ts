@@ -143,6 +143,40 @@ function revalidateTasks() {
   revalidatePath(PATH);
 }
 
+async function notifyTaskParticipants(args: {
+  task: { id: string; title: string; assignedToUserId: string; assignedByUserId: string | null };
+  actorUserId: string;
+  kind: "TASK_ASSIGNED" | "TASK_MOVED" | "TASK_COMMENT";
+  title: string;
+  body?: string | null;
+  href?: string | null;
+  meta?: unknown;
+}) {
+  const recipients = new Set<string>();
+  if (args.task.assignedToUserId) recipients.add(args.task.assignedToUserId);
+  if (args.task.assignedByUserId) recipients.add(args.task.assignedByUserId);
+  recipients.delete(args.actorUserId);
+  if (recipients.size === 0) return;
+
+  try {
+    await Promise.allSettled(
+      Array.from(recipients).map((userId) =>
+        createNotification({
+          userId,
+          kind: args.kind,
+          title: args.title,
+          body: args.body ?? null,
+          href: args.href ?? null,
+          actorUserId: args.actorUserId,
+          meta: args.meta ?? undefined,
+        }),
+      ),
+    );
+  } catch {
+    // non-critical
+  }
+}
+
 /** Load someone’s task board for the team-member overlay (respects the same rules as the old /my-tasks?userId= flow). */
 export async function loadPersonalTaskBoardForModal(
   peerUserId: string,
@@ -301,21 +335,15 @@ export async function updateBoardTaskStage(taskId: string, stageId: string) {
 
   revalidateTasks();
 
-  if (access.task.assignedToUserId !== viewer.id) {
-    try {
-      await createNotification({
-        userId: access.task.assignedToUserId,
-        kind: "TASK_MOVED",
-        title: "Task moved",
-        body: `${access.task.title} → ${targetStage.title}`,
-        href: `/my-tasks?task=${encodeURIComponent(access.task.id)}`,
-        actorUserId: viewer.id,
-        meta: { taskId: access.task.id, stageId: targetStage.id },
-      });
-    } catch {
-      // non-critical
-    }
-  }
+  await notifyTaskParticipants({
+    task: access.task,
+    actorUserId: viewer.id,
+    kind: "TASK_MOVED",
+    title: "Task moved",
+    body: `${access.task.title} → ${targetStage.title}`,
+    href: `/my-tasks?task=${encodeURIComponent(access.task.id)}`,
+    meta: { taskId: access.task.id, stageId: targetStage.id },
+  });
   return { ok: true as const };
 }
 
@@ -327,8 +355,8 @@ export async function persistBoardLayout(ownerUserId: string, layout: Record<str
     where: { ownerUserId },
     select: {
       id: true,
-      stages: { select: { id: true } },
-      tasks: { select: { id: true } },
+      stages: { select: { id: true, title: true } },
+      tasks: { select: { id: true, stageId: true, title: true, assignedToUserId: true, assignedByUserId: true } },
     },
   });
   if (!board) return { ok: false as const };
@@ -339,6 +367,7 @@ export async function persistBoardLayout(ownerUserId: string, layout: Record<str
   const assignments: { taskId: string; stageId: string; sortOrder: number }[] = [];
   const seen = new Set<string>();
 
+  const nextStageByTaskId = new Map<string, string>();
   for (const [stageId, ids] of Object.entries(layout)) {
     if (!stageIds.has(stageId)) continue;
     ids.forEach((taskId, i) => {
@@ -346,10 +375,24 @@ export async function persistBoardLayout(ownerUserId: string, layout: Record<str
       if (seen.has(taskId)) return;
       seen.add(taskId);
       assignments.push({ taskId, stageId, sortOrder: i });
+      nextStageByTaskId.set(taskId, stageId);
     });
   }
 
   if (seen.size !== taskIdsValid.size) return { ok: false as const };
+
+  const stageTitleById = new Map(board.stages.map((s) => [s.id, s.title]));
+  const moved = board.tasks
+    .map((t) => {
+      const nextStageId = nextStageByTaskId.get(t.id) ?? t.stageId;
+      return {
+        task: t,
+        nextStageId,
+        nextStageTitle: stageTitleById.get(nextStageId) ?? "Unknown",
+        changed: nextStageId !== t.stageId,
+      };
+    })
+    .filter((m) => m.changed);
 
   await prisma.$transaction(
     assignments.map((a) =>
@@ -361,6 +404,22 @@ export async function persistBoardLayout(ownerUserId: string, layout: Record<str
   );
 
   revalidateTasks();
+
+  if (moved.length > 0) {
+    await Promise.allSettled(
+      moved.map((m) =>
+        notifyTaskParticipants({
+          task: m.task,
+          actorUserId: viewer.id,
+          kind: "TASK_MOVED",
+          title: "Task moved",
+          body: `${m.task.title} → ${m.nextStageTitle}`,
+          href: `/my-tasks?task=${encodeURIComponent(m.task.id)}`,
+          meta: { taskId: m.task.id, stageId: m.nextStageId },
+        }),
+      ),
+    );
+  }
   return { ok: true as const };
 }
 
@@ -591,6 +650,17 @@ export async function updateBoardTaskDetails(ownerUserId: string, taskId: string
     data,
   });
   revalidateTasks();
+
+  const nextTitle = (data.title ?? access.task.title).trim();
+  await notifyTaskParticipants({
+    task: { ...access.task, title: nextTitle.length ? nextTitle : access.task.title },
+    actorUserId: viewer.id,
+    kind: "TASK_MOVED",
+    title: "Task updated",
+    body: `Details updated — ${nextTitle.length ? nextTitle : access.task.title}`,
+    href: `/my-tasks?task=${encodeURIComponent(access.task.id)}`,
+    meta: { taskId: access.task.id, change: "details" },
+  });
 }
 
 export async function setTaskDueDate(taskId: string, dueDateYmd: string) {
@@ -615,6 +685,15 @@ export async function setTaskDueDate(taskId: string, dueDateYmd: string) {
   });
 
   revalidateTasks();
+  await notifyTaskParticipants({
+    task: access.task,
+    actorUserId: viewer.id,
+    kind: "TASK_MOVED",
+    title: "Task updated",
+    body: `Due date ${raw.length ? "updated" : "cleared"} — ${access.task.title}`,
+    href: `/my-tasks?task=${encodeURIComponent(access.task.id)}`,
+    meta: { taskId: access.task.id, change: "dueDate" },
+  });
   return { ok: true as const };
 }
 
@@ -681,6 +760,15 @@ export async function setTaskLabels(taskId: string, labelIds: string[]) {
   });
 
   revalidateTasks();
+  await notifyTaskParticipants({
+    task: access.task,
+    actorUserId: viewer.id,
+    kind: "TASK_MOVED",
+    title: "Task updated",
+    body: `Labels updated — ${access.task.title}`,
+    href: `/my-tasks?task=${encodeURIComponent(access.task.id)}`,
+    meta: { taskId: access.task.id, change: "labels" },
+  });
   return { ok: true as const };
 }
 
@@ -711,6 +799,15 @@ export async function addTaskMember(taskId: string, userId: string) {
   });
 
   revalidateTasks();
+  await notifyTaskParticipants({
+    task: access.task,
+    actorUserId: viewer.id,
+    kind: "TASK_MOVED",
+    title: "Task updated",
+    body: `Members updated — ${access.task.title}`,
+    href: `/my-tasks?task=${encodeURIComponent(access.task.id)}`,
+    meta: { taskId: access.task.id, change: "members" },
+  });
   return { ok: true as const };
 }
 
@@ -732,6 +829,15 @@ export async function removeTaskMember(taskId: string, userId: string) {
   });
 
   revalidateTasks();
+  await notifyTaskParticipants({
+    task: access.task,
+    actorUserId: viewer.id,
+    kind: "TASK_MOVED",
+    title: "Task updated",
+    body: `Members updated — ${access.task.title}`,
+    href: `/my-tasks?task=${encodeURIComponent(access.task.id)}`,
+    meta: { taskId: access.task.id, change: "members" },
+  });
   return { ok: true as const };
 }
 
@@ -758,6 +864,15 @@ export async function createTaskChecklist(taskId: string, title?: string) {
 
   await prisma.personalTaskBoard.update({ where: { id: access.task.boardId }, data: { updatedAt: new Date() } });
   revalidateTasks();
+  await notifyTaskParticipants({
+    task: access.task,
+    actorUserId: viewer.id,
+    kind: "TASK_MOVED",
+    title: "Task updated",
+    body: `Checklist added — ${access.task.title}`,
+    href: `/my-tasks?task=${encodeURIComponent(access.task.id)}`,
+    meta: { taskId: access.task.id, change: "checklists" },
+  });
   return { ok: true as const, checklistId: created.id };
 }
 
@@ -782,6 +897,15 @@ export async function renameChecklist(checklistId: string, title: string) {
     await tx.personalTaskBoard.update({ where: { id: access.task.boardId }, data: { updatedAt: new Date() } });
   });
   revalidateTasks();
+  await notifyTaskParticipants({
+    task: access.task,
+    actorUserId: viewer.id,
+    kind: "TASK_MOVED",
+    title: "Task updated",
+    body: `Checklist updated — ${access.task.title}`,
+    href: `/my-tasks?task=${encodeURIComponent(access.task.id)}`,
+    meta: { taskId: access.task.id, change: "checklists" },
+  });
   return { ok: true as const };
 }
 
@@ -803,6 +927,15 @@ export async function deleteChecklist(checklistId: string) {
     await tx.personalTaskBoard.update({ where: { id: access.task.boardId }, data: { updatedAt: new Date() } });
   });
   revalidateTasks();
+  await notifyTaskParticipants({
+    task: access.task,
+    actorUserId: viewer.id,
+    kind: "TASK_MOVED",
+    title: "Task updated",
+    body: `Checklist updated — ${access.task.title}`,
+    href: `/my-tasks?task=${encodeURIComponent(access.task.id)}`,
+    meta: { taskId: access.task.id, change: "checklists" },
+  });
   return { ok: true as const };
 }
 
@@ -838,6 +971,15 @@ export async function addChecklistItem(checklistId: string, body: string) {
 
   await prisma.personalTaskBoard.update({ where: { id: access.task.boardId }, data: { updatedAt: new Date() } });
   revalidateTasks();
+  await notifyTaskParticipants({
+    task: access.task,
+    actorUserId: viewer.id,
+    kind: "TASK_MOVED",
+    title: "Task updated",
+    body: `Checklist updated — ${access.task.title}`,
+    href: `/my-tasks?task=${encodeURIComponent(access.task.id)}`,
+    meta: { taskId: access.task.id, change: "checklists" },
+  });
   return { ok: true as const, itemId: created.id };
 }
 
@@ -862,6 +1004,15 @@ export async function toggleChecklistItem(itemId: string, isDone: boolean) {
     await tx.personalTaskBoard.update({ where: { id: access.task.boardId }, data: { updatedAt: new Date() } });
   });
   revalidateTasks();
+  await notifyTaskParticipants({
+    task: access.task,
+    actorUserId: viewer.id,
+    kind: "TASK_MOVED",
+    title: "Task updated",
+    body: `Checklist updated — ${access.task.title}`,
+    href: `/my-tasks?task=${encodeURIComponent(access.task.id)}`,
+    meta: { taskId: access.task.id, change: "checklists" },
+  });
   return { ok: true as const };
 }
 
@@ -883,6 +1034,15 @@ export async function deleteChecklistItem(itemId: string) {
     await tx.personalTaskBoard.update({ where: { id: access.task.boardId }, data: { updatedAt: new Date() } });
   });
   revalidateTasks();
+  await notifyTaskParticipants({
+    task: access.task,
+    actorUserId: viewer.id,
+    kind: "TASK_MOVED",
+    title: "Task updated",
+    body: `Checklist updated — ${access.task.title}`,
+    href: `/my-tasks?task=${encodeURIComponent(access.task.id)}`,
+    meta: { taskId: access.task.id, change: "checklists" },
+  });
   return { ok: true as const };
 }
 
@@ -1041,16 +1201,16 @@ export async function addTaskComment(taskId: string, formData: FormData) {
   try {
     const task = await prisma.personalTask.findUnique({
       where: { id: taskId },
-      select: { assignedToUserId: true, title: true },
+      select: { id: true, title: true, assignedToUserId: true, assignedByUserId: true },
     });
-    if (task && task.assignedToUserId !== v.id) {
-      await createNotification({
-        userId: task.assignedToUserId,
+    if (task) {
+      await notifyTaskParticipants({
+        task,
+        actorUserId: v.id,
         kind: "TASK_COMMENT",
-        title: "New comment on your task",
+        title: "New comment on a task",
         body: task.title,
         href: `/my-tasks?task=${encodeURIComponent(taskId)}`,
-        actorUserId: v.id,
         meta: { taskId },
       });
     }
@@ -1281,6 +1441,15 @@ export async function addPersonalTaskAttachment(
     },
   });
   revalidateTasks();
+  await notifyTaskParticipants({
+    task: access.task,
+    actorUserId: viewer.id,
+    kind: "TASK_MOVED",
+    title: "Task updated",
+    body: `Attachment added — ${access.task.title}`,
+    href: `/my-tasks?task=${encodeURIComponent(access.task.id)}`,
+    meta: { taskId: access.task.id, change: "attachments" },
+  });
   return { ok: true };
 }
 
@@ -1301,5 +1470,14 @@ export async function deletePersonalTaskAttachment(ownerUserId: string, attachme
 
   await prisma.personalTaskAttachment.delete({ where: { id: attachmentId } });
   revalidateTasks();
+  await notifyTaskParticipants({
+    task: access.task,
+    actorUserId: viewer.id,
+    kind: "TASK_MOVED",
+    title: "Task updated",
+    body: `Attachment removed — ${access.task.title}`,
+    href: `/my-tasks?task=${encodeURIComponent(access.task.id)}`,
+    meta: { taskId: access.task.id, change: "attachments" },
+  });
   return { ok: true as const };
 }

@@ -27,7 +27,7 @@ export async function GET(req: NextRequest) {
     }),
     prisma.notification.findMany({
       where: { userId: me.id, ...(unreadOnly ? { readAt: null } : {}) },
-      orderBy: [{ readAt: "asc" }, { createdAt: "desc" }],
+      orderBy: { createdAt: "desc" },
       take: 50,
       select: {
         id: true,

@@ -23,7 +23,7 @@ export default async function NotificationsPage({ searchParams }: { searchParams
     prisma.notification.count({ where: { userId: me.id, readAt: null } }),
     prisma.notification.findMany({
       where: { userId: me.id, ...(unreadOnly ? { readAt: null } : {}) },
-      orderBy: [{ readAt: "asc" }, { createdAt: "desc" }],
+      orderBy: { createdAt: "desc" },
       take: 200,
       select: {
         id: true,

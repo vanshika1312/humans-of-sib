@@ -50,9 +50,27 @@ export function AssignedByMeTasks({ initialTasks }: { initialTasks: AssignedByMe
   useEffect(() => subscribeAssignedByMeRefresh(() => void reload()), [reload]);
 
   useEffect(() => {
+    const onFocus = () => void reload();
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") void reload();
+    };
+
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
+    const id = window.setInterval(() => void reload(), 30_000);
+
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.clearInterval(id);
+    };
+  }, [reload]);
+
+  useEffect(() => {
     if (!taskParam) return;
     if (taskIds.has(taskParam)) return;
-    void reload();
+    const id = window.setTimeout(() => void reload(), 0);
+    return () => window.clearTimeout(id);
   }, [reload, taskIds, taskParam]);
 
   if (tasks.length === 0) {
