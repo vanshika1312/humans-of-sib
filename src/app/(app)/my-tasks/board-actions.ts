@@ -10,6 +10,7 @@ import { createNotification } from "@/lib/notifications";
 import { calendarDateFromInput } from "@/lib/calendar-date";
 import {
   canAssignPersonalTasks,
+  canDeletePersonalTask,
   canEditPersonalTask,
   canViewPersonalTask,
   canViewPersonalTasks,
@@ -253,8 +254,8 @@ export async function assignTaskToUser(
       await createNotification({
         userId: assignee.id,
         kind: "TASK_ASSIGNED",
-        title: "New task assigned",
-        body: title,
+        title: "You were assigned a task",
+        body: `You have been assigned task: ${title}`,
         href: `/my-tasks?task=${encodeURIComponent(created.id)}`,
         actorUserId: viewer.id,
         meta: { taskId: created.id },
@@ -465,9 +466,107 @@ export async function deleteBoardTask(ownerUserId: string, taskId: string) {
   const viewer = await sessionViewer();
   if (!viewer) return;
   const access = await getTaskAccess(taskId, viewer.id, viewer.role as Role, viewer.permissions ?? null, viewer.headedDept?.id ?? null);
-  if (!access?.canEdit) return;
+  if (!access?.canView) return;
+  const canDelete = canDeletePersonalTask({
+    viewerUserId: viewer.id,
+    ownerUserId: access.task.assignedToUserId,
+    assignedByUserId: access.task.assignedByUserId,
+  });
+  if (!canDelete) return;
   await prisma.personalTask.delete({ where: { id: taskId } });
   revalidateTasks();
+}
+
+export async function reassignBoardTask(taskId: string, nextAssignedToUserId: string) {
+  const viewer = await sessionViewer();
+  if (!viewer) return { ok: false as const, error: "Unauthorized" };
+
+  const targetId = nu(nextAssignedToUserId, 191);
+  if (!targetId.length) return { ok: false as const, error: "Choose a teammate." };
+
+  const current = await prisma.personalTask.findUnique({
+    where: { id: taskId },
+    select: {
+      id: true,
+      title: true,
+      boardId: true,
+      assignedToUserId: true,
+      assignedByUserId: true,
+    },
+  });
+  if (!current) return { ok: false as const, error: "Task not found." };
+
+  if (!current.assignedByUserId || current.assignedByUserId !== viewer.id) {
+    return { ok: false as const, error: "No access." };
+  }
+
+  if (current.assignedToUserId === targetId) return { ok: true as const };
+
+  const assignee = await prisma.user.findUnique({
+    where: { id: targetId },
+    select: { id: true, status: true },
+  });
+  if (!assignee || assignee.status !== "ACTIVE") {
+    return { ok: false as const, error: "Assignee not found." };
+  }
+
+  const canAssign = canAssignPersonalTasks({
+    viewerUserId: viewer.id,
+    viewerStatus: viewer.status,
+    assigneeUserId: assignee.id,
+    assigneeStatus: assignee.status,
+  });
+  if (!canAssign) return { ok: false as const, error: "You can’t assign tasks right now." };
+
+  const nextBoard = await getOrCreatePersonalTaskBoard(assignee.id);
+  const targetStage =
+    nextBoard.stages.find((stage) => !stage.isFinishedColumn) ??
+    nextBoard.stages[0];
+  if (!targetStage) return { ok: false as const, error: "No stage available on that board." };
+
+  const agg = await prisma.personalTask.aggregate({
+    where: { stageId: targetStage.id },
+    _max: { sortOrder: true },
+  });
+
+  await prisma.$transaction(async (tx) => {
+    await tx.personalTask.update({
+      where: { id: current.id },
+      data: {
+        boardId: nextBoard.id,
+        stageId: targetStage.id,
+        sortOrder: (agg._max.sortOrder ?? 0) + 1,
+        assignedToUserId: assignee.id,
+      },
+    });
+
+    await tx.personalTaskBoard.update({
+      where: { id: current.boardId },
+      data: { updatedAt: new Date() },
+    });
+    await tx.personalTaskBoard.update({
+      where: { id: nextBoard.id },
+      data: { updatedAt: new Date() },
+    });
+  });
+
+  revalidateTasks();
+
+  try {
+    await createNotification({
+      userId: assignee.id,
+      kind: "TASK_ASSIGNED",
+      title: "You were assigned a task",
+      body: `You have been assigned task: ${current.title}`,
+      href: `/my-tasks?task=${encodeURIComponent(current.id)}`,
+      actorUserId: viewer.id,
+      meta: { taskId: current.id },
+    });
+  } catch {
+    // non-critical
+  }
+
+  return { ok: true as const, assignedToUserId: assignee.id };
 }
 
 export async function updateBoardTaskDetails(ownerUserId: string, taskId: string, formData: FormData) {

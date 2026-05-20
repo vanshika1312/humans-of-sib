@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { Calendar, CheckSquare, MessageSquareText, Paperclip, Plus, Tag, Trash2, UserPlus, GripVertical, X } from "lucide-react";
 import { toast } from "sonner";
 import { Avatar } from "@/components/ui/avatar";
@@ -24,6 +25,7 @@ import {
   deleteTaskComment,
   loadBoardTaskForClient,
   removeTaskMember,
+  reassignBoardTask,
   renameChecklist,
   setTaskDueDate,
   setTaskLabels,
@@ -69,16 +71,21 @@ export function TaskDrawer({
   refreshTask: () => Promise<void>;
   onClose: () => void;
 }) {
+  const router = useRouter();
   const [, startTransition] = useTransition();
   const commentFormRef = useRef<HTMLFormElement | null>(null);
   const [title, setTitle] = useState(task.title);
   const [desc, setDesc] = useState(task.description ?? "");
   const [selectedStageId, setSelectedStageId] = useState(task.stageId);
-  const canEditOwnedTask = !readOnlyBoard || task.assignedBy?.id === viewerId || task.assignedTo.id === viewerId;
+  const canEditTask = !readOnlyBoard || task.assignedBy?.id === viewerId || task.assignedTo.id === viewerId;
+  const canDeleteTask =
+    task.assignedBy?.id === viewerId || (task.assignedTo.id === viewerId && (!task.assignedBy || task.assignedBy.id === viewerId));
+  const canReassignTask = task.assignedBy?.id === viewerId;
 
   const attachmentInputRef = useRef<HTMLInputElement | null>(null);
   const [dueYmd, setDueYmd] = useState(() => utcCalendarDateToInputValue(task.dueDate));
   const [addMemberId, setAddMemberId] = useState<string>("");
+  const [reassignUserId, setReassignUserId] = useState(() => task.assignedTo.id);
   const [localBoardLabels, setLocalBoardLabels] = useState<ClientBoardLabel[]>(() => boardLabels);
   const [newLabelName, setNewLabelName] = useState("");
   const [newLabelColor, setNewLabelColor] = useState(LABEL_COLORS[1]?.id ?? "sky");
@@ -108,6 +115,10 @@ export function TaskDrawer({
     setDesc(task.description ?? "");
   }, [task.description]);
 
+  useEffect(() => {
+    setReassignUserId(task.assignedTo.id);
+  }, [task.assignedTo.id]);
+
   async function syncLatestTask() {
     const latest = await loadBoardTaskForClient(task.id);
     if (latest.ok) onTaskChanged(latest.task);
@@ -124,7 +135,7 @@ export function TaskDrawer({
       >
         <header className="hairline border-b px-4 py-3 flex justify-between gap-3 items-start">
           <div className="min-w-0 flex-1 flex gap-2">
-            {canEditOwnedTask ? (
+            {canEditTask ? (
               <span className="text-ink-200 pt-2">
                 <GripVertical className="size-5" />
               </span>
@@ -136,7 +147,7 @@ export function TaskDrawer({
               <Input
                 id="task-drawer-title"
                 value={title}
-                disabled={!canEditOwnedTask}
+                disabled={!canEditTask}
                 onChange={(e) => setTitle(e.target.value)}
                 className="font-semibold text-ink-800 border-0 px-0 h-auto shadow-none focus-visible:ring-0"
               />
@@ -167,7 +178,7 @@ export function TaskDrawer({
                 type="button"
                 variant="outline"
                 size="sm"
-                disabled={!canEditOwnedTask}
+                disabled={!canEditTask}
                 onClick={() => document.getElementById("task-members")?.scrollIntoView({ block: "start", behavior: "smooth" })}
                 className="justify-start gap-2"
               >
@@ -177,7 +188,7 @@ export function TaskDrawer({
                 type="button"
                 variant="outline"
                 size="sm"
-                disabled={!canEditOwnedTask}
+                disabled={!canEditTask}
                 onClick={() => document.getElementById("task-labels")?.scrollIntoView({ block: "start", behavior: "smooth" })}
                 className="justify-start gap-2"
               >
@@ -187,7 +198,7 @@ export function TaskDrawer({
                 type="button"
                 variant="outline"
                 size="sm"
-                disabled={!canEditOwnedTask}
+                disabled={!canEditTask}
                 onClick={() => document.getElementById("task-dates")?.scrollIntoView({ block: "start", behavior: "smooth" })}
                 className="justify-start gap-2"
               >
@@ -197,7 +208,7 @@ export function TaskDrawer({
                 type="button"
                 variant="outline"
                 size="sm"
-                disabled={!canEditOwnedTask}
+                disabled={!canEditTask}
                 onClick={() => document.getElementById("task-checklists")?.scrollIntoView({ block: "start", behavior: "smooth" })}
                 className="justify-start gap-2"
               >
@@ -208,10 +219,10 @@ export function TaskDrawer({
                 variant="outline"
                 size="sm"
                 onClick={() => {
-                  if (!canEditOwnedTask) return;
+                  if (!canEditTask) return;
                   attachmentInputRef.current?.click();
                 }}
-                disabled={!canEditOwnedTask}
+                disabled={!canEditTask}
                 className="col-span-2 justify-start gap-2"
               >
                 <Paperclip className="size-4" /> Attachment
@@ -219,7 +230,7 @@ export function TaskDrawer({
             </div>
           </div>
 
-          {canEditOwnedTask && (
+          {canEditTask && (
             <div>
               <Label htmlFor="task-stage">Status</Label>
               <div className="mt-1 flex items-center gap-2">
@@ -251,6 +262,49 @@ export function TaskDrawer({
             </div>
           )}
 
+          {canReassignTask ? (
+            <div>
+              <Label htmlFor="task-reassign">Reassign</Label>
+              <div className="mt-1 flex items-center gap-2">
+                <Select
+                  id="task-reassign"
+                  value={reassignUserId}
+                  onChange={(e) => setReassignUserId(e.target.value)}
+                  disabled={!canReassignTask}
+                >
+                  {memberOptions.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {displayName(u)}
+                    </option>
+                  ))}
+                </Select>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={!reassignUserId || reassignUserId === task.assignedTo.id}
+                  onClick={() =>
+                    startTransition(async () => {
+                      const r = await reassignBoardTask(task.id, reassignUserId);
+                      if (!r.ok) {
+                        toast.error(r.error || "Could not reassign task");
+                        return;
+                      }
+                      toast.success("Task reassigned");
+                      router.push(`/my-tasks?userId=${encodeURIComponent(reassignUserId)}&task=${encodeURIComponent(task.id)}`);
+                      router.refresh();
+                    })
+                  }
+                >
+                  Update assignee
+                </Button>
+              </div>
+              <p className="mt-1 text-[11px] text-ink-500">
+                Only the assigner can change who this task is assigned to.
+              </p>
+            </div>
+          ) : null}
+
           <div id="task-members">
             <h4 className="text-xs font-bold uppercase tracking-wider text-ink-400 mb-2 inline-flex items-center gap-1.5">
               <UserPlus className="size-3.5" /> Members
@@ -263,7 +317,7 @@ export function TaskDrawer({
                   <div key={m.id} className="inline-flex items-center gap-2 rounded-full bg-ink-50 hairline px-2 py-1">
                     <Avatar src={m.image} name={dn} size="xs" className="ring-ink-100" />
                     <span className="text-xs font-medium text-ink-700 max-w-[180px] truncate">{dn}</span>
-                    {canEditOwnedTask && (
+                    {canEditTask && (
                       <button
                         type="button"
                         className="text-ink-400 hover:text-red-600 text-xs font-semibold px-1"
@@ -283,7 +337,7 @@ export function TaskDrawer({
                 );
               })}
             </div>
-            {canEditOwnedTask && (
+            {canEditTask && (
               <div className="mt-2 flex items-center gap-2">
                 <Select value={addMemberId} onChange={(e) => setAddMemberId(e.target.value)} className="h-9">
                   <option value="">Add a person…</option>
@@ -338,11 +392,11 @@ export function TaskDrawer({
                     <button
                       key={l.id}
                       type="button"
-                      disabled={!canEditOwnedTask}
+                      disabled={!canEditTask}
                       className={cn(
                         "inline-flex items-center gap-1 rounded-full border px-2 py-1 text-xs font-semibold transition",
                         active ? "border-sky-300 bg-sky-50 text-sky-700" : "border-ink-200 bg-white text-ink-600 hover:bg-ink-50",
-                        !canEditOwnedTask && "opacity-60",
+                        !canEditTask && "opacity-60",
                       )}
                       onClick={() =>
                         startTransition(async () => {
@@ -363,7 +417,7 @@ export function TaskDrawer({
               </div>
             )}
 
-            {canEditOwnedTask && viewerId === ownerUserId && (
+            {canEditTask && viewerId === ownerUserId && (
               <div className="mt-3 rounded-lg border border-ink-100 bg-ink-50/60 p-2">
                 <p className="text-[11px] font-semibold text-ink-500 mb-2">Create label</p>
                 <div className="flex items-center gap-2">
@@ -419,7 +473,7 @@ export function TaskDrawer({
               Due date:{" "}
               <span className="font-semibold text-ink-800">{task.dueDate ? formatCalendarDate(task.dueDate) : "None"}</span>
             </p>
-            {canEditOwnedTask && (
+            {canEditTask && (
               <div className="mt-2 flex items-center gap-2">
                 <Input type="date" value={dueYmd} onChange={(e) => setDueYmd(e.target.value)} className="h-9" />
                 <Button
@@ -463,7 +517,7 @@ export function TaskDrawer({
               <CheckSquare className="size-3.5" /> Checklists
             </h4>
 
-            {canEditOwnedTask && (
+            {canEditTask && (
               <div className="flex items-center gap-2 mb-3">
                 <Input
                   value={newChecklistTitle}
@@ -506,11 +560,11 @@ export function TaskDrawer({
                     <div className="flex items-start justify-between gap-2">
                       <Input
                         defaultValue={cl.title}
-                        disabled={!canEditOwnedTask}
+                        disabled={!canEditTask}
                         className="h-9 font-semibold text-ink-800"
                         onBlur={(e) => {
                           const next = e.currentTarget.value.trim();
-                          if (!canEditOwnedTask) return;
+                          if (!canEditTask) return;
                           if (next.length > 0 && next !== cl.title) {
                             startTransition(async () => {
                               const r = await renameChecklist(cl.id, next);
@@ -520,7 +574,7 @@ export function TaskDrawer({
                           }
                         }}
                       />
-                      {canEditOwnedTask && (
+                      {canEditTask && (
                         <Button
                           type="button"
                           variant="ghost"
@@ -557,7 +611,7 @@ export function TaskDrawer({
                           <input
                             type="checkbox"
                             checked={it.isDone}
-                            disabled={!canEditOwnedTask}
+                            disabled={!canEditTask}
                             onChange={(e) =>
                               startTransition(async () => {
                                 const r = await toggleChecklistItem(it.id, e.currentTarget.checked);
@@ -570,7 +624,7 @@ export function TaskDrawer({
                           <span className={cn("flex-1 text-sm text-ink-700", it.isDone && "line-through text-ink-400")}>
                             {it.body}
                           </span>
-                          {canEditOwnedTask && (
+                          {canEditTask && (
                             <button
                               type="button"
                               className="text-ink-400 hover:text-red-600 text-xs font-semibold px-1"
@@ -590,7 +644,7 @@ export function TaskDrawer({
                       ))}
                     </ul>
 
-                    {canEditOwnedTask && (
+                    {canEditTask && (
                       <div className="mt-3 flex items-center gap-2">
                         <Input
                           value={newItem}
@@ -634,13 +688,13 @@ export function TaskDrawer({
             <Textarea
               id="task-desc"
               value={desc}
-              disabled={!canEditOwnedTask}
+              disabled={!canEditTask}
               onChange={(e) => setDesc(e.target.value)}
               rows={6}
               className="mt-1 text-sm"
-              placeholder={canEditOwnedTask ? "Notes, checklist, links…" : undefined}
+              placeholder={canEditTask ? "Notes, checklist, links…" : undefined}
             />
-            {canEditOwnedTask && (
+            {canEditTask && (
               <Button
                 type="button"
                 size="sm"
@@ -681,7 +735,7 @@ export function TaskDrawer({
                   >
                     {a.fileName}
                   </a>
-                  {canEditOwnedTask && (
+                  {canEditTask && (
                     <Button
                       type="button"
                       variant="ghost"
@@ -705,7 +759,7 @@ export function TaskDrawer({
                 </li>
               ))}
             </ul>
-            {canEditOwnedTask && (
+            {canEditTask && (
               <label className="block text-xs text-ink-500">
                 Upload file (PDF / Word / images / text)
                 <input
@@ -744,7 +798,7 @@ export function TaskDrawer({
                   firstName: c.author.firstName,
                   lastName: c.author.lastName,
                 });
-                const showDel = viewerId === c.authorId || canEditOwnedTask;
+                const showDel = viewerId === c.authorId || canEditTask;
                 return (
                   <li key={c.id} className={cn("rounded-lg border px-3 py-2 bg-ink-50/80 text-sm space-y-1")}>
                     <div className="flex justify-between gap-2 text-[11px] text-ink-500">
@@ -800,7 +854,7 @@ export function TaskDrawer({
             </form>
           </div>
 
-          {canEditOwnedTask && (
+          {canDeleteTask && (
             <Button
               type="button"
               variant="danger"

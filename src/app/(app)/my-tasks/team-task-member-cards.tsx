@@ -111,7 +111,7 @@ export function TeamTaskMemberCards({
     };
   }, [overlayUserId]);
 
-  if (members.length === 0 && !initialOverlay) return null;
+  if (members.length === 0 && !initialOverlay && !overlayUserId) return null;
 
   const memberLabel =
     selected && (

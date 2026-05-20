@@ -226,17 +226,15 @@ async function MyTasksPageBody({ searchParams }: { searchParams: SearchParams })
         </CardContent>
       </Card>
 
-      {showTeamGrid || initialTeamOverlay ? (
-        <TeamTaskMemberCards
-          members={showTeamGrid ? teamLinks : []}
-          trackedCounts={trackedCounts}
-          viewerId={viewer.id}
-          peekMember={peekTeamMemberCard}
-          initialOverlay={initialTeamOverlay}
-          memberOptions={memberOptions}
-          showGrid={showTeamGrid}
-        />
-      ) : null}
+      <TeamTaskMemberCards
+        members={showTeamGrid ? teamLinks : []}
+        trackedCounts={trackedCounts}
+        viewerId={viewer.id}
+        peekMember={peekTeamMemberCard}
+        initialOverlay={initialTeamOverlay}
+        memberOptions={memberOptions}
+        showGrid={showTeamGrid}
+      />
 
       <Card id="your-board-anchor">
         <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3 space-y-0 pb-3">

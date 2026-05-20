@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { auth, signOut } from "@/auth";
 import { displayName } from "@/lib/user-display-name";
 import { requireAppViewer } from "@/lib/app-viewer";
-import { countUnreadMessageNotifications } from "@/lib/notifications";
+import { countUnreadNotifications } from "@/lib/notifications";
 import { AppSidebar } from "@/components/shell/app-sidebar";
 import { Topbar } from "@/components/shell/topbar";
 import { RouteLoadingFallback } from "@/components/ui/route-loading-fallback";
@@ -24,7 +24,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     await signOut({ redirectTo: "/" });
   }
 
-  const unreadMessages = await countUnreadMessageNotifications(user.id);
+  const unreadNotifications = await countUnreadNotifications(user.id);
 
   return (
     <div className="min-h-screen flex">
@@ -36,7 +36,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           user={{ name: displayName(user), email: user.email, image: user.image }}
           deptName={user.department?.name}
           cityName={user.city?.name}
-          unreadMessages={unreadMessages}
+          unreadNotifications={unreadNotifications}
           navRole={user.role}
           navPermissions={user.permissions ?? []}
           signOutAction={signOutAction}

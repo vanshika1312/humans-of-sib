@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { Avatar } from "@/components/ui/avatar";
 import { Bell, LogOut, Menu, X } from "lucide-react";
@@ -12,7 +12,7 @@ export function Topbar({
   user,
   deptName,
   cityName,
-  unreadMessages = 0,
+  unreadNotifications = 0,
   navRole,
   navPermissions,
   signOutAction,
@@ -20,7 +20,7 @@ export function Topbar({
   user: { name?: string | null; email?: string | null; image?: string | null };
   deptName?: string | null;
   cityName?: string | null;
-  unreadMessages?: number;
+  unreadNotifications?: number;
   navRole?: string;
   navPermissions?: string[];
   signOutAction: () => Promise<void>;
@@ -37,9 +37,14 @@ export function Topbar({
     notifications: NotificationItem[];
   } | null>(null);
 
-  async function loadNotifications(nextTab: "all" | "unread") {
-    setNotifLoading(true);
-    setNotifError(null);
+  const refreshTimerRef = useRef<number | null>(null);
+  const inFlightRef = useRef(false);
+
+  async function loadNotifications(nextTab: "all" | "unread", opts?: { silent?: boolean }) {
+    if (!opts?.silent) {
+      setNotifLoading(true);
+      setNotifError(null);
+    }
     try {
       const res = await fetch(`/api/notifications?tab=${encodeURIComponent(nextTab)}`, { cache: "no-store" });
       if (!res.ok) throw new Error("Failed to load notifications");
@@ -50,20 +55,36 @@ export function Topbar({
       };
       setNotifData(json);
     } catch (e) {
-      setNotifError(e instanceof Error ? e.message : "Something went wrong");
+      if (!opts?.silent) setNotifError(e instanceof Error ? e.message : "Something went wrong");
     } finally {
-      setNotifLoading(false);
+      if (!opts?.silent) setNotifLoading(false);
+    }
+  }
+
+  async function refreshUnreadCounts() {
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
+    try {
+      const res = await fetch(`/api/notifications?tab=${encodeURIComponent("unread")}`, { cache: "no-store" });
+      if (!res.ok) return;
+      const json = (await res.json()) as {
+        unreadCount: number;
+        unreadMessageCount: number;
+      };
+      setNotifData((prev) => ({
+        unreadCount: json.unreadCount,
+        unreadMessageCount: json.unreadMessageCount,
+        notifications: prev?.notifications ?? [],
+      }));
+    } finally {
+      inFlightRef.current = false;
     }
   }
 
   async function markAllNotificationsRead() {
     setNotifError(null);
     try {
-      const res = await fetch("/api/notifications", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action: "mark_all_read" }),
-      });
+      const res = await fetch("/api/notifications/read-all", { method: "PATCH" });
       if (!res.ok) throw new Error("Failed to mark all read");
       const json = (await res.json()) as { ok: true; unreadCount: number; unreadMessageCount: number };
       setNotifData((prev) => (prev ? { ...prev, unreadCount: json.unreadCount, unreadMessageCount: json.unreadMessageCount } : prev));
@@ -76,11 +97,7 @@ export function Topbar({
   async function markNotificationRead(id: string) {
     setNotifError(null);
     try {
-      const res = await fetch("/api/notifications", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action: "mark_read", id }),
-      });
+      const res = await fetch(`/api/notifications/${encodeURIComponent(id)}/read`, { method: "PATCH" });
       if (!res.ok) throw new Error("Failed to mark read");
       const json = (await res.json()) as { ok: true; unreadCount: number; unreadMessageCount: number };
       setNotifData((prev) => (prev ? { ...prev, unreadCount: json.unreadCount, unreadMessageCount: json.unreadMessageCount } : prev));
@@ -90,8 +107,38 @@ export function Topbar({
     }
   }
 
-  const unreadMessagesBadge = Math.max(0, Math.max(unreadMessages || 0, notifData?.unreadMessageCount ?? 0));
-  const unreadLabel = unreadMessagesBadge > 99 ? "99+" : String(unreadMessagesBadge);
+  // Prefer the live (client-fetched) unread count once available.
+  // The server-provided `unreadNotifications` can be stale until a layout refresh.
+  const unreadBadgeCount = useMemo(() => {
+    const live = notifData?.unreadCount;
+    return Math.max(0, (live ?? unreadNotifications ?? 0) || 0);
+  }, [notifData?.unreadCount, unreadNotifications]);
+  const unreadLabel = unreadBadgeCount > 99 ? "99+" : String(unreadBadgeCount);
+
+  useEffect(() => {
+    void refreshUnreadCounts();
+
+    const pollMs = 10_000;
+    refreshTimerRef.current = window.setInterval(() => void refreshUnreadCounts(), pollMs);
+
+    const onFocus = () => void refreshUnreadCounts();
+    window.addEventListener("focus", onFocus);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      if (refreshTimerRef.current) window.clearInterval(refreshTimerRef.current);
+      refreshTimerRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (!notifOpen) return;
+    // When the user opens the centre, treat it as "seen" so the badge clears.
+    if ((notifData?.unreadCount ?? unreadBadgeCount) > 0) {
+      void markAllNotificationsRead();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [notifOpen]);
 
   return (
     <>
@@ -128,7 +175,7 @@ export function Topbar({
             <button
               type="button"
               aria-label={
-                unreadMessagesBadge > 0 ? `Notifications (${unreadMessagesBadge} unread messages)` : "Notifications"
+                unreadBadgeCount > 0 ? `Notifications (${unreadBadgeCount} unread)` : "Notifications"
               }
               aria-haspopup="dialog"
               aria-expanded={notifOpen}
@@ -141,7 +188,7 @@ export function Topbar({
               className="relative size-9 inline-flex items-center justify-center rounded-md hover:bg-ink-100 text-ink-600"
             >
               <Bell className="size-5" />
-              {unreadMessagesBadge > 0 && (
+              {unreadBadgeCount > 0 && (
                 <span className="absolute -top-1 -right-1 min-w-5 h-5 px-1 rounded-full bg-red-500 text-white text-[10px] font-semibold inline-flex items-center justify-center">
                   {unreadLabel}
                 </span>

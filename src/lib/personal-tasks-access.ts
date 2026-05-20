@@ -108,6 +108,22 @@ export function canEditPersonalTask(args: {
   return args.assignedByUserId === args.viewerUserId;
 }
 
+/**
+ * Delete rules for personal tasks:
+ * - If the task is assigned to someone else (assignedByUserId != ownerUserId), only the assigner may delete.
+ * - Otherwise (self-created / legacy null assignedBy), the owner may delete.
+ */
+export function canDeletePersonalTask(args: {
+  viewerUserId: string;
+  ownerUserId: string;
+  assignedByUserId: string | null;
+}): boolean {
+  if (args.assignedByUserId && args.assignedByUserId !== args.ownerUserId) {
+    return args.viewerUserId === args.assignedByUserId;
+  }
+  return args.viewerUserId === args.ownerUserId;
+}
+
 export function canViewPersonalTask(args: {
   viewerUserId: string;
   viewerRole: Role;
