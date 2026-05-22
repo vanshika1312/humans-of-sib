@@ -2,6 +2,7 @@ import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { weekStartDate } from "@/lib/utils";
 import { CalendarClock, HeartPulse, Target, GraduationCap } from "lucide-react";
+import { StatsCarousel } from "./StatsCarousel";
 
 type Props = { userId: string };
 
@@ -17,7 +18,7 @@ export async function QuickStats({ userId }: Props) {
   ]);
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+    <StatsCarousel>
       <StatCard
         href="/attendance"
         icon={<CalendarClock className="size-5" />}
@@ -46,7 +47,7 @@ export async function QuickStats({ userId }: Props) {
         value={`${myTrainings} in progress`}
         tone="ink"
       />
-    </div>
+    </StatsCarousel>
   );
 }
 
@@ -70,10 +71,13 @@ function StatCard({
     ink: "text-ink-600 bg-ink-100",
   }[tone];
   return (
-    <Link href={href} className="block p-4 rounded-xl border border-ink-100 bg-white hover:border-sky-200 transition-colors">
-      <div className={`size-8 rounded-md inline-flex items-center justify-center ${toneClass}`}>{icon}</div>
-      <div className="mt-2 text-xs text-ink-400">{label}</div>
-      <div className="text-sm font-semibold text-ink-700">{value}</div>
+    <Link
+      href={href}
+      className="block px-6 py-5 rounded-xl border border-ink-100 bg-white hover:border-sky-200 transition-colors"
+    >
+      <div className={`size-12 rounded-md inline-flex items-center justify-center ${toneClass}`}>{icon}</div>
+      <div className="mt-2 text-[13px] text-ink-400">{label}</div>
+      <div className="text-[18px] font-bold text-ink-700 whitespace-nowrap">{value}</div>
     </Link>
   );
 }

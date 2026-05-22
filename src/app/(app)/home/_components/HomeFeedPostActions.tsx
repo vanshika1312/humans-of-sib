@@ -6,6 +6,7 @@ import { Check, Loader2, Pencil, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Avatar } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
+import { renderTextWithMentions } from "@/lib/mentions";
 
 type Props = {
   postId: string;
@@ -52,6 +53,7 @@ export function HomeFeedPostActions({
 }: Props) {
   const router = useRouter();
   const taRef = useRef<HTMLTextAreaElement | null>(null);
+  const taOverlayRef = useRef<HTMLDivElement | null>(null);
   const [editing, setEditing] = useState(false);
   const [body, setBody] = useState(initialBody ?? "");
   const [saving, setSaving] = useState(false);
@@ -276,10 +278,28 @@ export function HomeFeedPostActions({
           </div>
 
           <div className="relative mt-2">
+            {body.length > 0 && (
+              <div
+                ref={taOverlayRef}
+                aria-hidden="true"
+                className={cn(
+                  "pointer-events-none absolute inset-0 overflow-auto",
+                  "whitespace-pre-wrap break-words",
+                  "px-3 py-2 text-sm text-ink-800",
+                  "rounded-lg",
+                  "[-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+                )}
+              >
+                {renderTextWithMentions(body)}
+              </div>
+            )}
             <textarea
               ref={taRef}
               value={body}
               rows={3}
+              onScroll={(e) => {
+                if (taOverlayRef.current) taOverlayRef.current.scrollTop = e.currentTarget.scrollTop;
+              }}
               onChange={(e) => {
                 const next = e.target.value;
                 setBody(next);
@@ -326,6 +346,7 @@ export function HomeFeedPostActions({
                 "w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm text-ink-800",
                 "placeholder:text-ink-400 outline-none transition-[box-shadow,border-color]",
                 "focus-visible:border-sky-400 focus-visible:ring-2 focus-visible:ring-sky-500/25",
+                "text-transparent caret-ink-800 selection:bg-sky-200/60 selection:text-transparent",
               )}
               placeholder="Update your post… (tag people with @)"
             />

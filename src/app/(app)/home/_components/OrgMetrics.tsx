@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { weekStartDate } from "@/lib/utils";
 import { Users, CalendarCheck, HeartPulse, Trophy } from "lucide-react";
+import { StatsCarousel } from "./StatsCarousel";
 
 export async function OrgMetrics() {
   const today = new Date();
@@ -55,22 +56,22 @@ export async function OrgMetrics() {
       <h2 className="text-xs font-semibold uppercase tracking-wider text-ink-400 mb-3">
         Org at a glance
       </h2>
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <StatsCarousel>
         {metrics.map((m) => (
           <div
             key={m.label}
-            className="p-4 rounded-xl border border-ink-100 bg-white"
+            className="px-6 py-5 rounded-xl border border-ink-100 bg-white"
           >
             <div
-              className={`size-8 rounded-md inline-flex items-center justify-center ${m.bg}`}
+              className={`size-12 rounded-md inline-flex items-center justify-center ${m.bg}`}
             >
               {m.icon}
             </div>
-            <div className="mt-2 text-xs text-ink-400">{m.label}</div>
-            <div className="text-sm font-semibold text-ink-700">{m.value}</div>
+            <div className="mt-2 text-[13px] text-ink-400">{m.label}</div>
+            <div className="text-[18px] font-bold text-ink-700 whitespace-nowrap">{m.value}</div>
           </div>
         ))}
-      </div>
+      </StatsCarousel>
     </div>
   );
 }

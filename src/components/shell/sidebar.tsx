@@ -159,7 +159,7 @@ export function Sidebar({
                           title={label}
                           className={cn(
                             "flex items-center justify-between gap-2.5 rounded-md text-sm font-medium text-ink-300 cursor-not-allowed select-none",
-                            collapsed ? "px-2 py-2 justify-center" : "px-3 py-2 w-full",
+                            collapsed ? "px-2 py-2 justify-center" : "px-4 py-3 w-full",
                           )}
                         >
                           <span className="flex items-center gap-2.5">
@@ -183,7 +183,7 @@ export function Sidebar({
                         onClick={onNavigate}
                         className={cn(
                           "flex items-center gap-2.5 rounded-md text-sm font-medium transition-colors",
-                          collapsed ? "px-2 py-2 justify-center" : "px-3 py-2 w-full",
+                          collapsed ? "px-2 py-2 justify-center" : "px-4 py-3 w-full",
                           active ? "bg-sky-50 text-sky-700" : "text-ink-500 hover:text-ink-700 hover:bg-ink-50",
                         )}
                       >
@@ -211,7 +211,7 @@ export function Sidebar({
                   onClick={onNavigate}
                   className={cn(
                     "flex items-center gap-2.5 rounded-md text-sm font-medium transition-colors",
-                    collapsed ? "px-2 py-2 justify-center" : "px-3 py-2 w-full",
+                    collapsed ? "px-2 py-2 justify-center" : "px-4 py-3 w-full",
                     pathname === "/admin" || pathname.startsWith("/admin/team")
                       ? "bg-sky-50 text-sky-700"
                       : "text-ink-500 hover:text-ink-700 hover:bg-ink-50",
@@ -228,7 +228,7 @@ export function Sidebar({
                   onClick={onNavigate}
                   className={cn(
                     "flex items-center gap-2.5 rounded-md text-sm font-medium transition-colors",
-                    collapsed ? "px-2 py-2 justify-center" : "px-3 py-2 w-full",
+                    collapsed ? "px-2 py-2 justify-center" : "px-4 py-3 w-full",
                     pathname.startsWith("/admin/attendance-report")
                       ? "bg-sky-50 text-sky-700"
                       : "text-ink-500 hover:text-ink-700 hover:bg-ink-50",
@@ -245,7 +245,7 @@ export function Sidebar({
                   onClick={onNavigate}
                   className={cn(
                     "flex items-center gap-2.5 rounded-md text-sm font-medium transition-colors",
-                    collapsed ? "px-2 py-2 justify-center" : "px-3 py-2 w-full",
+                    collapsed ? "px-2 py-2 justify-center" : "px-4 py-3 w-full",
                     pathname === "/hiring" || pathname.startsWith("/hiring/")
                       ? "bg-sky-50 text-sky-700"
                       : "text-ink-500 hover:text-ink-700 hover:bg-ink-50",
@@ -262,7 +262,7 @@ export function Sidebar({
                   onClick={onNavigate}
                   className={cn(
                     "flex items-center gap-2.5 rounded-md text-sm font-medium transition-colors",
-                    collapsed ? "px-2 py-2 justify-center" : "px-3 py-2 w-full",
+                    collapsed ? "px-2 py-2 justify-center" : "px-4 py-3 w-full",
                     pathname === "/recruitment" || pathname.startsWith("/recruitment/")
                       ? "bg-sky-50 text-sky-700"
                       : "text-ink-500 hover:text-ink-700 hover:bg-ink-50",

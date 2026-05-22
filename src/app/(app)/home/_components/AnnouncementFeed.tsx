@@ -10,6 +10,7 @@ import { Megaphone, Sparkles, Trophy, Vote } from "lucide-react";
 import { AnnouncementComposer } from "./AnnouncementComposer";
 import { HomeFeedPostActions } from "./HomeFeedPostActions";
 import { HomeFeedReactions } from "./HomeFeedReactions";
+import { HomeFeedPostMedia } from "./HomeFeedPostMedia";
 
 type Props = {
   viewer: { id: string; name: string | null; image: string | null; role: string };
@@ -239,7 +240,7 @@ export async function AnnouncementFeed({ viewer }: Props) {
   })();
 
   return (
-    <Card>
+    <Card className="flex flex-col h-full min-h-0">
       <CardHeader className="flex items-start justify-between flex-row">
         <div>
           <CardTitle className="flex items-center gap-2">
@@ -253,7 +254,7 @@ export async function AnnouncementFeed({ viewer }: Props) {
           Open inbox →
         </Link>
       </CardHeader>
-      <CardContent className="flex flex-col gap-3 max-h-[70vh] overflow-hidden">
+      <CardContent className="flex flex-col gap-3 flex-1 min-h-0">
         <AnnouncementComposer viewer={viewer} />
         <div className="flex-1 min-h-0 overflow-y-auto pr-1 space-y-3">
           {visibleItems.length === 0 ? (
@@ -360,23 +361,11 @@ function FeedRow({
 
         {homePost?.media?.url ? (
           <div className="mt-2">
-            {homePost.media.mimeType?.toLowerCase().startsWith("video/") ? (
-              <video
-                src={normalizeMediaUrl(homePost.media.url)}
-                controls
-                className="w-full max-h-80 rounded-xl border border-ink-100 bg-black"
-              />
-            ) : (
-              <div className="relative rounded-xl border border-ink-100 overflow-hidden">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={normalizeMediaUrl(homePost.media.url)}
-                  alt={homePost.media.fileName ?? "Post media"}
-                  className="w-full max-h-96 object-cover"
-                  loading="lazy"
-                />
-              </div>
-            )}
+            <HomeFeedPostMedia
+              url={normalizeMediaUrl(homePost.media.url)}
+              mimeType={homePost.media.mimeType}
+              fileName={homePost.media.fileName}
+            />
           </div>
         ) : null}
 

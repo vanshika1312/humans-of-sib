@@ -1,8 +1,6 @@
 import { Suspense } from "react";
-import { prisma } from "@/lib/prisma";
 import { requireAppViewer } from "@/lib/app-viewer";
 import { RouteBodyFallback } from "@/components/app-route-body-fallback";
-import { HeroGreeting } from "./_components/HeroGreeting";
 import { QuickStats } from "./_components/QuickStats";
 import { OrgMetrics } from "./_components/OrgMetrics";
 import { WinsWall } from "./_components/WinsWall";
@@ -25,36 +23,51 @@ async function HomePageBody() {
   const me = await requireAppViewer();
   if (!me) return null;
 
-  const eventsCount = await prisma.journeyEvent.count({ where: { userId: me.id } });
-
   return (
-    <div className="space-y-6">
-      <HeroGreeting name={me.name} image={me.image} eventsCount={eventsCount} />
-
-      <Suspense fallback={<div className="grid grid-cols-2 md:grid-cols-4 gap-3">{Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-24 rounded-xl bg-ink-100 animate-pulse" />)}</div>}>
-        <QuickStats userId={me.id} />
-      </Suspense>
-
-      <Suspense fallback={<div className="grid grid-cols-2 md:grid-cols-4 gap-3">{Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-24 rounded-xl bg-ink-100 animate-pulse" />)}</div>}>
-        <OrgMetrics />
-      </Suspense>
-
-      <div className="grid md:grid-cols-3 gap-5">
-        <div className="md:col-span-2 space-y-5">
-          <Suspense fallback={<div className="h-64 rounded-xl bg-ink-100 animate-pulse" />}>
+    <div data-app-fullwidth className="min-h-0 lg:min-h-[calc(100vh-56px)]">
+      <div className="grid gap-5 lg:grid-cols-3 min-h-0 lg:min-h-[calc(100vh-56px)] items-stretch">
+        <div className="lg:col-span-2 flex flex-col gap-5 min-w-0 min-h-0">
+          <Suspense fallback={<div className="h-[70vh] rounded-xl bg-ink-100 animate-pulse" />}>
             <AnnouncementFeed viewer={{ id: me.id, name: me.name, image: me.image, role: me.role }} />
           </Suspense>
-          <Suspense fallback={<div className="h-64 rounded-xl bg-ink-100 animate-pulse" />}>
-            <WinsWall />
-          </Suspense>
-          <DirectToCEO />
         </div>
 
-        <div className="space-y-5">
+        <div className="space-y-5 bg-[var(--color-background)] lg:sticky lg:top-0 lg:h-screen lg:overflow-y-auto lg:min-h-0 lg:pr-1">
+          <Suspense
+            fallback={
+              <div className="grid grid-cols-2 gap-3">
+                {Array.from({ length: 2 }).map((_, i) => (
+                  <div key={i} className="h-24 rounded-xl bg-ink-100 animate-pulse" />
+                ))}
+              </div>
+            }
+          >
+            <QuickStats userId={me.id} />
+          </Suspense>
+
+          <Suspense
+            fallback={
+              <div className="grid grid-cols-2 gap-3">
+                {Array.from({ length: 2 }).map((_, i) => (
+                  <div key={i} className="h-24 rounded-xl bg-ink-100 animate-pulse" />
+                ))}
+              </div>
+            }
+          >
+            <OrgMetrics />
+          </Suspense>
+
           <HolidayCalendar />
+
           <Suspense fallback={<div className="h-48 rounded-xl bg-ink-100 animate-pulse" />}>
             <UpcomingCelebrations />
           </Suspense>
+
+          <Suspense fallback={<div className="h-64 rounded-xl bg-ink-100 animate-pulse" />}>
+            <WinsWall />
+          </Suspense>
+
+          <DirectToCEO />
 
           {me.role === "CEO" && (
             <Suspense fallback={<div className="h-32 rounded-xl bg-ink-100 animate-pulse" />}>

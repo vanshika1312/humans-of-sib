@@ -6,6 +6,7 @@ import { Image as ImageIcon, Video, Send } from "lucide-react";
 import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { renderTextWithMentions } from "@/lib/mentions";
 
 type UserLite = { id: string; name: string | null; image: string | null };
 type UserSuggestion = { id: string; name: string; image: string | null };
@@ -35,6 +36,7 @@ function getMentionQuery(text: string, caret: number) {
 export function AnnouncementComposer({ viewer }: { viewer: UserLite }) {
   const router = useRouter();
   const taRef = useRef<HTMLTextAreaElement | null>(null);
+  const taOverlayRef = useRef<HTMLDivElement | null>(null);
   const tagInputRef = useRef<HTMLInputElement | null>(null);
   const [kind, setKind] = useState<PostKind>("TEXT");
   const [body, setBody] = useState("");
@@ -203,11 +205,29 @@ export function AnnouncementComposer({ viewer }: { viewer: UserLite }) {
           <div className="text-xs text-ink-400 mb-2">Share an update (tag people with @)</div>
 
           <div className="relative">
+            {body.length > 0 && (
+              <div
+                ref={taOverlayRef}
+                aria-hidden="true"
+                className={cn(
+                  "pointer-events-none absolute inset-0 overflow-auto",
+                  "whitespace-pre-wrap break-words",
+                  "px-3 py-2.5 text-sm text-ink-800",
+                  "rounded-lg",
+                  "[-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+                )}
+              >
+                {renderTextWithMentions(body)}
+              </div>
+            )}
             <textarea
               ref={taRef}
               value={body}
               rows={3}
               placeholder="What do you want to talk about?"
+              onScroll={(e) => {
+                if (taOverlayRef.current) taOverlayRef.current.scrollTop = e.currentTarget.scrollTop;
+              }}
               onChange={(e) => {
                 const next = e.target.value;
                 setBody(next);
@@ -255,6 +275,7 @@ export function AnnouncementComposer({ viewer }: { viewer: UserLite }) {
                 "w-full rounded-lg border border-ink-200 bg-white px-3 py-2.5 text-sm text-ink-800",
                 "placeholder:text-ink-400 outline-none transition-[box-shadow,border-color]",
                 "focus-visible:border-sky-400 focus-visible:ring-2 focus-visible:ring-sky-500/25",
+                "text-transparent caret-ink-800 selection:bg-sky-200/60 selection:text-transparent",
               )}
             />
 

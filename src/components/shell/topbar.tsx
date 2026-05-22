@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { Avatar } from "@/components/ui/avatar";
 import { Bell, LogOut, Menu, X } from "lucide-react";
 import { Sidebar } from "./sidebar";
@@ -36,6 +37,10 @@ export function Topbar({
     unreadMessageCount: number;
     notifications: NotificationItem[];
   } | null>(null);
+
+  const pathname = usePathname();
+  const showHomeGreeting = pathname === "/home";
+  const firstName = (user.name ?? "").split(" ")[0] || "there";
 
   const refreshTimerRef = useRef<number | null>(null);
   const inFlightRef = useRef(false);
@@ -143,7 +148,7 @@ export function Topbar({
   return (
     <>
       <header className="sticky top-0 z-30 bg-white/80 backdrop-blur border-b border-ink-100">
-        <div className="h-14 px-4 md:px-6 flex items-center justify-between">
+        <div className="h-14 px-4 md:px-6 flex items-center gap-4">
           <div className="flex items-center gap-3">
             <button
               aria-label="Open menu"
@@ -158,7 +163,15 @@ export function Topbar({
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
+          {showHomeGreeting && (
+            <div className="hidden md:flex items-center min-w-0 flex-1">
+              <div className="truncate text-2xl font-bold text-ink-700 pl-2">
+                {timeGreeting()}, {firstName}
+              </div>
+            </div>
+          )}
+
+          <div className="flex items-center gap-3 ml-auto">
             <div className="hidden sm:flex items-center gap-2 text-xs text-ink-400">
               {deptName && (
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-ink-100 text-ink-600">
@@ -288,4 +301,13 @@ export function Topbar({
       </div>
     </>
   );
+}
+
+function timeGreeting() {
+  const h = new Date().getHours();
+  if (h < 5) return "Still up";
+  if (h < 12) return "Good morning";
+  if (h < 17) return "Good afternoon";
+  if (h < 21) return "Good evening";
+  return "Good night";
 }

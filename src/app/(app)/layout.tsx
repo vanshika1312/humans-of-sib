@@ -41,7 +41,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           navPermissions={user.permissions ?? []}
           signOutAction={signOutAction}
         />
-        <main className="flex-1 px-4 md:px-8 py-6 md:py-8 max-w-6xl w-full mx-auto">
+        <main className="flex-1 w-full px-4 md:px-8 2xl:px-12 py-6 md:py-8 max-w-[1400px] 2xl:max-w-[1600px] mx-auto has-[[data-app-fullwidth]]:max-w-none has-[[data-app-fullwidth]]:mx-0 lg:has-[[data-app-fullwidth]]:py-0">
           <Suspense fallback={<RouteLoadingFallback label="Loading page…" />}>{children}</Suspense>
         </main>
       </div>
