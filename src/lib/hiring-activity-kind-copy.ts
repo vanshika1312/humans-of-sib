@@ -6,4 +6,6 @@ export const HIRING_ACTIVITY_KIND_LABEL: Record<HiringActivityKind, string> = {
   CANDIDATE_UPDATED: "Profile updated",
   APPLICATION_CREATED: "Attached to opening",
   APPLICATION_STAGE_CHANGED: "Pipeline stage updated",
+  APPLICATION_REVIEW_UPDATED: "Feedback updated",
+  APPLICATION_REVIEW_DELETED: "Feedback deleted",
 };

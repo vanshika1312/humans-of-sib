@@ -21,7 +21,7 @@ import {
   createHiringApplicationReview,
   deleteHiringApplicationAttachment,
   moveHiringApplicationToJob,
-  updateHiringApplicationNotes,
+  updateHiringApplicationReview,
 } from "../../actions";
 import { DeleteApplicationForm } from "../../_components/delete-application-form";
 import { ApplicationStageControl } from "../../_components/application-stage-control";
@@ -30,6 +30,7 @@ import { CopyTextButton } from "@/components/ui/copy-text-button";
 import { hiringJobActiveClause } from "@/lib/hiring-job-active";
 import { firstSearchParam } from "@/lib/search-param";
 import { cn } from "@/lib/utils";
+import { DeleteReviewForm } from "../../_components/delete-review-form";
 
 type Props = {
   params: Promise<{ applicationId: string }>;
@@ -37,11 +38,12 @@ type Props = {
     tab?: string | string[];
     from?: string | string[];
     error?: string | string[];
-    notesSaved?: string | string[];
     attached?: string | string[];
     attachmentRemoved?: string | string[];
     moved?: string | string[];
     reviewSaved?: string | string[];
+    reviewUpdated?: string | string[];
+    reviewDeleted?: string | string[];
     jobMoved?: string | string[];
   }>;
 };
@@ -54,11 +56,12 @@ export default async function HiringApplicationDetailPage(props: Props) {
   const from = firstSearchParam(sp.from);
   const isTimeline = tab === "timeline";
   const flashError = firstSearchParam(sp.error);
-  const notesSaved = firstSearchParam(sp.notesSaved) === "1";
   const attached = firstSearchParam(sp.attached) === "1";
   const attachmentRemoved = firstSearchParam(sp.attachmentRemoved) === "1";
   const moved = firstSearchParam(sp.moved) === "1";
   const reviewSaved = firstSearchParam(sp.reviewSaved) === "1";
+  const reviewUpdated = firstSearchParam(sp.reviewUpdated) === "1";
+  const reviewDeleted = firstSearchParam(sp.reviewDeleted) === "1";
   const jobMoved = firstSearchParam(sp.jobMoved) === "1";
 
   const app = await prisma.hiringApplication.findUnique({
@@ -112,7 +115,6 @@ export default async function HiringApplicationDetailPage(props: Props) {
     ? `${app.job.department.emoji ?? ""} ${app.job.department.name}`.trim()
     : "—";
 
-  const notesAction = updateHiringApplicationNotes.bind(null, applicationId);
   const addAttachmentAction = addHiringApplicationAttachment.bind(null, applicationId);
 
   const timelineEvents = isTimeline
@@ -133,6 +135,7 @@ export default async function HiringApplicationDetailPage(props: Props) {
   const profileResumeHref = app.candidate.resumeUrl?.trim();
 
   const reviewAction = createHiringApplicationReview.bind(null, applicationId);
+  const updateReviewAction = updateHiringApplicationReview;
   const moveJobAction = moveHiringApplicationToJob.bind(null, applicationId);
 
   return (
@@ -204,11 +207,6 @@ export default async function HiringApplicationDetailPage(props: Props) {
           <p className="text-xs text-ink-400">Last updated {formatDate(app.updatedAt)} · Application ID · {applicationId}</p>
         </header>
 
-        {notesSaved && (
-          <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
-            Notes saved on this submission.
-          </div>
-        )}
         {attached && (
           <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
             Attachment added.
@@ -232,6 +230,16 @@ export default async function HiringApplicationDetailPage(props: Props) {
         {reviewSaved && (
           <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
             Feedback saved on this submission.
+          </div>
+        )}
+        {reviewUpdated && (
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+            Feedback updated — timeline entry added.
+          </div>
+        )}
+        {reviewDeleted && (
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+            Feedback deleted — timeline entry added.
           </div>
         )}
         {flashError && (
@@ -422,32 +430,6 @@ export default async function HiringApplicationDetailPage(props: Props) {
               </Card>
             </section>
 
-            <section id="section-notes" className="scroll-mt-24">
-              <Card>
-                <CardHeader className="border-b border-ink-100 bg-ink-50/60">
-                  <CardTitle>Notes</CardTitle>
-                </CardHeader>
-                <CardContent className="pt-6">
-                  <form action={notesAction} className="space-y-4 max-w-2xl">
-                    <div>
-                      <Label htmlFor="app-notes">Recruiting notes</Label>
-                      <Textarea
-                        id="app-notes"
-                        name="notes"
-                        rows={6}
-                        defaultValue={app.notes ?? ""}
-                        placeholder="Call outcomes, interviewer feedback summaries, reminders…"
-                        className="mt-1.5"
-                      />
-                    </div>
-                    <Button type="submit" variant="accent">
-                      Save notes
-                    </Button>
-                  </form>
-                </CardContent>
-              </Card>
-            </section>
-
             <section id="section-attachments" className="scroll-mt-24">
               <Card>
                 <CardHeader className="border-b border-ink-100 bg-ink-50/60">
@@ -613,6 +595,7 @@ export default async function HiringApplicationDetailPage(props: Props) {
                     <ul className="space-y-4">
                       {app.reviews.map((r) => {
                         const by = r.author.name ?? r.author.email ?? "—";
+                        const edited = r.updatedAt && r.updatedAt.getTime() !== r.createdAt.getTime();
                         return (
                           <li key={r.id} className="rounded-xl border border-ink-100 bg-white p-4">
                             <div className="flex flex-wrap items-baseline gap-2 gap-y-1 text-xs text-ink-400">
@@ -622,8 +605,70 @@ export default async function HiringApplicationDetailPage(props: Props) {
                               {r.rating !== null ? (
                                 <span className="tabular-nums text-ink-600">Rating {r.rating}/5</span>
                               ) : null}
+                              {edited ? <span className="text-ink-400">· edited {formatDate(r.updatedAt)}</span> : null}
                             </div>
                             <p className="text-sm text-ink-700 whitespace-pre-wrap mt-2">{r.comment}</p>
+                            <details className="mt-3 rounded-lg border border-ink-100 bg-ink-50/40">
+                              <summary className="cursor-pointer px-3 py-2 text-xs font-semibold text-ink-600 hover:text-ink-800 select-none">
+                                Edit feedback
+                              </summary>
+                              <div className="border-t border-ink-100 px-3 py-3">
+                                <form
+                                  action={updateReviewAction.bind(null, r.id)}
+                                  className="space-y-4 max-w-xl"
+                                >
+                                  <input type="hidden" name="returnPath" value={detailReturnPath} />
+                                  <div>
+                                    <Label htmlFor={`rating-${r.id}`}>Rating (optional)</Label>
+                                    <Select
+                                      id={`rating-${r.id}`}
+                                      name="rating"
+                                      className="mt-1.5"
+                                      defaultValue={r.rating === null ? "" : String(r.rating)}
+                                    >
+                                      <option value="">No rating</option>
+                                      {[1, 2, 3, 4, 5].map((n) => (
+                                        <option key={n} value={String(n)}>
+                                          {n} —{" "}
+                                          {n >= 5
+                                            ? "Strong yes"
+                                            : n >= 4
+                                              ? "Positive"
+                                              : n >= 3
+                                                ? "Mixed"
+                                                : n >= 2
+                                                  ? "Concerns"
+                                                  : "Hard no"}
+                                        </option>
+                                      ))}
+                                    </Select>
+                                  </div>
+                                  <div>
+                                    <Label htmlFor={`comment-${r.id}`}>Written feedback</Label>
+                                    <Textarea
+                                      id={`comment-${r.id}`}
+                                      name="comment"
+                                      required
+                                      rows={5}
+                                      className="mt-1.5"
+                                      defaultValue={r.comment}
+                                    />
+                                  </div>
+                                  <Button type="submit" variant="accent" size="sm">
+                                    Save changes
+                                  </Button>
+                                  <p className="text-[11px] text-ink-400 leading-relaxed">
+                                    Saving edits will add an entry to the submission timeline.
+                                  </p>
+                                </form>
+                                <div className="mt-4 pt-4 border-t border-ink-100">
+                                  <p className="text-[11px] font-semibold uppercase tracking-wider text-red-700 mb-2">
+                                    Danger zone
+                                  </p>
+                                  <DeleteReviewForm reviewId={r.id} returnPath={detailReturnPath} />
+                                </div>
+                              </div>
+                            </details>
                           </li>
                         );
                       })}

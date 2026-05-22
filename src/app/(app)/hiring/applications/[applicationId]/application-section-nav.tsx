@@ -10,7 +10,6 @@ const LINKS = [
   { href: "#section-summary", label: "Summary" },
   { href: "#section-details", label: "Application details" },
   { href: "#section-move-delete", label: "Move / delete" },
-  { href: "#section-notes", label: "Notes" },
   { href: "#section-attachments", label: "Attachments" },
   { href: "#section-tags", label: "Tags" },
   { href: "#section-reviews", label: "Ratings & reviews" },

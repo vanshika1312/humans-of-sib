@@ -721,6 +721,212 @@ export async function createHiringApplicationReview(applicationId: string, formD
   );
 }
 
+export async function updateHiringApplicationReview(reviewId: string, formData: FormData) {
+  const me = await requireHiringUser();
+  const comment = String(formData.get("comment") || "").trim();
+  const ratingRaw = String(formData.get("rating") || "").trim();
+  const ratingNull = ratingRaw === "" ? null : Number(ratingRaw);
+  const returnPath = safeHiringReturnPath(formData.get("returnPath"));
+
+  if (!reviewId.trim()) {
+    redirect(
+      mergeHiringReturnQuery(returnPath, {
+        error: "Feedback not found.",
+      }),
+    );
+  }
+
+  if (comment.length < 3) {
+    redirect(
+      mergeHiringReturnQuery(returnPath, {
+        error: "Feedback needs at least a few words.",
+      }),
+    );
+  }
+  if (ratingNull !== null && (!Number.isInteger(ratingNull) || ratingNull < 1 || ratingNull > 5)) {
+    redirect(
+      mergeHiringReturnQuery(returnPath, {
+        error: "Rating must be between 1 and 5, or leave it blank.",
+      }),
+    );
+  }
+
+  const existing = await prisma.hiringApplicationReview.findUnique({
+    where: { id: reviewId },
+    include: {
+      author: { select: { id: true, name: true, email: true } },
+      application: {
+        select: {
+          id: true,
+          jobId: true,
+          candidateId: true,
+          job: { select: { title: true } },
+          candidate: { select: { fullName: true, email: true } },
+        },
+      },
+    },
+  });
+
+  if (!existing?.application) {
+    redirect(
+      mergeHiringReturnQuery(returnPath, {
+        error: "Feedback not found.",
+      }),
+    );
+  }
+
+  const changed =
+    existing.comment !== comment ||
+    (existing.rating === null ? null : existing.rating) !== (ratingNull === null ? null : ratingNull);
+
+  if (!changed) {
+    redirect(
+      mergeHiringReturnQuery(returnPath, {
+        error: "No changes to save.",
+      }),
+    );
+  }
+
+  const candidateLabel =
+    existing.application.candidate.fullName ||
+    existing.application.candidate.email ||
+    "Candidate";
+  const jobLabel = existing.application.job.title || "Opening";
+  const originalAuthor =
+    existing.author?.name ?? existing.author?.email ?? "Unknown";
+
+  const beforeComment = timelineExcerpt(existing.comment);
+  const afterComment = timelineExcerpt(comment);
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.hiringApplicationReview.update({
+        where: { id: reviewId },
+        data: {
+          comment,
+          rating: ratingNull,
+        },
+      });
+      await tx.hiringActivity.create({
+        data: {
+          kind: "APPLICATION_REVIEW_UPDATED",
+          summary: `Feedback edited · ${candidateLabel} · ${jobLabel} (original by ${originalAuthor})`,
+          payloadJson: JSON.stringify({
+            reviewId,
+            applicationId: existing.application.id,
+            before: {
+              rating: existing.rating,
+              comment: beforeComment,
+            },
+            after: {
+              rating: ratingNull,
+              comment: afterComment,
+            },
+            changed: {
+              rating: existing.rating !== ratingNull,
+              comment: existing.comment !== comment,
+            },
+          }),
+          candidateId: existing.application.candidateId,
+          applicationId: existing.application.id,
+          actorUserId: me.id,
+        },
+      });
+    });
+  } catch {
+    redirect(
+      mergeHiringReturnQuery(returnPath, {
+        error: "Could not update feedback.",
+      }),
+    );
+  }
+
+  invalidateHiring(existing.application.jobId, existing.application.id);
+  revalidatePath(`/hiring/timeline/${existing.application.candidateId}`);
+  redirect(
+    mergeHiringReturnQuery(returnPath, {
+      reviewUpdated: "1",
+    }),
+  );
+}
+
+export async function deleteHiringApplicationReview(reviewId: string, formData: FormData) {
+  const me = await requireHiringUser();
+  const returnPath = safeHiringReturnPath(formData.get("returnPath"));
+
+  const existing = await prisma.hiringApplicationReview.findUnique({
+    where: { id: reviewId },
+    include: {
+      author: { select: { id: true, name: true, email: true } },
+      application: {
+        select: {
+          id: true,
+          jobId: true,
+          candidateId: true,
+          job: { select: { title: true } },
+          candidate: { select: { fullName: true, email: true } },
+        },
+      },
+    },
+  });
+
+  if (!existing?.application) {
+    redirect(
+      mergeHiringReturnQuery(returnPath, {
+        error: "Feedback not found.",
+      }),
+    );
+  }
+
+  const candidateLabel =
+    existing.application.candidate.fullName ||
+    existing.application.candidate.email ||
+    "Candidate";
+  const jobLabel = existing.application.job.title || "Opening";
+  const originalAuthor = existing.author?.name ?? existing.author?.email ?? "Unknown";
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.hiringApplicationReview.delete({ where: { id: reviewId } });
+      await tx.hiringActivity.create({
+        data: {
+          kind: "APPLICATION_REVIEW_DELETED",
+          summary: `Feedback deleted · ${candidateLabel} · ${jobLabel} (was by ${originalAuthor})`,
+          payloadJson: JSON.stringify({
+            reviewId,
+            applicationId: existing.application.id,
+            deleted: {
+              rating: existing.rating,
+              comment: timelineExcerpt(existing.comment),
+            },
+            author: {
+              name: existing.author?.name ?? null,
+              email: existing.author?.email ?? null,
+            },
+          }),
+          candidateId: existing.application.candidateId,
+          applicationId: existing.application.id,
+          actorUserId: me.id,
+        },
+      });
+    });
+  } catch {
+    redirect(
+      mergeHiringReturnQuery(returnPath, {
+        error: "Could not delete feedback.",
+      }),
+    );
+  }
+
+  invalidateHiring(existing.application.jobId, existing.application.id);
+  revalidatePath(`/hiring/timeline/${existing.application.candidateId}`);
+  redirect(
+    mergeHiringReturnQuery(returnPath, {
+      reviewDeleted: "1",
+    }),
+  );
+}
+
 export async function updateHiringApplicationNotes(applicationId: string, formData: FormData) {
   await requireHiringUser();
   const notes = nu(String(formData.get("notes")));
@@ -1265,6 +1471,12 @@ export async function updateHiringCandidate(candidateId: string, formData: FormD
 function nu(raw: string) {
   const t = raw.trim();
   return t.length ? t : null;
+}
+
+function timelineExcerpt(raw: string, maxLen = 280): string {
+  const t = raw.trim();
+  if (t.length <= maxLen) return t;
+  return t.slice(0, maxLen - 1).trimEnd() + "…";
 }
 
 function requisitionJobDescriptionBlock(args: {

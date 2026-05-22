@@ -90,6 +90,82 @@ function readableExtras(
       }
       return null;
     }
+    case "APPLICATION_REVIEW_UPDATED": {
+      const changedObj = typeof o.changed === "object" && o.changed ? (o.changed as Record<string, unknown>) : {};
+      const ratingChanged = changedObj.rating === true;
+      const commentChanged = changedObj.comment === true;
+
+      const before = typeof o.before === "object" && o.before ? (o.before as Record<string, unknown>) : {};
+      const after = typeof o.after === "object" && o.after ? (o.after as Record<string, unknown>) : {};
+
+      const beforeRating = before.rating;
+      const afterRating = after.rating;
+      const beforeComment = typeof before.comment === "string" ? before.comment : null;
+      const afterComment = typeof after.comment === "string" ? after.comment : null;
+
+      const lines: ReactNode[] = [];
+      if (ratingChanged) {
+        lines.push(
+          <span key="rating">
+            <span className="text-ink-400">Rating:</span>{" "}
+            <span className="text-ink-500">{beforeRating == null ? "—" : String(beforeRating)}</span> →{" "}
+            <span>{afterRating == null ? "—" : String(afterRating)}</span>
+          </span>,
+        );
+      }
+      if (commentChanged) {
+        lines.push(
+          <span key="comment">
+            <span className="text-ink-400">Written feedback:</span>{" "}
+            {beforeComment && afterComment ? (
+              <span className="whitespace-pre-wrap">
+                <span className="text-ink-500">“{beforeComment}”</span> → <span>“{afterComment}”</span>
+              </span>
+            ) : (
+              <span>updated</span>
+            )}
+          </span>,
+        );
+      }
+
+      if (lines.length === 0) return null;
+
+      return (
+        <ul className="list-disc list-inside space-y-0.5 text-ink-700">
+          {lines.map((x, idx) => (
+            <li key={idx}>{x}</li>
+          ))}
+        </ul>
+      );
+    }
+    case "APPLICATION_REVIEW_DELETED": {
+      const del = typeof o.deleted === "object" && o.deleted ? (o.deleted as Record<string, unknown>) : {};
+      const rating = del.rating;
+      const comment = typeof del.comment === "string" ? del.comment : null;
+      const lines: ReactNode[] = [];
+      if (rating != null) {
+        lines.push(
+          <span key="rating">
+            <span className="text-ink-400">Rating:</span> {String(rating)}
+          </span>,
+        );
+      }
+      if (comment) {
+        lines.push(
+          <span key="comment" className="whitespace-pre-wrap">
+            <span className="text-ink-400">Deleted feedback:</span> “{comment}”
+          </span>,
+        );
+      }
+      if (lines.length === 0) return null;
+      return (
+        <ul className="list-disc list-inside space-y-0.5 text-ink-700">
+          {lines.map((x, idx) => (
+            <li key={idx}>{x}</li>
+          ))}
+        </ul>
+      );
+    }
     case "APPLICATION_CREATED": {
       const src = o.applicationSource;
       if (typeof src === "string" && src.trim()) {

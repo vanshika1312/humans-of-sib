@@ -303,6 +303,8 @@ enum HiringActivityKind {
   CANDIDATE_UPDATED
   APPLICATION_CREATED
   APPLICATION_STAGE_CHANGED
+  APPLICATION_REVIEW_UPDATED
+  APPLICATION_REVIEW_DELETED
 }
 
 enum HiringTemplateCategory {
@@ -522,6 +524,7 @@ model HiringApplicationReview {
   author   User                    @relation("HiringApplicationReviewAuthor", fields: [authorId], references: [id], onDelete: Cascade)
 
   createdAt DateTime               @default(now())
+  updatedAt DateTime               @default(now()) @updatedAt
 
   @@index([applicationId, createdAt])
 }
