@@ -1,5 +1,6 @@
 import { Suspense } from "react";
 import { notFound } from "next/navigation";
+import Link from "next/link";
 import { ListTodo } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { requireAppViewer } from "@/lib/app-viewer";
@@ -8,6 +9,9 @@ import { serializePersonalBoardForClient } from "@/lib/personal-board-client";
 import { RouteBodyFallback } from "@/components/app-route-body-fallback";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { getOrCreatePersonalTaskBoard } from "@/lib/personal-task-board-setup";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+import { hasPermission } from "@/lib/permissions";
 import { AddBoardColumnDialog } from "./add-board-column-dialog";
 import { AssignTaskDialog, type AssignableTaskMember } from "./assign-task-dialog";
 import type { ClientBoard, ClientTaskAssignee } from "./task-kanban-types";
@@ -16,7 +20,7 @@ import { TaskKanbanBoardLoader } from "./task-kanban-board-loader";
 import { TeamTaskMemberCards, type TeamMemberForTasks } from "./team-task-member-cards";
 import { AssignedByMeTasks } from "./assigned-by-me-tasks";
 
-type SearchParams = Promise<{ userId?: string; task?: string }>;
+type SearchParams = Promise<{ userId?: string; task?: string; view?: string }>;
 
 export default function MyTasksPage({ searchParams }: { searchParams: SearchParams }) {
   return (
@@ -31,8 +35,18 @@ async function MyTasksPageBody({ searchParams }: { searchParams: SearchParams })
   if (!viewer) notFound();
 
   const sp = await searchParams;
+  const view = sp.view === "team" ? "team" : "mine";
   const initialTaskParam =
     typeof sp.task === "string" && sp.task.trim().length > 0 ? sp.task.trim().slice(0, 160) : null;
+
+  const tabHref = (nextView: "mine" | "team") => {
+    const qs = new URLSearchParams();
+    if (nextView === "team") qs.set("view", "team");
+    if (typeof sp.userId === "string" && sp.userId.trim().length > 0) qs.set("userId", sp.userId.trim());
+    if (typeof sp.task === "string" && sp.task.trim().length > 0) qs.set("task", sp.task.trim());
+    const tail = qs.toString();
+    return tail.length ? `/my-tasks?${tail}` : "/my-tasks";
+  };
 
   const memberSelect = {
     id: true,
@@ -81,12 +95,20 @@ async function MyTasksPageBody({ searchParams }: { searchParams: SearchParams })
     })),
   ];
 
-  const canSeeTeamTaskSummaries = viewer.role === "ADMIN" || viewer.role === "MANAGER";
+  const canBrowseTeamMembers =
+    viewer.role === "ADMIN" ||
+    viewer.role === "MANAGER" ||
+    viewer.role === "DEPT_HEAD" ||
+    hasPermission({ permissions: viewer.permissions ?? [] }, "TASKS_VIEW_ALL");
 
   const teamLinks = (() => {
-    if (!canSeeTeamTaskSummaries) return [];
-    const source =
-      viewer.role === "MANAGER" ? allActiveMembers.filter((u) => u.managerId === viewer.id) : allActiveMembers;
+    if (!canBrowseTeamMembers) return [];
+    const headedDeptId = viewer.role === "DEPT_HEAD" ? viewer.headedDept?.id ?? null : null;
+    const source = (() => {
+      if (viewer.role === "MANAGER") return allActiveMembers.filter((u) => u.managerId === viewer.id);
+      if (viewer.role === "DEPT_HEAD" && headedDeptId) return allActiveMembers.filter((u) => u.departmentId === headedDeptId);
+      return allActiveMembers;
+    })();
 
     const byId = new Map<string, TeamMemberForTasks>();
     for (const u of source) {
@@ -135,7 +157,7 @@ async function MyTasksPageBody({ searchParams }: { searchParams: SearchParams })
   });
 
   const trackedCounts: Record<string, number> = {};
-  if (canSeeTeamTaskSummaries && teamLinks.length > 0) {
+  if (canBrowseTeamMembers && teamLinks.length > 0) {
     const teamIds = teamLinks.map((u) => u.id);
     const boards = await prisma.personalTaskBoard.findMany({
       where: { ownerUserId: { in: teamIds } },
@@ -160,7 +182,7 @@ async function MyTasksPageBody({ searchParams }: { searchParams: SearchParams })
     }
   }
 
-  const showTeamGrid = canSeeTeamTaskSummaries && teamLinks.length > 0;
+  const showTeamGrid = canBrowseTeamMembers && teamLinks.length > 0;
 
   const prismaViewerBoard = await getOrCreatePersonalTaskBoard(viewer.id);
   const clientBoardMine = serializePersonalBoardForClient(prismaViewerBoard);
@@ -210,59 +232,108 @@ async function MyTasksPageBody({ searchParams }: { searchParams: SearchParams })
             Use your personal board for your own work, assign tasks across the organisation, and track only the tasks you
             delegated without seeing someone else&apos;s full list unless your role already allows it.
           </p>
+
+          <div className="mt-4 inline-flex rounded-lg border border-ink-200 bg-white p-1 shadow-sm">
+            <Button
+              asChild
+              size="sm"
+              variant={view === "mine" ? "primary" : "ghost"}
+              className={cn("rounded-md", view !== "mine" && "hover:bg-ink-50")}
+            >
+              <Link href={tabHref("mine")}>My Tasks</Link>
+            </Button>
+            <Button
+              asChild
+              size="sm"
+              variant={view === "team" ? "primary" : "ghost"}
+              className={cn("rounded-md", view !== "team" && "hover:bg-ink-50")}
+            >
+              <Link href={tabHref("team")}>Team Members Tasks</Link>
+            </Button>
+          </div>
         </div>
         <AssignTaskDialog members={assignableMembers} />
       </div>
 
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">Assigned by me</CardTitle>
-          <CardDescription>
-            Track delegated tasks without opening someone&apos;s full board. Click any task to jump into a filtered teammate view.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="pt-0">
-          <AssignedByMeTasks initialTasks={assignedByMeTasks} />
-        </CardContent>
-      </Card>
+      {view === "mine" ? (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Assigned by me</CardTitle>
+            <CardDescription>
+              Track delegated tasks without opening someone&apos;s full board. Click any task to jump into a filtered teammate view.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="pt-0">
+            <AssignedByMeTasks initialTasks={assignedByMeTasks} />
+          </CardContent>
+        </Card>
+      ) : (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Team members</CardTitle>
+            <CardDescription>Open a teammate&apos;s task board (read-only) based on your access.</CardDescription>
+          </CardHeader>
+          <CardContent className="pt-0">
+            {showTeamGrid ? (
+              <TeamTaskMemberCards
+                members={teamLinks}
+                trackedCounts={trackedCounts}
+                viewerId={viewer.id}
+                peekMember={peekTeamMemberCard}
+                initialOverlay={initialTeamOverlay}
+                memberOptions={memberOptions}
+                showGrid
+              />
+            ) : (
+              <div className="rounded-xl border border-dashed border-ink-200 bg-white px-4 py-6 text-sm text-ink-500">
+                {canBrowseTeamMembers
+                  ? "No team members available to show here yet."
+                  : "You don’t currently have permission to browse team members’ task boards."}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       <TeamTaskMemberCards
-        members={showTeamGrid ? teamLinks : []}
+        members={[]}
         trackedCounts={trackedCounts}
         viewerId={viewer.id}
         peekMember={peekTeamMemberCard}
         initialOverlay={initialTeamOverlay}
         memberOptions={memberOptions}
-        showGrid={showTeamGrid}
+        showGrid={false}
       />
 
-      <Card id="your-board-anchor">
-        <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3 space-y-0 pb-3">
-          <div className="min-w-0 flex-1 space-y-0.5">
-            <CardTitle>Your board</CardTitle>
-            <CardDescription>
-              Drag column headers to reorder statuses. Drag cards by the grip to move them. Click a card to open details.
-            </CardDescription>
-          </div>
-          <AddBoardColumnDialog ownerUserId={viewer.id} />
-        </CardHeader>
-        <CardContent className="pt-1">
-          <TaskKanbanBoardLoader
-            board={clientBoardMine}
-            ownerUserId={viewer.id}
-            viewerId={viewer.id}
-            readOnly={false}
-            initialOpenTaskId={
-              !urlPeerId &&
-              initialTaskParam &&
-              prismaViewerBoard.tasks.some((t) => t.id === initialTaskParam)
-                ? initialTaskParam
-                : null
-            }
-            memberOptions={memberOptions}
-          />
-        </CardContent>
-      </Card>
+      {view === "mine" ? (
+        <Card id="your-board-anchor">
+          <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3 space-y-0 pb-3">
+            <div className="min-w-0 flex-1 space-y-0.5">
+              <CardTitle>Your board</CardTitle>
+              <CardDescription>
+                Drag column headers to reorder statuses. Drag cards by the grip to move them. Click a card to open details.
+              </CardDescription>
+            </div>
+            <AddBoardColumnDialog ownerUserId={viewer.id} />
+          </CardHeader>
+          <CardContent className="pt-1">
+            <TaskKanbanBoardLoader
+              board={clientBoardMine}
+              ownerUserId={viewer.id}
+              viewerId={viewer.id}
+              readOnly={false}
+              initialOpenTaskId={
+                !urlPeerId &&
+                initialTaskParam &&
+                prismaViewerBoard.tasks.some((t) => t.id === initialTaskParam)
+                  ? initialTaskParam
+                  : null
+              }
+              memberOptions={memberOptions}
+            />
+          </CardContent>
+        </Card>
+      ) : null}
     </div>
   );
 }

@@ -27,11 +27,13 @@ import {
   Table2,
   UserSearch,
   ListTodo,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 
 const nav = [
   { group: "Home", items: [
-    { href: "/home", label: "Dashboard", icon: Home, comingSoon: true },
+    { href: "/home", label: "Dashboard", icon: Home },
     { href: "/journey", label: "My Journey", icon: Compass, comingSoon: true },
   ]},
   { group: "Community", items: [
@@ -72,11 +74,13 @@ export function Sidebar({
   role,
   permissions,
   collapsed,
+  onToggleCollapsed,
 }: {
   onNavigate?: () => void;
   role?: string;
   permissions?: string[];
   collapsed?: boolean;
+  onToggleCollapsed?: () => void;
 }) {
   const pathname = usePathname();
   const canSeeAdmin = (role && ["CEO", "ADMIN", "HR"].includes(role)) || (permissions ?? []).includes("ADMIN_PANEL");
@@ -84,15 +88,48 @@ export function Sidebar({
   return (
     <nav className="h-full flex flex-col">
       <div className={cn("pb-4", collapsed ? "px-3 pt-5" : "px-5 pt-6")}>
-        <Link href="/home" className="flex items-center gap-2" onClick={onNavigate} title="Home">
-          <div className="size-8 rounded-md brand-gradient shrink-0" />
-          {!collapsed && (
-            <div className="min-w-0">
-              <div className="font-bold text-ink-700 leading-none">Humans of SIB</div>
-              <div className="text-[10px] text-ink-400 mt-1 uppercase tracking-wider">Skillinabox</div>
-            </div>
+        <div className="flex items-start justify-between gap-2">
+          <Link href="/home" className="flex items-center gap-2" onClick={onNavigate} title="Home">
+            <div className="size-8 rounded-md brand-gradient shrink-0" />
+            {!collapsed && (
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <div className="font-bold text-ink-700 leading-none">Humans of SIB</div>
+                  {onToggleCollapsed && (
+                    <button
+                      type="button"
+                      aria-expanded={!collapsed}
+                      aria-label="Collapse menu"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        onToggleCollapsed();
+                      }}
+                      className="hidden md:inline-flex size-8 items-center justify-center rounded-md hover:bg-ink-50 text-ink-500 hover:text-ink-700"
+                      title="Collapse menu"
+                    >
+                      <ChevronLeft className="size-4" aria-hidden />
+                    </button>
+                  )}
+                </div>
+                <div className="text-[10px] text-ink-400 mt-1 uppercase tracking-wider">Skillinabox</div>
+              </div>
+            )}
+          </Link>
+
+          {onToggleCollapsed && collapsed && (
+            <button
+              type="button"
+              aria-expanded={!collapsed}
+              aria-label="Expand navigation"
+              onClick={onToggleCollapsed}
+              className="md:inline-flex size-8 items-center justify-center rounded-md hover:bg-ink-50 text-ink-500 hover:text-ink-700"
+              title="Expand menu"
+            >
+              <ChevronRight className="size-4" aria-hidden />
+            </button>
           )}
-        </Link>
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto px-3 pb-6 space-y-5">

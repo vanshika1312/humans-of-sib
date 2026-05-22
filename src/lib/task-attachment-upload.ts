@@ -12,6 +12,9 @@ const EXTRA_MIME_EXT: Record<string, string> = {
   "image/jpeg": ".jpg",
   "image/gif": ".gif",
   "image/webp": ".webp",
+  "video/mp4": ".mp4",
+  "video/webm": ".webm",
+  "video/quicktime": ".mov",
   "text/plain": ".txt",
   "text/markdown": ".md",
 };

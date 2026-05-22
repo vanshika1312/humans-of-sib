@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Sidebar } from "./sidebar";
 import { cn } from "@/lib/utils";
-import { ChevronLeft, ChevronRight } from "lucide-react";
 
 const STORAGE_KEY = "hosib-main-sidebar-collapsed";
 
@@ -38,25 +37,7 @@ export function AppSidebar({ role, permissions }: { role: string; permissions: s
       )}
     >
       <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden">
-        <Sidebar role={role} permissions={permissions} collapsed={collapsed} />
-      </div>
-      <div className="p-2 border-t border-ink-100 shrink-0">
-        <button
-          type="button"
-          aria-expanded={!collapsed}
-          aria-label={collapsed ? "Expand navigation" : "Collapse navigation"}
-          onClick={toggle}
-          className="w-full flex items-center justify-center gap-2 rounded-lg py-2 text-xs font-semibold uppercase tracking-wide text-ink-500 hover:bg-ink-50 hover:text-ink-700"
-        >
-          {collapsed ? (
-            <ChevronRight className="size-4" aria-hidden />
-          ) : (
-            <>
-              <ChevronLeft className="size-4" aria-hidden />
-              <span>Collapse menu</span>
-            </>
-          )}
-        </button>
+        <Sidebar role={role} permissions={permissions} collapsed={collapsed} onToggleCollapsed={toggle} />
       </div>
     </aside>
   );

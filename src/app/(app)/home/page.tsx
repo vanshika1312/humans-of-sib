@@ -10,7 +10,8 @@ import { DirectToCEO } from "./_components/DirectToCEO";
 import { UpcomingCelebrations } from "./_components/UpcomingCelebrations";
 import { CeoInbox } from "./_components/CeoInbox";
 import { QuickActions } from "./_components/QuickActions";
-import { TeamSpotlight } from "./_components/TeamSpotlight";
+import { AnnouncementFeed } from "./_components/AnnouncementFeed";
+import { HolidayCalendar } from "./_components/HolidayCalendar";
 
 export default function HomePage() {
   return (
@@ -41,18 +42,18 @@ async function HomePageBody() {
       <div className="grid md:grid-cols-3 gap-5">
         <div className="md:col-span-2 space-y-5">
           <Suspense fallback={<div className="h-64 rounded-xl bg-ink-100 animate-pulse" />}>
+            <AnnouncementFeed viewer={{ id: me.id, name: me.name, image: me.image, role: me.role }} />
+          </Suspense>
+          <Suspense fallback={<div className="h-64 rounded-xl bg-ink-100 animate-pulse" />}>
             <WinsWall />
           </Suspense>
           <DirectToCEO />
         </div>
 
         <div className="space-y-5">
+          <HolidayCalendar />
           <Suspense fallback={<div className="h-48 rounded-xl bg-ink-100 animate-pulse" />}>
             <UpcomingCelebrations />
-          </Suspense>
-
-          <Suspense fallback={<div className="h-48 rounded-xl bg-ink-100 animate-pulse" />}>
-            <TeamSpotlight />
           </Suspense>
 
           {me.role === "CEO" && (
