@@ -2,7 +2,8 @@ import { mkdir, writeFile } from "fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { put } from "@vercel/blob";
-import { persistBufferToR2, r2ConfigComplete } from "@/lib/hiring-resume-r2";
+import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { r2ConfigComplete, r2PublicBaseUrlNormalized } from "@/lib/hiring-resume-r2";
 import { persistHiringResumeBuffer } from "@/lib/hiring-resume-upload";
 
 const MAX_BYTES = 15 * 1024 * 1024;
@@ -47,6 +48,41 @@ async function persistBufferToBlob(buf: Buffer, ext: string, contentType: string
     addRandomSuffix: false,
   });
   return url;
+}
+
+function trimEnv(s: string | undefined): string | undefined {
+  const t = s?.trim();
+  return t || undefined;
+}
+
+function r2S3Client(): S3Client {
+  const accountId = trimEnv(process.env.R2_ACCOUNT_ID)!;
+  const endpoint =
+    trimEnv(process.env.R2_ENDPOINT) ?? `https://${accountId}.r2.cloudflarestorage.com`;
+  return new S3Client({
+    region: "auto",
+    endpoint,
+    credentials: {
+      accessKeyId: trimEnv(process.env.R2_ACCESS_KEY_ID)!,
+      secretAccessKey: trimEnv(process.env.R2_SECRET_ACCESS_KEY)!,
+    },
+  });
+}
+
+async function persistBufferToTaskR2(buf: Buffer, ext: string, contentType: string): Promise<string> {
+  const bucket = trimEnv(process.env.R2_BUCKET_NAME)!;
+  const key = `task-uploads/${randomUUID()}${ext}`;
+  const client = r2S3Client();
+  await client.send(
+    new PutObjectCommand({
+      Bucket: bucket,
+      Key: key,
+      Body: buf,
+      ContentType: contentType,
+    }),
+  );
+  const base = r2PublicBaseUrlNormalized()!;
+  return `${base}/${key}`;
 }
 
 async function persistBufferToLocalPublic(buf: Buffer, ext: string): Promise<string> {
@@ -108,7 +144,7 @@ export async function persistTaskAttachmentFile(file: unknown): Promise<PersistT
   try {
     let url: string;
     if (r2ConfigComplete()) {
-      url = await persistBufferToR2(buf, ext, contentType);
+      url = await persistBufferToTaskR2(buf, ext, contentType);
     } else if (blobToken()) {
       url = await persistBufferToBlob(buf, ext, contentType);
     } else if (isServerlessReadOnlyDeploy()) {

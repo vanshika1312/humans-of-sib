@@ -23,6 +23,14 @@ function clamp01(n: number) {
   return Math.max(0, Math.min(1, n));
 }
 
+function normalizeMediaUrl(url: string | null | undefined): string | null {
+  const u = (url ?? "").trim();
+  if (!u) return null;
+  if (u.startsWith("http://") || u.startsWith("https://")) return u;
+  if (u.startsWith("/")) return u;
+  return `/${u}`;
+}
+
 function getMentionQuery(text: string, caret: number) {
   const upto = text.slice(0, caret);
   const at = upto.lastIndexOf("@");
@@ -69,7 +77,7 @@ export function HomeFeedPostActions({
   const showBodyHint = useMemo(() => editing && (initialBody ?? "").trim() !== body.trim(), [editing, initialBody, body]);
 
   const isPhoto = initialPostKind === "PHOTO" && !!initialMedia?.url;
-  const mediaUrl: string | null = initialMedia?.url ?? null;
+  const mediaUrl: string | null = normalizeMediaUrl(initialMedia?.url);
 
   useEffect(() => {
     if (!mention) return;
@@ -99,9 +107,8 @@ export function HomeFeedPostActions({
   }, [mention]);
 
   useEffect(() => {
-    if (!tagDraft || !tagSuggestOpen) return;
-    const q = tagDraft.q.trim();
-    if (!q.length) return;
+    const q = tagDraft?.q.trim() ?? "";
+    if (!tagSuggestOpen || !q.length) return;
 
     const ac = new AbortController();
     const t = setTimeout(async () => {
@@ -399,19 +406,21 @@ export function HomeFeedPostActions({
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={mediaUrl} alt="Post photo" className="max-h-64 w-full object-cover" />
 
-                {photoTags.map((t) => (
-                  <div
-                    key={`${t.userId}-${t.x}-${t.y}`}
-                    className="absolute pointer-events-none"
-                    style={{
-                      left: `${t.x * 100}%`,
-                      top: `${t.y * 100}%`,
-                      transform: "translate(-50%, -50%)",
-                    }}
-                  >
-                    <div className="size-2.5 rounded-full bg-white ring-2 ring-sky-600 shadow-sm" />
-                  </div>
-                ))}
+                {taggingEnabled
+                  ? photoTags.map((t) => (
+                      <div
+                        key={`${t.userId}-${t.x}-${t.y}`}
+                        className="absolute pointer-events-none"
+                        style={{
+                          left: `${t.x * 100}%`,
+                          top: `${t.y * 100}%`,
+                          transform: "translate(-50%, -50%)",
+                        }}
+                      >
+                        <div className="size-2.5 rounded-full bg-white ring-2 ring-sky-600 shadow-sm" />
+                      </div>
+                    ))
+                  : null}
 
                 {tagDraft && tagSuggestOpen ? (
                   <div

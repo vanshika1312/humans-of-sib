@@ -61,15 +61,14 @@ export function AnnouncementComposer({ viewer }: { viewer: UserLite }) {
     };
   }, [previewUrl]);
 
-  useEffect(() => {
-    if (kind !== "PHOTO" || !file) {
-      setTaggingEnabled(false);
-      setPhotoTags([]);
-      setTagDraft(null);
-      setTagSuggestOpen(false);
-      setTagSuggestions([]);
-    }
-  }, [kind, file]);
+  const resetPhotoTagging = () => {
+    setTaggingEnabled(false);
+    setPhotoTags([]);
+    setTagDraft(null);
+    setTagSuggestOpen(false);
+    setTagSuggestions([]);
+    setTagHighlightIx(0);
+  };
 
   useEffect(() => {
     if (!mention) return;
@@ -99,12 +98,8 @@ export function AnnouncementComposer({ viewer }: { viewer: UserLite }) {
   }, [mention]);
 
   useEffect(() => {
-    if (!tagDraft || !tagSuggestOpen) return;
-    const q = tagDraft.q.trim();
-    if (!q.length) {
-      setTagSuggestions([]);
-      return;
-    }
+    const q = tagDraft?.q.trim() ?? "";
+    if (!tagSuggestOpen || !q.length) return;
 
     const ac = new AbortController();
     const t = setTimeout(async () => {
@@ -293,6 +288,7 @@ export function AnnouncementComposer({ viewer }: { viewer: UserLite }) {
                 onChange={(e) => {
                   const f = e.target.files?.[0] ?? null;
                   setFile(f);
+                  if (kind !== "PHOTO" || !f) resetPhotoTagging();
                 }}
                 className="block w-full text-xs text-ink-500 file:mr-3 file:rounded-lg file:border-0 file:bg-ink-50 file:px-3 file:py-2 file:text-xs file:font-medium file:text-ink-700 hover:file:bg-ink-100"
               />
@@ -356,19 +352,21 @@ export function AnnouncementComposer({ viewer }: { viewer: UserLite }) {
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={previewUrl} alt="Selected" className="max-h-64 w-full object-cover" />
 
-                    {photoTags.map((t) => (
-                      <div
-                        key={`${t.userId}-${t.x}-${t.y}`}
-                        className="absolute pointer-events-none"
-                        style={{
-                          left: `${t.x * 100}%`,
-                          top: `${t.y * 100}%`,
-                          transform: "translate(-50%, -50%)",
-                        }}
-                      >
-                        <div className="size-2.5 rounded-full bg-white ring-2 ring-sky-600 shadow-sm" />
-                      </div>
-                    ))}
+                    {taggingEnabled
+                      ? photoTags.map((t) => (
+                          <div
+                            key={`${t.userId}-${t.x}-${t.y}`}
+                            className="absolute pointer-events-none"
+                            style={{
+                              left: `${t.x * 100}%`,
+                              top: `${t.y * 100}%`,
+                              transform: "translate(-50%, -50%)",
+                            }}
+                          >
+                            <div className="size-2.5 rounded-full bg-white ring-2 ring-sky-600 shadow-sm" />
+                          </div>
+                        ))
+                      : null}
 
                     {tagDraft && tagSuggestOpen ? (
                       <div
@@ -385,7 +383,11 @@ export function AnnouncementComposer({ viewer }: { viewer: UserLite }) {
                             <input
                               ref={tagInputRef}
                               value={tagDraft.q}
-                              onChange={(e) => setTagDraft((d) => (d ? { ...d, q: e.target.value } : d))}
+                              onChange={(e) => {
+                                const v = e.target.value;
+                                setTagDraft((d) => (d ? { ...d, q: v } : d));
+                                if (v.trim().length === 0) setTagSuggestions([]);
+                              }}
                               onKeyDown={(e) => {
                                 if (e.key === "Escape") {
                                   setTagDraft(null);
@@ -483,6 +485,7 @@ export function AnnouncementComposer({ viewer }: { viewer: UserLite }) {
                 onClick={() => {
                   setKind("TEXT");
                   setFile(null);
+                  resetPhotoTagging();
                 }}
                 className={cn(
                   "inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium border transition-colors",
@@ -498,6 +501,7 @@ export function AnnouncementComposer({ viewer }: { viewer: UserLite }) {
                 onClick={() => {
                   setKind("PHOTO");
                   setFile(null);
+                  resetPhotoTagging();
                 }}
                 className={cn(
                   "inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium border transition-colors",
@@ -513,6 +517,7 @@ export function AnnouncementComposer({ viewer }: { viewer: UserLite }) {
                 onClick={() => {
                   setKind("VIDEO");
                   setFile(null);
+                  resetPhotoTagging();
                 }}
                 className={cn(
                   "inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium border transition-colors",

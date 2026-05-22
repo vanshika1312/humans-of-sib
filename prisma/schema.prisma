@@ -204,6 +204,8 @@ model User {
   notifications                   Notification[] @relation("NotificationRecipient")
   notificationsAuthored           Notification[] @relation("NotificationActor")
 
+  homeFeedPostReactions           HomeFeedPostReaction[]
+
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -248,6 +250,25 @@ model Notification {
 
   @@index([userId, readAt, createdAt])
   @@index([actorUserId])
+}
+
+/// Reactions for Home feed posts (stored separately from fanout notifications).
+/// `postId` maps to the `homeFeedPostId` in Notification.meta for subkind HOME_FEED_POST.
+model HomeFeedPostReaction {
+  id     String @id @default(cuid())
+  postId String @db.VarChar(191)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Emoji reaction, e.g. "👍", "❤️", "🎉"
+  emoji String @db.VarChar(32)
+
+  createdAt DateTime @default(now())
+
+  @@unique([postId, userId, emoji])
+  @@index([postId])
+  @@index([userId])
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

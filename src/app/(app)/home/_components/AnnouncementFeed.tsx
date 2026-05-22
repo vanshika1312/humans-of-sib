@@ -1,14 +1,15 @@
-import type { ReactNode } from "react";
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Avatar } from "@/components/ui/avatar";
-import { cn, relativeTime, weekStartDate } from "@/lib/utils";
+import { relativeTime, weekStartDate } from "@/lib/utils";
+import { renderTextWithMentions } from "@/lib/mentions";
 import { WEEKLY_QUESTION } from "@/app/(app)/pulse/constants";
 import { Megaphone, Sparkles, Trophy, Vote } from "lucide-react";
 import { AnnouncementComposer } from "./AnnouncementComposer";
 import { HomeFeedPostActions } from "./HomeFeedPostActions";
+import { HomeFeedReactions } from "./HomeFeedReactions";
 
 type Props = {
   viewer: { id: string; name: string | null; image: string | null; role: string };
@@ -105,51 +106,12 @@ function parseHomeFeedPostMeta(meta: unknown): HomeFeedPostMeta | null {
   return out;
 }
 
-function renderBodyWithMentions(body: string) {
-  const out: Array<ReactNode> = [];
-  const re = /@\[[^\]]+\]\(([^)]+)\)/g;
-  const nameRe = /@\[(?<name>[^\]]+)\]\((?<id>[^)]+)\)/g;
-  let last = 0;
-  let m: RegExpExecArray | null;
-
-  while ((m = nameRe.exec(body))) {
-    const start = m.index;
-    const end = nameRe.lastIndex;
-    if (start > last) out.push(body.slice(last, start));
-    const id = m.groups?.id ?? m[2];
-    const name = m.groups?.name ?? m[1];
-    out.push(
-      <Link key={`${id}-${start}`} href={`/people/${id}`} className="text-sky-700 font-medium hover:underline">
-        @{name}
-      </Link>,
-    );
-    last = end;
-  }
-  if (last < body.length) out.push(body.slice(last));
-
-  // If regex didn't match (older Node without named groups), fall back to id-only pattern.
-  if (out.length === 1 && typeof out[0] === "string" && re.test(body)) {
-    const fallback: Array<React.ReactNode> = [];
-    re.lastIndex = 0;
-    let last2 = 0;
-    let mm: RegExpExecArray | null;
-    while ((mm = re.exec(body))) {
-      const start = mm.index;
-      const end = re.lastIndex;
-      if (start > last2) fallback.push(body.slice(last2, start));
-      const id = mm[1];
-      fallback.push(
-        <Link key={`${id}-${start}`} href={`/people/${id}`} className="text-sky-700 font-medium hover:underline">
-          @someone
-        </Link>,
-      );
-      last2 = end;
-    }
-    if (last2 < body.length) fallback.push(body.slice(last2));
-    return fallback;
-  }
-
-  return out;
+function normalizeMediaUrl(url: string): string {
+  const u = url.trim();
+  if (!u) return u;
+  if (u.startsWith("http://") || u.startsWith("https://")) return u;
+  if (u.startsWith("/")) return u;
+  return `/${u}`;
 }
 
 export async function AnnouncementFeed({ viewer }: Props) {
@@ -238,6 +200,44 @@ export async function AnnouncementFeed({ viewer }: Props) {
 
   const visibleItems = items.slice(0, 20);
 
+  const reactionPostIds = visibleItems
+    .flatMap((it) => {
+      if (it.kind !== "ANNOUNCEMENT") return [];
+      const meta = parseHomeFeedPostMeta(it.meta);
+      return [meta?.homeFeedPostId ?? it.id];
+    })
+    .filter((x) => typeof x === "string" && x.length > 0);
+
+  const [reactionCountsByPostId, viewerReactionsByPostId] = await (async () => {
+    if (reactionPostIds.length === 0) return [{}, {}] as const;
+
+    const [countsRows, mineRows] = await Promise.all([
+      prisma.homeFeedPostReaction.groupBy({
+        by: ["postId", "emoji"],
+        where: { postId: { in: reactionPostIds } },
+        _count: { _all: true },
+      }),
+      prisma.homeFeedPostReaction.findMany({
+        where: { userId: viewer.id, postId: { in: reactionPostIds } },
+        select: { postId: true, emoji: true },
+      }),
+    ]);
+
+    const counts: Record<string, Record<string, number>> = {};
+    for (const r of countsRows) {
+      if (!counts[r.postId]) counts[r.postId] = {};
+      counts[r.postId]![r.emoji] = r._count._all;
+    }
+
+    const mine: Record<string, string[]> = {};
+    for (const r of mineRows) {
+      if (!mine[r.postId]) mine[r.postId] = [];
+      mine[r.postId]!.push(r.emoji);
+    }
+
+    return [counts, mine] as const;
+  })();
+
   return (
     <Card>
       <CardHeader className="flex items-start justify-between flex-row">
@@ -261,7 +261,15 @@ export async function AnnouncementFeed({ viewer }: Props) {
               Nothing to show yet.
             </div>
           ) : (
-            visibleItems.map((it) => <FeedRow key={`${it.kind}-${it.id}`} item={it} viewer={viewer} />)
+            visibleItems.map((it) => (
+              <FeedRow
+                key={`${it.kind}-${it.id}`}
+                item={it}
+                viewer={viewer}
+                reactionCountsByPostId={reactionCountsByPostId}
+                viewerReactionsByPostId={viewerReactionsByPostId}
+              />
+            ))
           )}
         </div>
       </CardContent>
@@ -269,7 +277,17 @@ export async function AnnouncementFeed({ viewer }: Props) {
   );
 }
 
-function FeedRow({ item, viewer }: { item: FeedItem; viewer: Props["viewer"] }) {
+function FeedRow({
+  item,
+  viewer,
+  reactionCountsByPostId,
+  viewerReactionsByPostId,
+}: {
+  item: FeedItem;
+  viewer: Props["viewer"];
+  reactionCountsByPostId: Record<string, Record<string, number>>;
+  viewerReactionsByPostId: Record<string, string[]>;
+}) {
   const meta = (() => {
     if (item.kind === "ANNOUNCEMENT") return { tone: "sky" as const, label: "Announcement", icon: Megaphone };
     if (item.kind === "POLL") return { tone: "orange" as const, label: "Poll / Survey", icon: Vote };
@@ -286,6 +304,15 @@ function FeedRow({ item, viewer }: { item: FeedItem; viewer: Props["viewer"] }) 
   const manageId =
     item.kind === "ANNOUNCEMENT" ? (homePost?.homeFeedPostId ?? item.id) : "";
 
+  const canReact =
+    item.kind === "ANNOUNCEMENT" && manageId.length > 0;
+
+  const headerTitle = (() => {
+    if (item.kind !== "ANNOUNCEMENT") return item.title;
+    if (homePost?.subkind === "HOME_FEED_POST") return item.actor?.name ?? item.title;
+    return item.title;
+  })();
+
   return (
     <div className="rounded-xl border border-ink-100 bg-white px-4 py-3 shadow-sm flex items-start gap-3">
       <div className="pt-0.5">
@@ -300,19 +327,25 @@ function FeedRow({ item, viewer }: { item: FeedItem; viewer: Props["viewer"] }) 
 
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2 flex-wrap">
-          <div className="font-semibold text-ink-700 truncate">
-            {homePost?.subkind === "HOME_FEED_POST"
-              ? item.actor?.name ?? item.title
-              : item.title}
-          </div>
+          <div className="font-semibold text-ink-700 truncate">{headerTitle}</div>
           <Badge tone={meta.tone}>{meta.label}</Badge>
           <span className="text-xs text-ink-400 ml-auto">{relativeTime(item.createdAt)}</span>
         </div>
         {item.body && (
           <p className="text-sm text-ink-500 mt-1 whitespace-pre-wrap line-clamp-3">
-            {renderBodyWithMentions(item.body)}
+            {renderTextWithMentions(item.body)}
           </p>
         )}
+
+        {canReact ? (
+          <HomeFeedReactions
+            postId={manageId}
+            initialCounts={reactionCountsByPostId[manageId] ?? {}}
+            initialMine={viewerReactionsByPostId[manageId] ?? []}
+            className="mt-2"
+          />
+        ) : null}
+
         {canManageHomePost ? (
           <div className="mt-2">
             <HomeFeedPostActions
@@ -329,7 +362,7 @@ function FeedRow({ item, viewer }: { item: FeedItem; viewer: Props["viewer"] }) 
           <div className="mt-2">
             {homePost.media.mimeType?.toLowerCase().startsWith("video/") ? (
               <video
-                src={homePost.media.url}
+                src={normalizeMediaUrl(homePost.media.url)}
                 controls
                 className="w-full max-h-80 rounded-xl border border-ink-100 bg-black"
               />
@@ -337,45 +370,30 @@ function FeedRow({ item, viewer }: { item: FeedItem; viewer: Props["viewer"] }) 
               <div className="relative rounded-xl border border-ink-100 overflow-hidden">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
-                  src={homePost.media.url}
+                  src={normalizeMediaUrl(homePost.media.url)}
                   alt={homePost.media.fileName ?? "Post media"}
                   className="w-full max-h-96 object-cover"
                   loading="lazy"
                 />
-                {homePost.photoTags && homePost.photoTags.length > 0 ? (
-                  <div className="absolute inset-0">
-                    {homePost.photoTags.map((t) => (
-                      <div
-                        key={`${t.userId}-${t.x}-${t.y}`}
-                        className="absolute pointer-events-auto"
-                        style={{
-                          left: `${t.x * 100}%`,
-                          top: `${t.y * 100}%`,
-                          transform: "translate(-50%, -50%)",
-                        }}
-                      >
-                        <button
-                          type="button"
-                          className="group relative"
-                          aria-label={`Tagged: ${t.name}`}
-                        >
-                          <span className="block size-2.5 rounded-full bg-white ring-2 ring-sky-600 shadow-sm" />
-                          <span
-                            className={cn(
-                              "absolute left-1/2 bottom-full mb-2 -translate-x-1/2",
-                              "max-w-[14rem] truncate rounded-md border border-ink-100 bg-white px-2 py-1 text-[11px] text-ink-700 shadow-lg shadow-ink-900/10",
-                              "opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100",
-                            )}
-                          >
-                            {t.name}
-                          </span>
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
               </div>
             )}
+          </div>
+        ) : null}
+
+        {homePost?.photoTags && homePost.photoTags.length > 0 ? (
+          <div className="mt-2 flex items-center gap-2 flex-wrap">
+            <span className="text-[11px] text-ink-400">Tagged:</span>
+            {Array.from(
+              new Map(homePost.photoTags.map((t) => [t.userId, t])).values(),
+            ).map((t) => (
+              <Link
+                key={`tagged-${t.userId}`}
+                href={`/people/${t.userId}`}
+                className="inline-flex items-center rounded-full border border-ink-200 bg-white px-2.5 py-1 text-[11px] font-medium text-ink-700 hover:bg-ink-50"
+              >
+                {t.name}
+              </Link>
+            ))}
           </div>
         ) : null}
 

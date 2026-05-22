@@ -5,6 +5,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { relativeTime } from "@/lib/utils";
+import { renderTextWithMentions } from "@/lib/mentions";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Textarea } from "@/components/ui/input";
 import { markAllNotificationsRead, markNotificationRead, postAnnouncement } from "./actions";
@@ -122,7 +123,7 @@ export default async function NotificationsPage({ searchParams }: { searchParams
                         <Badge tone="ink">{n.kind.replaceAll("_", " ")}</Badge>
                         <span className="text-xs text-ink-400 ml-auto">{relativeTime(n.createdAt)}</span>
                       </div>
-                      {n.body && <p className="text-sm text-ink-500 mt-1 whitespace-pre-wrap">{n.body}</p>}
+                      {n.body && <p className="text-sm text-ink-500 mt-1 whitespace-pre-wrap">{renderTextWithMentions(n.body)}</p>}
 
                       <div className="mt-3 flex items-center gap-2 flex-wrap">
                         {n.href && (
