@@ -23,7 +23,6 @@ import {
   Gem,
   Megaphone,
   Shield,
-  Briefcase,
   Table2,
   UserSearch,
   ListTodo,
@@ -253,23 +252,6 @@ export function Sidebar({
                 >
                   <UserSearch className="size-4 shrink-0" />
                   {!collapsed && "Hiring"}
-                </Link>
-              </li>
-              <li className={cn(collapsed && "w-full flex justify-center")}>
-                <Link
-                  href="/recruitment"
-                  title={collapsed ? "Recruitment" : undefined}
-                  onClick={onNavigate}
-                  className={cn(
-                    "flex items-center gap-2.5 rounded-md text-sm font-medium transition-colors",
-                    collapsed ? "px-2 py-2 justify-center" : "px-4 py-3 w-full",
-                    pathname === "/recruitment" || pathname.startsWith("/recruitment/")
-                      ? "bg-sky-50 text-sky-700"
-                      : "text-ink-500 hover:text-ink-700 hover:bg-ink-50",
-                  )}
-                >
-                  <Briefcase className="size-4 shrink-0" />
-                  {!collapsed && "Recruitment"}
                 </Link>
               </li>
             </ul>

@@ -98,9 +98,6 @@ export default async function HiringOverviewPage(props: {
             <Link href="/requisitions">
               <Button variant="outline">Requisitions (submitters) →</Button>
             </Link>
-            <Link href="/recruitment">
-              <Button variant="ghost">Recruitment KPIs →</Button>
-            </Link>
           </div>
         }
       />
