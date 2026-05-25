@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 function getUrlString(input: RequestInfo | URL): string | null {
   if (typeof input === "string") return input;
@@ -44,54 +44,57 @@ function shouldTrackRequest(url: string, init?: RequestInit): boolean {
   return false;
 }
 
+type InFlightListener = (count: number) => void;
+
+const inFlightListeners = new Set<InFlightListener>();
+let inFlightCount = 0;
+
+function setInFlightCount(next: number) {
+  inFlightCount = Math.max(0, next);
+  for (const listener of inFlightListeners) listener(inFlightCount);
+}
+
+function ensureFetchPatched() {
+  if (typeof window === "undefined") return;
+
+  const w = window as typeof window & {
+    __hosibFetchPatched?: boolean;
+    __hosibOriginalFetch?: typeof window.fetch;
+  };
+
+  if (w.__hosibFetchPatched) return;
+
+  w.__hosibFetchPatched = true;
+  w.__hosibOriginalFetch = window.fetch.bind(window);
+
+  window.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = getUrlString(input);
+    const track = Boolean(url && shouldTrackRequest(url, init));
+
+    if (track) setInFlightCount(inFlightCount + 1);
+
+    try {
+      return await w.__hosibOriginalFetch!(input as never, init);
+    } finally {
+      if (track) setInFlightCount(inFlightCount - 1);
+    }
+  }) as typeof window.fetch;
+}
+
 /**
  * Renders a global "request in progress" indicator and automatically tracks
  * in-flight `fetch()` calls in the browser.
  */
 export function GlobalRequestLoader() {
   const [inFlight, setInFlight] = useState(0);
-  const mountedRef = useRef(true);
 
   useEffect(() => {
-    mountedRef.current = true;
+    ensureFetchPatched();
+    const listener: InFlightListener = (count) => setInFlight(count);
+    inFlightListeners.add(listener);
+    listener(inFlightCount);
     return () => {
-      mountedRef.current = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    const w = window as typeof window & {
-      __hosibFetchPatched?: boolean;
-      __hosibOriginalFetch?: typeof window.fetch;
-    };
-
-    if (w.__hosibFetchPatched) return;
-    w.__hosibFetchPatched = true;
-    w.__hosibOriginalFetch = window.fetch.bind(window);
-
-    window.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = getUrlString(input);
-      const track = Boolean(url && shouldTrackRequest(url, init));
-
-      if (track) {
-        if (mountedRef.current) setInFlight((v) => v + 1);
-      }
-
-      try {
-        return await w.__hosibOriginalFetch!(input as never, init);
-      } finally {
-        if (track) {
-          if (mountedRef.current) setInFlight((v) => Math.max(0, v - 1));
-        }
-      }
-    }) as typeof window.fetch;
-
-    return () => {
-      // In practice this layout component never unmounts, but keep cleanup safe.
-      if (w.__hosibOriginalFetch) window.fetch = w.__hosibOriginalFetch;
-      w.__hosibFetchPatched = false;
+      inFlightListeners.delete(listener);
     };
   }, []);
 
@@ -117,4 +120,3 @@ export function GlobalRequestLoader() {
     </div>
   );
 }
-

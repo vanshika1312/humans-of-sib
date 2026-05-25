@@ -81,6 +81,8 @@ export function Topbar({
         unreadMessageCount: json.unreadMessageCount,
         notifications: prev?.notifications ?? [],
       }));
+    } catch {
+      // Background poll — ignore transient network/HMR failures.
     } finally {
       inFlightRef.current = false;
     }
