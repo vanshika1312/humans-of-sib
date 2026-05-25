@@ -161,8 +161,11 @@ model User {
   ceoFeedback         CEOFeedback[]
   ceoFeedbackReplies  CEOFeedback[]          @relation("CEOReplies")
   deptFeedback        DeptFeedback[]         @relation("FeedbackAuthor")
-  wins                Win[]
-  winClaps            WinClap[]
+  wins                Win[]            @relation("WinRecipient")
+  winsCelebrated      Win[]            @relation("WinCelebrator")
+  winReactions        WinReaction[]
+  winCertificates     WinCertificate[] @relation("WinCertificateRecipient")
+  winCertificatesIssued WinCertificate[] @relation("WinCertificateIssuer")
   documents           Document[]
   okrs                OKR[]
   oneOnOnesAsManager  OneOnOne[]             @relation("OneOnOneManager")
@@ -1131,34 +1134,107 @@ model DeptFeedback {
 // Wins Wall / Shoutouts
 // ──────────────────────────────────────────────────────────────────────────────
 
-model Win {
-  id          String   @id @default(cuid())
-  userId      String
-  title       String
-  description String?  @db.Text
-  tags        String[] @default([])
-  imageUrl    String?
+enum WinCategory {
+  LEARNING
+  OPERATIONS
+  SALES
+  INNOVATION
+}
 
-  user  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  claps WinClap[]
+enum WinRewardType {
+  NONE
+  CASH
+  CERTIFICATE
+  CASH_AND_CERTIFICATE
+  VOUCHER
+  SHOUTOUT
+}
+
+enum WinSource {
+  SELF
+  NOMINATION
+  CELEBRATION
+}
+
+enum WinReactionKind {
+  CLAP
+  FIRE
+  YAY
+}
+
+model Win {
+  id                String         @id @default(cuid())
+  userId            String
+  celebratedById    String?
+  title             String
+  description       String?        @db.Text
+  tags              String[]       @default([])
+  imageUrl          String?
+  category          WinCategory?
+  rewardType        WinRewardType  @default(NONE)
+  rewardLabel       String?
+  rewardAmountPaise Int?
+  source            WinSource      @default(SELF)
+  pointsAwarded     Int            @default(100)
+  /// YYYY-MM when this win is the monthly spotlight (at most one per month).
+  spotlightMonth    String?
+
+  user         User           @relation("WinRecipient", fields: [userId], references: [id], onDelete: Cascade)
+  celebratedBy User?          @relation("WinCelebrator", fields: [celebratedById], references: [id], onDelete: SetNull)
+  reactions    WinReaction[]
+  certificate  WinCertificate?
 
   createdAt DateTime @default(now())
 
   @@index([createdAt])
   @@index([userId])
+  @@index([spotlightMonth])
+  @@index([source])
 }
 
-model WinClap {
-  id     String @id @default(cuid())
+model WinReaction {
+  id     String          @id @default(cuid())
   winId  String
   userId String
+  kind   WinReactionKind
 
   win  Win  @relation(fields: [winId], references: [id], onDelete: Cascade)
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
 
-  @@unique([winId, userId])
+  @@unique([winId, userId, kind])
+  @@index([winId])
+}
+
+model WinCertificate {
+  id          String   @id @default(cuid())
+  userId      String
+  issuedById  String?
+  winId       String?  @unique
+  achievement String   @db.Text
+  certNumber  String   @unique
+  issuedAt    DateTime @default(now())
+
+  user     User  @relation("WinCertificateRecipient", fields: [userId], references: [id], onDelete: Cascade)
+  issuedBy User? @relation("WinCertificateIssuer", fields: [issuedById], references: [id], onDelete: SetNull)
+  win      Win?  @relation(fields: [winId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([issuedAt])
+}
+
+/// Org-wide certificate layout (singleton row id = "singleton").
+model WinCertificateTemplate {
+  id                 String   @id @default("singleton")
+  title              String   @default("Certificate of Achievement")
+  subtitle           String   @default("House of Skillinabox · HoS HRMS")
+  introText          String   @default("This certificate is proudly awarded to")
+  recognitionPrefix  String   @default("in recognition of")
+  signatoryName      String   @default("CEO, Skillinabox")
+  signatoryTitle     String   @default("Authorised Signatory")
+  backgroundImageUrl String?
+  updatedAt          DateTime @updatedAt
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

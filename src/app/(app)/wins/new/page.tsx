@@ -1,2 +1,4 @@
 import { redirect } from "next/navigation";
-export default function NewWinRedirect() { redirect("/wins"); }
+export default function NewWinRedirect() {
+  redirect("/wins?tab=nominate");
+}

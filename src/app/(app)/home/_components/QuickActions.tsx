@@ -12,7 +12,7 @@ export function QuickActions() {
       </CardHeader>
       <CardContent className="grid grid-cols-2 gap-2">
         <QuickAction href="/attendance" label="Check in" emoji="🟢" />
-        <QuickAction href="/wins/new" label="Share a win" emoji="🏆" />
+        <QuickAction href="/wins?tab=nominate" label="Nominate a win" emoji="🏆" />
         <QuickAction href="/pulse" label="Pulse check" emoji="💗" />
         <QuickAction href="/journey" label="My journey" emoji="🧭" />
       </CardContent>

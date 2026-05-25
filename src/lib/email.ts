@@ -421,3 +421,60 @@ export async function sendEmployeeOnboardingInvite({
     html,
   });
 }
+
+export async function sendWinCertificateEmail({
+  to,
+  recipientName,
+  achievement,
+  certNumber,
+  issuedLabel,
+  viewUrl,
+}: {
+  to: string;
+  recipientName: string;
+  achievement: string;
+  certNumber: string;
+  issuedLabel: string;
+  viewUrl: string;
+}) {
+  const firstName = recipientName.split(" ")[0] || recipientName;
+  const html = `<!DOCTYPE html>
+<html><body style="margin:0;padding:0;font-family:system-ui,-apple-system,sans-serif;background:#f4f4f5">
+  <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="padding:32px 16px">
+    <tr><td align="center">
+      <table width="100%" style="max-width:520px;background:#fff;border-radius:12px;overflow:hidden;border:1px solid #e5e7eb">
+        <tr><td style="background:linear-gradient(135deg,#1e293b 0%,#334155 100%);padding:24px 28px">
+          <p style="margin:0;font-size:20px;font-weight:700;color:#fde68a">Certificate of Achievement</p>
+          <p style="margin:8px 0 0;font-size:13px;color:#cbd5e1">Humans of SIB · Win Wall</p>
+        </td></tr>
+        <tr><td style="padding:28px">
+          <p style="margin:0;font-size:15px;color:#374151;line-height:1.6">
+            Hi ${firstName}, congratulations! You have been awarded a certificate for your achievement.
+          </p>
+          <div style="margin:20px 0;padding:16px 20px;background:#fffbeb;border-left:4px solid #f59e0b;border-radius:0 8px 8px 0">
+            <p style="margin:0;font-size:14px;color:#78350f;font-weight:600">${achievement}</p>
+          </div>
+          <table width="100%" cellpadding="0" cellspacing="0" style="font-size:13px;color:#6b7280">
+            <tr><td style="padding:4px 0">Certificate ID</td><td style="padding:4px 0;text-align:right;font-family:monospace;color:#374151">${certNumber}</td></tr>
+            <tr><td style="padding:4px 0">Issued</td><td style="padding:4px 0;text-align:right;color:#374151">${issuedLabel}</td></tr>
+          </table>
+          <div style="margin-top:24px">
+            <a href="${viewUrl}" style="display:inline-block;background:#7c3aed;color:#fff;text-decoration:none;padding:12px 22px;border-radius:8px;font-size:14px;font-weight:600">
+              View on Win Wall
+            </a>
+          </div>
+        </td></tr>
+        <tr><td style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:14px 28px">
+          <p style="margin:0;color:#9ca3af;font-size:12px">Sent from Humans of SIB by your team.</p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>`;
+
+  await sendHtmlEmail({
+    to,
+    subject: `Your certificate of achievement — ${certNumber}`,
+    html,
+  });
+}
