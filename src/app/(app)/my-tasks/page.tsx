@@ -156,6 +156,37 @@ async function MyTasksPageBody({ searchParams }: { searchParams: SearchParams })
     orderBy: [{ updatedAt: "desc" }],
   });
 
+  const sharedWithMeTasks = await prisma.personalTask.findMany({
+    where: {
+      assignedToUserId: { not: viewer.id },
+      members: { some: { userId: viewer.id } },
+    },
+    select: {
+      id: true,
+      title: true,
+      updatedAt: true,
+      assignedTo: {
+        select: {
+          id: true,
+          name: true,
+          firstName: true,
+          lastName: true,
+          email: true,
+          image: true,
+          title: true,
+        },
+      },
+      stage: {
+        select: {
+          title: true,
+          isFinishedColumn: true,
+        },
+      },
+    },
+    orderBy: [{ updatedAt: "desc" }],
+    take: 50,
+  });
+
   const trackedCounts: Record<string, number> = {};
   if (canBrowseTeamMembers && teamLinks.length > 0) {
     const teamIds = teamLinks.map((u) => u.id);
@@ -256,17 +287,56 @@ async function MyTasksPageBody({ searchParams }: { searchParams: SearchParams })
       </div>
 
       {view === "mine" ? (
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">Assigned by me</CardTitle>
-            <CardDescription>
-              Track delegated tasks without opening someone&apos;s full board. Click any task to jump into a filtered teammate view.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="pt-0">
-            <AssignedByMeTasks initialTasks={assignedByMeTasks} />
-          </CardContent>
-        </Card>
+        <div className="space-y-6">
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Shared with me</CardTitle>
+              <CardDescription>Tasks where you&apos;re added as a member (even if it&apos;s assigned to someone else).</CardDescription>
+            </CardHeader>
+            <CardContent className="pt-0">
+              {sharedWithMeTasks.length === 0 ? (
+                <p className="text-sm text-ink-500">No tasks have been shared with you yet.</p>
+              ) : (
+                <div className="space-y-2">
+                  {sharedWithMeTasks.map((task) => {
+                    const href = `/my-tasks?userId=${encodeURIComponent(task.assignedTo.id)}&task=${encodeURIComponent(task.id)}`;
+                    return (
+                      <Link
+                        key={task.id}
+                        href={href}
+                        className="block rounded-xl border border-ink-100 bg-white px-3 py-2 hover:bg-ink-50"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-semibold text-ink-700">{task.title}</p>
+                            <p className="mt-0.5 text-xs text-ink-500">
+                              Assigned to {displayName(task.assignedTo)}
+                              {task.stage?.title ? ` · ${task.stage.title}` : ""}
+                              {task.stage?.isFinishedColumn ? " · Done" : ""}
+                            </p>
+                          </div>
+                          <p className="shrink-0 text-[11px] text-ink-400">{new Date(task.updatedAt).toLocaleDateString()}</p>
+                        </div>
+                      </Link>
+                    );
+                  })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Assigned by me</CardTitle>
+              <CardDescription>
+                Track delegated tasks without opening someone&apos;s full board. Click any task to jump into a filtered teammate view.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="pt-0">
+              <AssignedByMeTasks initialTasks={assignedByMeTasks} />
+            </CardContent>
+          </Card>
+        </div>
       ) : (
         <Card>
           <CardHeader className="pb-3">

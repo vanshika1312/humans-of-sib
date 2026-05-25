@@ -66,6 +66,13 @@ async function viewerCanComment(
     },
   });
   if (!t) return false;
+
+  const isMember = !!(await prisma.personalTaskMember.findUnique({
+    where: { taskId_userId: { taskId, userId: viewerId } },
+    select: { id: true },
+  }));
+  if (isMember) return true;
+
   const hasExplicitGrant = await hasExplicitTaskBoardGrant(t.board.ownerUserId, viewerId);
   return canViewPersonalTask({
     viewerUserId: viewerId,
@@ -112,23 +119,30 @@ async function getTaskAccess(
 
   if (!task) return null;
 
+  const isMember = !!(await prisma.personalTaskMember.findUnique({
+    where: { taskId_userId: { taskId, userId: viewerId } },
+    select: { id: true },
+  }));
+
   const canEdit = canEditPersonalTask({
     viewerUserId: viewerId,
     ownerUserId: task.board.ownerUserId,
     assignedByUserId: task.assignedByUserId,
   });
 
-  const canView = canViewPersonalTask({
-    viewerUserId: viewerId,
-    viewerRole,
-    viewerPermissions,
-    ownerUserId: task.board.ownerUserId,
-    ownerManagerId: task.board.owner.managerId,
-    ownerDepartmentId: task.board.owner.departmentId,
-    viewerHeadedDepartmentId: headedDeptId,
-    assignedByUserId: task.assignedByUserId,
-    hasExplicitGrant: await hasExplicitTaskBoardGrant(task.board.ownerUserId, viewerId),
-  });
+  const canView =
+    isMember ||
+    canViewPersonalTask({
+      viewerUserId: viewerId,
+      viewerRole,
+      viewerPermissions,
+      ownerUserId: task.board.ownerUserId,
+      ownerManagerId: task.board.owner.managerId,
+      ownerDepartmentId: task.board.owner.departmentId,
+      viewerHeadedDepartmentId: headedDeptId,
+      assignedByUserId: task.assignedByUserId,
+      hasExplicitGrant: await hasExplicitTaskBoardGrant(task.board.ownerUserId, viewerId),
+    });
 
   return { task, canEdit, canView };
 }
@@ -155,6 +169,15 @@ async function notifyTaskParticipants(args: {
   const recipients = new Set<string>();
   if (args.task.assignedToUserId) recipients.add(args.task.assignedToUserId);
   if (args.task.assignedByUserId) recipients.add(args.task.assignedByUserId);
+
+  const members = await prisma.personalTaskMember.findMany({
+    where: { taskId: args.task.id },
+    select: { userId: true },
+  });
+  for (const m of members) {
+    if (m.userId) recipients.add(m.userId);
+  }
+
   recipients.delete(args.actorUserId);
   if (recipients.size === 0) return;
 
@@ -211,14 +234,20 @@ export async function loadPersonalTaskBoardForModal(
     assigneeUserId: owner.id,
     assigneeStatus: owner.status,
   });
-  if (!okView && !canTrackAssignedTasks) return { ok: false, error: "You can’t view this board." };
+  const hasMemberTasks = !!(await prisma.personalTaskMember.findFirst({
+    where: { userId: v.id, task: { assignedToUserId: owner.id } },
+    select: { id: true },
+  }));
+  if (!okView && !canTrackAssignedTasks && !hasMemberTasks) return { ok: false, error: "You can’t view this board." };
 
   const boardPayload = await getOrCreatePersonalTaskBoard(peerUserId);
   const visibleBoard = okView
     ? boardPayload
     : {
         ...boardPayload,
-        tasks: boardPayload.tasks.filter((task) => task.assignedByUserId === v.id),
+        tasks: boardPayload.tasks.filter(
+          (task) => (canTrackAssignedTasks && task.assignedByUserId === v.id) || task.members.some((m) => m.user.id === v.id),
+        ),
       };
   return { ok: true, board: serializePersonalBoardForClient(visibleBoard) };
 }
@@ -341,7 +370,7 @@ export async function updateBoardTaskStage(taskId: string, stageId: string) {
     kind: "TASK_MOVED",
     title: "Task moved",
     body: `${access.task.title} → ${targetStage.title}`,
-    href: `/my-tasks?task=${encodeURIComponent(access.task.id)}`,
+    href: `/my-tasks?userId=${encodeURIComponent(access.task.assignedToUserId)}&task=${encodeURIComponent(access.task.id)}`,
     meta: { taskId: access.task.id, stageId: targetStage.id },
   });
   return { ok: true as const };
@@ -414,7 +443,7 @@ export async function persistBoardLayout(ownerUserId: string, layout: Record<str
           kind: "TASK_MOVED",
           title: "Task moved",
           body: `${m.task.title} → ${m.nextStageTitle}`,
-          href: `/my-tasks?task=${encodeURIComponent(m.task.id)}`,
+          href: `/my-tasks?userId=${encodeURIComponent(m.task.assignedToUserId)}&task=${encodeURIComponent(m.task.id)}`,
           meta: { taskId: m.task.id, stageId: m.nextStageId },
         }),
       ),
@@ -658,7 +687,7 @@ export async function updateBoardTaskDetails(ownerUserId: string, taskId: string
     kind: "TASK_MOVED",
     title: "Task updated",
     body: `Details updated — ${nextTitle.length ? nextTitle : access.task.title}`,
-    href: `/my-tasks?task=${encodeURIComponent(access.task.id)}`,
+    href: `/my-tasks?userId=${encodeURIComponent(access.task.assignedToUserId)}&task=${encodeURIComponent(access.task.id)}`,
     meta: { taskId: access.task.id, change: "details" },
   });
 }
@@ -691,7 +720,7 @@ export async function setTaskDueDate(taskId: string, dueDateYmd: string) {
     kind: "TASK_MOVED",
     title: "Task updated",
     body: `Due date ${raw.length ? "updated" : "cleared"} — ${access.task.title}`,
-    href: `/my-tasks?task=${encodeURIComponent(access.task.id)}`,
+    href: `/my-tasks?userId=${encodeURIComponent(access.task.assignedToUserId)}&task=${encodeURIComponent(access.task.id)}`,
     meta: { taskId: access.task.id, change: "dueDate" },
   });
   return { ok: true as const };
@@ -766,7 +795,7 @@ export async function setTaskLabels(taskId: string, labelIds: string[]) {
     kind: "TASK_MOVED",
     title: "Task updated",
     body: `Labels updated — ${access.task.title}`,
-    href: `/my-tasks?task=${encodeURIComponent(access.task.id)}`,
+    href: `/my-tasks?userId=${encodeURIComponent(access.task.assignedToUserId)}&task=${encodeURIComponent(access.task.id)}`,
     meta: { taskId: access.task.id, change: "labels" },
   });
   return { ok: true as const };
@@ -805,7 +834,7 @@ export async function addTaskMember(taskId: string, userId: string) {
     kind: "TASK_MOVED",
     title: "Task updated",
     body: `Members updated — ${access.task.title}`,
-    href: `/my-tasks?task=${encodeURIComponent(access.task.id)}`,
+    href: `/my-tasks?userId=${encodeURIComponent(access.task.assignedToUserId)}&task=${encodeURIComponent(access.task.id)}`,
     meta: { taskId: access.task.id, change: "members" },
   });
   return { ok: true as const };
@@ -835,7 +864,7 @@ export async function removeTaskMember(taskId: string, userId: string) {
     kind: "TASK_MOVED",
     title: "Task updated",
     body: `Members updated — ${access.task.title}`,
-    href: `/my-tasks?task=${encodeURIComponent(access.task.id)}`,
+    href: `/my-tasks?userId=${encodeURIComponent(access.task.assignedToUserId)}&task=${encodeURIComponent(access.task.id)}`,
     meta: { taskId: access.task.id, change: "members" },
   });
   return { ok: true as const };
@@ -870,7 +899,7 @@ export async function createTaskChecklist(taskId: string, title?: string) {
     kind: "TASK_MOVED",
     title: "Task updated",
     body: `Checklist added — ${access.task.title}`,
-    href: `/my-tasks?task=${encodeURIComponent(access.task.id)}`,
+    href: `/my-tasks?userId=${encodeURIComponent(access.task.assignedToUserId)}&task=${encodeURIComponent(access.task.id)}`,
     meta: { taskId: access.task.id, change: "checklists" },
   });
   return { ok: true as const, checklistId: created.id };
@@ -903,7 +932,7 @@ export async function renameChecklist(checklistId: string, title: string) {
     kind: "TASK_MOVED",
     title: "Task updated",
     body: `Checklist updated — ${access.task.title}`,
-    href: `/my-tasks?task=${encodeURIComponent(access.task.id)}`,
+    href: `/my-tasks?userId=${encodeURIComponent(access.task.assignedToUserId)}&task=${encodeURIComponent(access.task.id)}`,
     meta: { taskId: access.task.id, change: "checklists" },
   });
   return { ok: true as const };
@@ -933,7 +962,7 @@ export async function deleteChecklist(checklistId: string) {
     kind: "TASK_MOVED",
     title: "Task updated",
     body: `Checklist updated — ${access.task.title}`,
-    href: `/my-tasks?task=${encodeURIComponent(access.task.id)}`,
+    href: `/my-tasks?userId=${encodeURIComponent(access.task.assignedToUserId)}&task=${encodeURIComponent(access.task.id)}`,
     meta: { taskId: access.task.id, change: "checklists" },
   });
   return { ok: true as const };
@@ -977,7 +1006,7 @@ export async function addChecklistItem(checklistId: string, body: string) {
     kind: "TASK_MOVED",
     title: "Task updated",
     body: `Checklist updated — ${access.task.title}`,
-    href: `/my-tasks?task=${encodeURIComponent(access.task.id)}`,
+    href: `/my-tasks?userId=${encodeURIComponent(access.task.assignedToUserId)}&task=${encodeURIComponent(access.task.id)}`,
     meta: { taskId: access.task.id, change: "checklists" },
   });
   return { ok: true as const, itemId: created.id };
@@ -1010,7 +1039,7 @@ export async function toggleChecklistItem(itemId: string, isDone: boolean) {
     kind: "TASK_MOVED",
     title: "Task updated",
     body: `Checklist updated — ${access.task.title}`,
-    href: `/my-tasks?task=${encodeURIComponent(access.task.id)}`,
+    href: `/my-tasks?userId=${encodeURIComponent(access.task.assignedToUserId)}&task=${encodeURIComponent(access.task.id)}`,
     meta: { taskId: access.task.id, change: "checklists" },
   });
   return { ok: true as const };
@@ -1040,7 +1069,7 @@ export async function deleteChecklistItem(itemId: string) {
     kind: "TASK_MOVED",
     title: "Task updated",
     body: `Checklist updated — ${access.task.title}`,
-    href: `/my-tasks?task=${encodeURIComponent(access.task.id)}`,
+    href: `/my-tasks?userId=${encodeURIComponent(access.task.assignedToUserId)}&task=${encodeURIComponent(access.task.id)}`,
     meta: { taskId: access.task.id, change: "checklists" },
   });
   return { ok: true as const };
@@ -1210,7 +1239,7 @@ export async function addTaskComment(taskId: string, formData: FormData) {
         kind: "TASK_COMMENT",
         title: "New comment on a task",
         body: task.title,
-        href: `/my-tasks?task=${encodeURIComponent(taskId)}`,
+        href: `/my-tasks?userId=${encodeURIComponent(task.assignedToUserId)}&task=${encodeURIComponent(taskId)}`,
         meta: { taskId },
       });
     }
@@ -1447,7 +1476,7 @@ export async function addPersonalTaskAttachment(
     kind: "TASK_MOVED",
     title: "Task updated",
     body: `Attachment added — ${access.task.title}`,
-    href: `/my-tasks?task=${encodeURIComponent(access.task.id)}`,
+    href: `/my-tasks?userId=${encodeURIComponent(access.task.assignedToUserId)}&task=${encodeURIComponent(access.task.id)}`,
     meta: { taskId: access.task.id, change: "attachments" },
   });
   return { ok: true };
@@ -1476,7 +1505,7 @@ export async function deletePersonalTaskAttachment(ownerUserId: string, attachme
     kind: "TASK_MOVED",
     title: "Task updated",
     body: `Attachment removed — ${access.task.title}`,
-    href: `/my-tasks?task=${encodeURIComponent(access.task.id)}`,
+    href: `/my-tasks?userId=${encodeURIComponent(access.task.assignedToUserId)}&task=${encodeURIComponent(access.task.id)}`,
     meta: { taskId: access.task.id, change: "attachments" },
   });
   return { ok: true as const };
