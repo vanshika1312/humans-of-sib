@@ -27,13 +27,14 @@ function keyCandidateFromLabel(label: string): string {
 function revalidateHiringStages() {
   revalidatePath(SETTINGS);
   revalidatePath("/hiring");
+  revalidatePath("/hiring/activity");
   revalidatePath("/hiring/pipeline");
   revalidatePath("/hiring/templates");
   revalidatePath("/hiring/applications", "layout");
 }
 
 export async function createPipelineStage(formData: FormData) {
-  await requireHiringHr();
+  const me = await requireHiringHr();
   const label = String(formData.get("label") || "").trim().slice(0, 160);
   if (!label) {
     redirect(`${SETTINGS}?error=${encodeURIComponent("Add a visible name for this stage.")}`);
@@ -51,11 +52,20 @@ export async function createPipelineStage(formData: FormData) {
 
   const maxOrd = await prisma.hiringPipelineStage.aggregate({ _max: { sortOrder: true } });
 
-  await prisma.hiringPipelineStage.create({
+  const stage = await prisma.hiringPipelineStage.create({
     data: {
       key,
       label,
       sortOrder: (maxOrd._max.sortOrder ?? 0) + 10,
+    },
+  });
+
+  await prisma.hiringActivity.create({
+    data: {
+      kind: "PIPELINE_STAGE_CREATED",
+      summary: `Pipeline stage added: ${label}`,
+      payloadJson: JSON.stringify({ stageId: stage.id, key, label }),
+      actorUserId: me.id,
     },
   });
 
@@ -64,7 +74,7 @@ export async function createPipelineStage(formData: FormData) {
 }
 
 export async function updatePipelineStage(stageId: string, formData: FormData) {
-  await requireHiringHr();
+  const me = await requireHiringHr();
 
   const label = String(formData.get("label") || "").trim().slice(0, 160);
   if (!label) {
@@ -80,22 +90,36 @@ export async function updatePipelineStage(stageId: string, formData: FormData) {
   const isHired = formData.get("isHired") === "true";
   const isRejected = formData.get("isRejected") === "true";
 
-  const exists = await prisma.hiringPipelineStage.findUnique({
+  const before = await prisma.hiringPipelineStage.findUnique({
     where: { id: stageId },
-    select: { id: true },
+    select: { id: true, label: true, sortOrder: true, isHired: true, isRejected: true, key: true },
   });
-  if (!exists) {
+  if (!before) {
     redirect(`${SETTINGS}?error=${encodeURIComponent("Stage not found.")}`);
   }
 
-  await prisma.hiringPipelineStage.update({
-    where: { id: stageId },
-    data: {
-      label,
-      sortOrder: parsed,
-      isHired,
-      isRejected,
-    },
+  await prisma.$transaction(async (tx) => {
+    await tx.hiringPipelineStage.update({
+      where: { id: stageId },
+      data: {
+        label,
+        sortOrder: parsed,
+        isHired,
+        isRejected,
+      },
+    });
+    await tx.hiringActivity.create({
+      data: {
+        kind: "PIPELINE_STAGE_UPDATED",
+        summary: `Pipeline stage updated: ${label}`,
+        payloadJson: JSON.stringify({
+          stageId,
+          before,
+          after: { label, sortOrder: parsed, isHired, isRejected },
+        }),
+        actorUserId: me.id,
+      },
+    });
   });
 
   revalidateHiringStages();
@@ -103,7 +127,7 @@ export async function updatePipelineStage(stageId: string, formData: FormData) {
 }
 
 export async function deletePipelineStage(stageId: string) {
-  await requireHiringHr();
+  const me = await requireHiringHr();
 
   const nApps = await prisma.hiringApplication.count({ where: { pipelineStageId: stageId } });
   if (nApps > 0) {
@@ -130,7 +154,22 @@ export async function deletePipelineStage(stageId: string) {
     redirect(`${SETTINGS}?error=` + encodeURIComponent("Keep at least one pipeline stage."));
   }
 
-  await prisma.hiringPipelineStage.delete({ where: { id: stageId } });
+  const stage = await prisma.hiringPipelineStage.findUnique({
+    where: { id: stageId },
+    select: { label: true, key: true },
+  });
+
+  await prisma.$transaction(async (tx) => {
+    await tx.hiringPipelineStage.delete({ where: { id: stageId } });
+    await tx.hiringActivity.create({
+      data: {
+        kind: "PIPELINE_STAGE_DELETED",
+        summary: `Pipeline stage removed: ${stage?.label ?? "Stage"}`,
+        payloadJson: JSON.stringify({ stageId, key: stage?.key, label: stage?.label }),
+        actorUserId: me.id,
+      },
+    });
+  });
   revalidateHiringStages();
   redirect(`${SETTINGS}?removed=1`);
 }

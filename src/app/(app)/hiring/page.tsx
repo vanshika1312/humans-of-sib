@@ -327,6 +327,12 @@ export default async function HiringOverviewPage(props: {
             >
               Configure stages →
             </Link>
+            <Link
+              href="/hiring/activity"
+              className="inline-flex text-sm font-semibold text-sky-700 hover:underline underline-offset-4"
+            >
+              Activity history →
+            </Link>
           </div>
         </CardContent>
       </Card>

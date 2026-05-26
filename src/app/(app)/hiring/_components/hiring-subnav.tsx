@@ -30,6 +30,11 @@ const LINKS: { href: string; label: string; isActive: (pathname: string) => bool
     label: "Templates",
     isActive: (p) => p.startsWith("/hiring/templates") || p.startsWith("/hiring/interview-templates"),
   },
+  {
+    href: "/hiring/activity",
+    label: "Activity",
+    isActive: (p) => p === "/hiring/activity" || p.startsWith("/hiring/activity/"),
+  },
 ];
 
 function safeInternalFrom(raw: string | null): string | null {

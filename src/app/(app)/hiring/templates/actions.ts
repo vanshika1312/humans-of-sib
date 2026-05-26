@@ -59,7 +59,7 @@ export async function createHiringTemplate(formData: FormData) {
     redirectWithError("Template is too long (max 16k characters).");
   }
 
-  await prisma.hiringInterviewQuestionTemplate.create({
+  const created = await prisma.hiringInterviewQuestionTemplate.create({
     data: {
       category,
       pipelineStageId,
@@ -70,20 +70,36 @@ export async function createHiringTemplate(formData: FormData) {
     },
   });
 
+  await prisma.hiringActivity.create({
+    data: {
+      kind: "HIRING_TEMPLATE_CREATED",
+      summary: `Template created: ${title}`,
+      payloadJson: JSON.stringify({
+        templateId: created.id,
+        category,
+        title,
+      }),
+      actorUserId: me.id,
+    },
+  });
+
   revalidatePath("/hiring/templates");
   revalidatePath("/hiring/applications", "layout");
   revalidatePath("/hiring");
+  revalidatePath("/hiring/activity");
   redirect(`${templatesPathQuery}?saved=1`);
 }
 
 export async function updateHiringTemplate(templateId: string, formData: FormData) {
-  await requireHiringTemplateUser();
+  const me = await requireHiringTemplateUser();
 
   const existing = await prisma.hiringInterviewQuestionTemplate.findUnique({
     where: { id: templateId },
-    select: { id: true },
+    select: { id: true, title: true, category: true },
   });
   if (!existing) redirectWithError("Template not found.");
+  const beforeTitle = existing.title;
+  const beforeCategory = existing.category;
 
   const categoryRaw = String(formData.get("category") || "").trim();
   if (!isHiringTemplateCategory(categoryRaw)) {
@@ -116,27 +132,61 @@ export async function updateHiringTemplate(templateId: string, formData: FormDat
     redirectWithError("Template is too long (max 16k characters).");
   }
 
-  await prisma.hiringInterviewQuestionTemplate.update({
-    where: { id: templateId },
-    data: {
-      category,
-      pipelineStageId,
-      title,
-      body,
-    },
+  await prisma.$transaction(async (tx) => {
+    await tx.hiringInterviewQuestionTemplate.update({
+      where: { id: templateId },
+      data: {
+        category,
+        pipelineStageId,
+        title,
+        body,
+      },
+    });
+    await tx.hiringActivity.create({
+      data: {
+        kind: "HIRING_TEMPLATE_UPDATED",
+        summary: `Template updated: ${title}`,
+        payloadJson: JSON.stringify({
+          templateId,
+          before: { title: beforeTitle, category: beforeCategory },
+          after: { title, category },
+        }),
+        actorUserId: me.id,
+      },
+    });
   });
 
   revalidatePath("/hiring/templates");
   revalidatePath("/hiring/applications", "layout");
   revalidatePath("/hiring");
+  revalidatePath("/hiring/activity");
   redirect(`${templatesPathQuery}?saved=1`);
 }
 
 export async function deleteHiringTemplate(templateId: string) {
-  await requireHiringTemplateUser();
-  await prisma.hiringInterviewQuestionTemplate.delete({ where: { id: templateId } });
+  const me = await requireHiringTemplateUser();
+  const existing = await prisma.hiringInterviewQuestionTemplate.findUnique({
+    where: { id: templateId },
+    select: { title: true, category: true },
+  });
+  await prisma.$transaction(async (tx) => {
+    await tx.hiringInterviewQuestionTemplate.delete({ where: { id: templateId } });
+    await tx.hiringActivity.create({
+      data: {
+        kind: "HIRING_TEMPLATE_DELETED",
+        summary: `Template deleted: ${existing?.title ?? "Template"}`,
+        payloadJson: JSON.stringify({
+          templateId,
+          title: existing?.title,
+          category: existing?.category,
+        }),
+        actorUserId: me.id,
+      },
+    });
+  });
   revalidatePath("/hiring/templates");
   revalidatePath("/hiring/applications", "layout");
   revalidatePath("/hiring");
+  revalidatePath("/hiring/activity");
   redirect(`${templatesPathQuery}?removed=1`);
 }

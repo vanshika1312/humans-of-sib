@@ -247,6 +247,108 @@ function readableExtras(
     case "CANDIDATE_CREATED":
       if (opts?.timelineSurface) return null;
       return <p className="text-ink-500">Intake snapshot — expand below only if you need the raw payload.</p>;
+    case "APPLICATION_NOTES_UPDATED": {
+      const before = typeof o.before === "string" ? o.before : o.before == null ? null : String(o.before);
+      const after = typeof o.after === "string" ? o.after : o.after == null ? null : String(o.after);
+      if (!before && !after) return null;
+      return (
+        <p className="text-ink-600 whitespace-pre-wrap">
+          <span className="text-ink-400">Notes:</span>{" "}
+          {before ? <span className="text-ink-500">“{before.slice(0, 120)}{before.length > 120 ? "…" : ""}”</span> : "—"}
+          {" → "}
+          {after ? <span>“{after.slice(0, 120)}{after.length > 120 ? "…" : ""}”</span> : "cleared"}
+        </p>
+      );
+    }
+    case "APPLICATION_ATTACHMENT_ADDED":
+    case "APPLICATION_ATTACHMENT_REMOVED": {
+      const fileName = typeof o.fileName === "string" ? o.fileName : null;
+      const category = typeof o.category === "string" ? o.category : null;
+      if (!fileName && !category) return null;
+      return (
+        <p className="text-ink-600">
+          {category ? (
+            <>
+              <span className="text-ink-400">Type:</span> {category}
+              {fileName ? " · " : null}
+            </>
+          ) : null}
+          {fileName ? (
+            <>
+              <span className="text-ink-400">File:</span> {fileName}
+            </>
+          ) : null}
+        </p>
+      );
+    }
+    case "APPLICATION_REVIEW_ADDED": {
+      const rating = o.rating;
+      const comment = typeof o.comment === "string" ? o.comment : null;
+      return (
+        <div className="space-y-1 text-ink-600">
+          {rating != null ? (
+            <p>
+              <span className="text-ink-400">Rating:</span> {String(rating)}
+            </p>
+          ) : null}
+          {comment ? (
+            <p className="whitespace-pre-wrap">
+              <span className="text-ink-400">Feedback:</span> “{comment}”
+            </p>
+          ) : null}
+        </div>
+      );
+    }
+    case "JOB_UPDATED": {
+      const before = typeof o.before === "object" && o.before ? (o.before as Record<string, unknown>) : null;
+      const after = typeof o.after === "object" && o.after ? (o.after as Record<string, unknown>) : null;
+      if (!before || !after) return null;
+      const labels: Record<string, string> = {
+        title: "Title",
+        status: "Status",
+        location: "Location",
+        openings: "Openings",
+        workArrangement: "Work arrangement",
+      };
+      const changed = changedFields(before, after);
+      const keys = Object.keys(changed).filter((k) => labels[k]);
+      if (keys.length === 0) {
+        return opts?.timelineSurface ? (
+          <p className="text-ink-500">Posting details updated.</p>
+        ) : null;
+      }
+      return (
+        <ul className="list-disc list-inside space-y-0.5 text-ink-700">
+          {keys.map((key) => (
+            <li key={key}>
+              <span className="font-medium">{labels[key]}</span>
+              {": "}
+              <span className="text-ink-500">{String(changed[key].before ?? "—")}</span>
+              {" → "}
+              <span>{String(changed[key].after ?? "—")}</span>
+            </li>
+          ))}
+        </ul>
+      );
+    }
+    case "BULK_APPLICATIONS_DELETED": {
+      const count = typeof o.count === "number" ? o.count : null;
+      if (count == null) return null;
+      return (
+        <p className="text-ink-600">
+          <span className="text-ink-400">Rows removed:</span> {count}
+        </p>
+      );
+    }
+    case "REQUISITION_REJECTED": {
+      const note = typeof o.reviewNote === "string" ? o.reviewNote.trim() : "";
+      if (!note) return null;
+      return (
+        <p className="text-ink-600 whitespace-pre-wrap">
+          <span className="text-ink-400">Decline note:</span> {note}
+        </p>
+      );
+    }
     default:
       return null;
   }
