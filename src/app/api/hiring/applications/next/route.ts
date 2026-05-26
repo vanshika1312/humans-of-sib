@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { requireAppViewer } from "@/lib/app-viewer";
 import { hiringJobActiveClause } from "@/lib/hiring-job-active";
+import { hiringApplicationTextSearchWhere } from "@/lib/hiring-application-search";
 import type { Prisma } from "@/generated/prisma";
 
 export const dynamic = "force-dynamic";
@@ -27,12 +28,23 @@ function safeInternalFrom(raw: string | null): string | null {
   return v;
 }
 
-function parseFromHiringApplications(from: string): { q: string; job: string; stage: string } {
+function parseFromQuery(from: string): URLSearchParams {
   const qIndex = from.indexOf("?");
-  if (qIndex === -1) return { q: "", job: "", stage: "" };
-  const qs = new URLSearchParams(from.slice(qIndex + 1));
+  return new URLSearchParams(qIndex === -1 ? "" : from.slice(qIndex + 1));
+}
+
+function parseFromHiringApplications(from: string): { q: string; job: string; stage: string } {
+  const qs = parseFromQuery(from);
   return {
     q: (qs.get("q") ?? "").trim(),
+    job: (qs.get("job") ?? "").trim(),
+    stage: (qs.get("stage") ?? "").trim(),
+  };
+}
+
+function parseFromHiringPipeline(from: string): { job: string; stage: string } {
+  const qs = parseFromQuery(from);
+  return {
     job: (qs.get("job") ?? "").trim(),
     stage: (qs.get("stage") ?? "").trim(),
   };
@@ -79,26 +91,25 @@ export async function GET(req: Request) {
   let baseWhere: Prisma.HiringApplicationWhereInput;
 
   if (from?.startsWith("/hiring/jobs/")) {
-    // Job-scoped: always stay within the current application job.
+    // Job posting detail: stay within this opening only.
     baseWhere = { jobId: current.jobId };
   } else if (from?.startsWith("/hiring/applications")) {
     const { q, job, stage } = parseFromHiringApplications(from);
     const clauses: Prisma.HiringApplicationWhereInput[] = [{ job: hiringJobActiveClause }];
     if (job) clauses.push({ jobId: job });
     if (stage) clauses.push({ pipelineStageId: stage });
-    if (q) {
-      clauses.push({
-        OR: [
-          { candidate: { fullName: { contains: q, mode: "insensitive" } } },
-          { candidate: { email: { contains: q, mode: "insensitive" } } },
-          { job: { title: { contains: q, mode: "insensitive" } } },
-        ],
-      });
-    }
-    baseWhere = clauses.length ? { AND: clauses } : {};
+    if (q) clauses.push(hiringApplicationTextSearchWhere(q));
+    baseWhere = clauses.length ? { AND: clauses } : { job: hiringJobActiveClause };
+  } else if (from?.startsWith("/hiring/pipeline")) {
+    const { job, stage } = parseFromHiringPipeline(from);
+    const clauses: Prisma.HiringApplicationWhereInput[] = [{ job: hiringJobActiveClause }];
+    // By-job pipeline view sets job=…; otherwise stay on the current posting.
+    clauses.push({ jobId: job || current.jobId });
+    if (stage) clauses.push({ pipelineStageId: stage });
+    baseWhere = { AND: clauses };
   } else {
-    // Default to Applications list behavior.
-    baseWhere = { job: hiringJobActiveClause };
+    // No list context (direct link, lost ?from=, etc.): do not cross to another posting.
+    baseWhere = { jobId: current.jobId };
   }
 
   const next = await prisma.hiringApplication.findFirst({

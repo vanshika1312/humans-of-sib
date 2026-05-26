@@ -395,6 +395,7 @@ export default async function HiringApplicationDetailPage(props: Props) {
                       </p>
                     ) : (
                       <form action={moveJobAction} className="flex flex-col sm:flex-row flex-wrap gap-3 sm:items-end">
+                        <input type="hidden" name="returnPath" value={detailReturnPath} />
                         <div className="flex-1 min-w-[200px]">
                           <Label htmlFor="targetJobId">Target opening</Label>
                           <Select id="targetJobId" name="targetJobId" required defaultValue="" className="mt-1.5">
@@ -514,6 +515,7 @@ export default async function HiringApplicationDetailPage(props: Props) {
 
                   <div className="rounded-xl border border-ink-200 bg-white p-4 space-y-4 max-w-xl">
                     <form action={addAttachmentAction} className="grid gap-4">
+                      <input type="hidden" name="returnPath" value={detailReturnPath} />
                       <fieldset className="space-y-2 border-0 p-0 m-0 min-w-0">
                         <legend className="text-xs font-semibold uppercase tracking-wider text-ink-500">
                           Attach a link or file

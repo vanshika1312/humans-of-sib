@@ -942,7 +942,8 @@ export async function updateHiringApplicationNotes(applicationId: string, formDa
     data: { notes },
   });
   invalidateHiring(row.jobId, applicationId);
-  redirect(`/hiring/applications/${applicationId}?notesSaved=1`);
+  const returnPath = safeHiringReturnPath(formData.get("returnPath"));
+  redirect(mergeHiringReturnQuery(returnPath, { notesSaved: "1" }));
 }
 
 function guessAttachmentNameFromUrl(raw: string): string {
@@ -956,6 +957,7 @@ function guessAttachmentNameFromUrl(raw: string): string {
 
 export async function addHiringApplicationAttachment(applicationId: string, formData: FormData) {
   const me = await requireHiringUser();
+  const returnPath = safeHiringReturnPath(formData.get("returnPath"));
   const app = await prisma.hiringApplication.findUnique({
     where: { id: applicationId },
     select: { jobId: true },
@@ -977,14 +979,16 @@ export async function addHiringApplicationAttachment(applicationId: string, form
     const uploaded = await persistHiringResumeFile(file);
     if (uploaded === "TOO_LARGE") {
       redirect(
-        `/hiring/applications/${applicationId}?error=` +
-          encodeURIComponent("Attachment is too large (max 12 MB)."),
+        mergeHiringReturnQuery(returnPath, {
+          error: "Attachment is too large (max 12 MB).",
+        }),
       );
     }
     if (uploaded === "UNSUPPORTED_TYPE") {
       redirect(
-        `/hiring/applications/${applicationId}?error=` +
-          encodeURIComponent("Attachments must be PDF, DOC, or DOCX."),
+        mergeHiringReturnQuery(returnPath, {
+          error: "Attachments must be PDF, DOC, or DOCX.",
+        }),
       );
     }
     resolvedUrl = uploaded;
@@ -996,8 +1000,9 @@ export async function addHiringApplicationAttachment(applicationId: string, form
 
   if (!resolvedUrl || !resolvedName) {
     redirect(
-      `/hiring/applications/${applicationId}?error=` +
-        encodeURIComponent("Paste a Google Drive / link or choose a PDF or Word file."),
+      mergeHiringReturnQuery(returnPath, {
+        error: "Paste a Google Drive / link or choose a PDF or Word file.",
+      }),
     );
   }
 
@@ -1011,28 +1016,31 @@ export async function addHiringApplicationAttachment(applicationId: string, form
     },
   });
   invalidateHiring(app.jobId, applicationId);
-  redirect(`/hiring/applications/${applicationId}?attached=1`);
+  redirect(mergeHiringReturnQuery(returnPath, { attached: "1" }));
 }
 
 export async function deleteHiringApplicationAttachment(attachmentId: string, formData: FormData) {
   await requireHiringUser();
-  const redirectTo = nu(String(formData.get("redirectTo"))) || "/hiring/applications";
+  const returnPath = safeHiringReturnPath(formData.get("redirectTo"));
   const att = await prisma.hiringApplicationAttachment.findUnique({
     where: { id: attachmentId },
     select: { applicationId: true, application: { select: { jobId: true } } },
   });
-  if (!att) redirect(redirectTo + "?error=" + encodeURIComponent("Attachment not found."));
+  if (!att) {
+    redirect(mergeHiringReturnQuery(returnPath, { error: "Attachment not found." }));
+  }
 
   await prisma.hiringApplicationAttachment.delete({ where: { id: attachmentId } });
   invalidateHiring(att.application.jobId, att.applicationId);
-  redirect(`/hiring/applications/${att.applicationId}?attachmentRemoved=1`);
+  redirect(mergeHiringReturnQuery(returnPath, { attachmentRemoved: "1" }));
 }
 
 export async function moveHiringApplicationToJob(applicationId: string, formData: FormData) {
   const me = await requireHiringUser();
+  const returnPath = safeHiringReturnPath(formData.get("returnPath"));
   const targetJobId = String(formData.get("targetJobId") || "").trim();
   if (!targetJobId) {
-    redirect(`/hiring/applications/${applicationId}?error=` + encodeURIComponent("Choose a job posting."));
+    redirect(mergeHiringReturnQuery(returnPath, { error: "Choose a job posting." }));
   }
 
   const app = await prisma.hiringApplication.findUnique({
@@ -1049,7 +1057,7 @@ export async function moveHiringApplicationToJob(applicationId: string, formData
   }
 
   if (targetJobId === app.jobId) {
-    redirect(`/hiring/applications/${applicationId}?error=` + encodeURIComponent("Already on that posting."));
+    redirect(mergeHiringReturnQuery(returnPath, { error: "Already on that posting." }));
   }
 
   const targetJob = await prisma.hiringJob.findFirst({
@@ -1062,8 +1070,10 @@ export async function moveHiringApplicationToJob(applicationId: string, formData
   });
   if (!targetJob) {
     redirect(
-      `/hiring/applications/${applicationId}?error=` +
-        encodeURIComponent("That posting isn’t available — choose another job (draft or removed postings are excluded)."),
+      mergeHiringReturnQuery(returnPath, {
+        error:
+          "That posting isn’t available — choose another job (draft or removed postings are excluded).",
+      }),
     );
   }
 
@@ -1073,10 +1083,10 @@ export async function moveHiringApplicationToJob(applicationId: string, formData
   });
   if (dup) {
     redirect(
-      `/hiring/applications/${applicationId}?error=` +
-        encodeURIComponent(
+      mergeHiringReturnQuery(returnPath, {
+        error:
           "This candidate already has a submission on that posting — open that application or delete one first.",
-        ),
+      }),
     );
   }
 
@@ -1118,7 +1128,7 @@ export async function moveHiringApplicationToJob(applicationId: string, formData
   invalidateHiring(previousJobId, applicationId);
   invalidateHiring(targetJobId, applicationId);
   revalidatePath(`/hiring/applications/${applicationId}`);
-  redirect(`/hiring/applications/${applicationId}?jobMoved=1`);
+  redirect(mergeHiringReturnQuery(returnPath, { jobMoved: "1" }));
 }
 
 const BULK_APPLICATION_LIMIT = 400;

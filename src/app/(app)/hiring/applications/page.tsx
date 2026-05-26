@@ -8,6 +8,7 @@ import { ApplicationsTableWithBulk } from "../_components/applications-table-wit
 import { firstSearchParam } from "@/lib/search-param";
 import { loadPipelineStagesOrdered } from "@/lib/hiring-pipeline";
 import { hiringJobActiveClause } from "@/lib/hiring-job-active";
+import { hiringApplicationTextSearchWhere } from "@/lib/hiring-application-search";
 
 type Props = {
   searchParams: Promise<{
@@ -65,15 +66,7 @@ export default async function ApplicationsPage(props: Props) {
   const clauses: Prisma.HiringApplicationWhereInput[] = [{ job: hiringJobActiveClause }];
   if (jobFilter) clauses.push({ jobId: jobFilter });
   if (stageFilter) clauses.push({ pipelineStageId: stageFilter });
-  if (qRaw) {
-    clauses.push({
-      OR: [
-        { candidate: { fullName: { contains: qRaw, mode: "insensitive" } } },
-        { candidate: { email: { contains: qRaw, mode: "insensitive" } } },
-        { job: { title: { contains: qRaw, mode: "insensitive" } } },
-      ],
-    });
-  }
+  if (qRaw) clauses.push(hiringApplicationTextSearchWhere(qRaw));
   const where: Prisma.HiringApplicationWhereInput = clauses.length ? { AND: clauses } : {};
 
   const [pipelineStagesOrdered, rows, jobsForFilter, jobsForBulkMove] = await Promise.all([
@@ -222,7 +215,7 @@ export default async function ApplicationsPage(props: Props) {
                 id="app-q"
                 name="q"
                 defaultValue={qRaw}
-                placeholder="Search name, email, role…"
+                placeholder="Search name, email, or phone…"
                 className="h-9"
               />
             </div>

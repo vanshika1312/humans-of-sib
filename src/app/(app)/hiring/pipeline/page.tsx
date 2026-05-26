@@ -71,7 +71,7 @@ function PipelineApplicantCard({
     <article className="rounded-xl bg-white ring-1 ring-ink-100 p-4 space-y-2 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
       <div>
         <Link
-          href={`/hiring/applications/${app.id}`}
+          href={`/hiring/applications/${app.id}?from=${encodeURIComponent(returnPath)}`}
           className="font-medium text-sm text-ink-800 leading-snug hover:text-sky-800 hover:underline"
         >
           {app.candidate.fullName}

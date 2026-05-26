@@ -167,17 +167,19 @@ export default async function HiringOverviewPage(props: {
                     <div className="flex gap-2 min-w-min">
                       {funnelActiveStages.map((st) => {
                         const n = perJob?.get(st.id) ?? 0;
+                        const stageHref = `/hiring/applications?job=${encodeURIComponent(j.id)}&stage=${encodeURIComponent(st.id)}`;
                         return (
-                          <div
+                          <Link
                             key={st.id}
-                            className="shrink-0 rounded-lg border border-ink-100 bg-ink-50/40 px-2.5 py-1.5 min-w-[4.5rem]"
-                            title={st.label}
+                            href={stageHref}
+                            className="shrink-0 rounded-lg border border-ink-100 bg-ink-50/40 px-2.5 py-1.5 min-w-[4.5rem] hover:border-ink-200 hover:bg-ink-50/80 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2"
+                            title={`${st.label} — view applicants`}
                           >
                             <div className="text-[10px] font-medium uppercase tracking-wide text-ink-400 truncate max-w-[6rem]">
                               {st.label}
                             </div>
                             <div className="text-sm font-semibold tabular-nums text-ink-800">{n}</div>
-                          </div>
+                          </Link>
                         );
                       })}
                     </div>
