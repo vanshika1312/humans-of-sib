@@ -66,9 +66,9 @@ export function HiringSubnav() {
   const from = useMemo(() => safeInternalFrom(searchParams.get("from")), [searchParams]);
   const tab = searchParams.get("tab");
 
-  const backHref = from ?? "/hiring/applications";
-
+  const [prevId, setPrevId] = useState<string | null>(null);
   const [nextId, setNextId] = useState<string | null>(null);
+  const [loadingPrev, setLoadingPrev] = useState(false);
   const [loadingNext, setLoadingNext] = useState(false);
 
   useEffect(() => {
@@ -77,7 +77,9 @@ export function HiringSubnav() {
     const ac = new AbortController();
     queueMicrotask(() => {
       if (ac.signal.aborted) return;
+      setLoadingPrev(true);
       setLoadingNext(true);
+      setPrevId(null);
       setNextId(null);
     });
 
@@ -85,38 +87,59 @@ export function HiringSubnav() {
     qs.set("currentId", currentApplicationId);
     if (from) qs.set("from", from);
 
-    fetch(`/api/hiring/applications/next?${qs.toString()}`, {
-      method: "GET",
-      signal: ac.signal,
-      headers: { "Cache-Control": "no-store" },
-    })
-      .then(async (r) => {
+    const parseAdjacentId = (data: unknown, key: "prevId" | "nextId") => {
+      const id = (data as { ok?: boolean } & Record<string, unknown>)?.[key];
+      return typeof id === "string" || id === null ? id : null;
+    };
+
+    const fetchAdjacent = (path: "prev" | "next") =>
+      fetch(`/api/hiring/applications/${path}?${qs.toString()}`, {
+        method: "GET",
+        signal: ac.signal,
+        headers: { "Cache-Control": "no-store" },
+      }).then(async (r) => {
         if (!r.ok) return null;
-        const data = (await r.json()) as { ok?: boolean; nextId?: string | null };
-        return typeof data?.nextId === "string" || data?.nextId === null ? data.nextId : null;
-      })
-      .then((id) => {
-        if (!ac.signal.aborted) setNextId(id ?? null);
+        const data = await r.json();
+        return parseAdjacentId(data, path === "prev" ? "prevId" : "nextId");
+      });
+
+    Promise.all([fetchAdjacent("prev"), fetchAdjacent("next")])
+      .then(([prev, next]) => {
+        if (ac.signal.aborted) return;
+        setPrevId(prev ?? null);
+        setNextId(next ?? null);
       })
       .catch(() => {
-        if (!ac.signal.aborted) setNextId(null);
+        if (!ac.signal.aborted) {
+          setPrevId(null);
+          setNextId(null);
+        }
       })
       .finally(() => {
-        if (!ac.signal.aborted) setLoadingNext(false);
+        if (!ac.signal.aborted) {
+          setLoadingPrev(false);
+          setLoadingNext(false);
+        }
       });
 
     return () => ac.abort();
   }, [currentApplicationId, from]);
 
-  const nextHref = useMemo(() => {
-    if (!nextId) return null;
-    const qs = new URLSearchParams();
-    if (tab) qs.set("tab", tab);
-    if (from) qs.set("from", from);
-    const tail = qs.toString();
-    return tail ? `/hiring/applications/${nextId}?${tail}` : `/hiring/applications/${nextId}`;
-  }, [nextId, tab, from]);
+  const adjacentHref = useMemo(() => {
+    return (id: string | null) => {
+      if (!id) return null;
+      const qs = new URLSearchParams();
+      if (tab) qs.set("tab", tab);
+      if (from) qs.set("from", from);
+      const tail = qs.toString();
+      return tail ? `/hiring/applications/${id}?${tail}` : `/hiring/applications/${id}`;
+    };
+  }, [tab, from]);
 
+  const prevHref = adjacentHref(prevId);
+  const nextHref = adjacentHref(nextId);
+
+  const canGoPrev = Boolean(prevHref) && !loadingPrev;
   const canGoNext = Boolean(nextHref) && !loadingNext;
 
   return (
@@ -146,12 +169,31 @@ export function HiringSubnav() {
         {applicationsActive ? (
           isApplicationDetail ? (
             <div className="shrink-0 flex items-center gap-2">
-              <Link href={backHref}>
-                <Button type="button" variant="outline" size="md" className="px-3" aria-label="Back">
+              {canGoPrev && prevHref ? (
+                <Link href={prevHref}>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="md"
+                    className="px-3"
+                    aria-label="Previous application"
+                  >
+                    <ChevronLeft className="size-4" />
+                  </Button>
+                </Link>
+              ) : (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="md"
+                  className="px-3"
+                  aria-label="Previous application"
+                  disabled
+                >
                   <ChevronLeft className="size-4" />
                 </Button>
-              </Link>
-              {canGoNext ? (
+              )}
+              {canGoNext && nextHref ? (
                 <Link href={nextHref}>
                   <Button type="button" variant="accent" size="md" className="px-3" aria-label="Next application">
                     <ChevronRight className="size-4" />

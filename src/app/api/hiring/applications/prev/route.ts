@@ -43,10 +43,10 @@ export async function GET(req: Request) {
     );
   }
 
-  const nextId = await findAdjacentHiringApplicationId(current, from, "next");
+  const prevId = await findAdjacentHiringApplicationId(current, from, "prev");
 
   return Response.json(
-    { ok: true, nextId },
+    { ok: true, prevId },
     { headers: { "Cache-Control": "no-store" } },
   );
 }
