@@ -68,6 +68,16 @@ See `.env.example`. Required in production:
 - `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET` — Google OAuth
 - `ALLOWED_EMAIL_DOMAIN` — `skillinabox.in`
 
+Optional — **LIA** (member assistant):
+
+- `LIA_ENABLED` — set to `true` to show LIA in the app (defaults to on when an API key is set)
+- `LIA_OPENROUTER_API_KEY` or `OPENROUTER_API_KEY` — OpenRouter / OpenAI-compatible key
+- `LIA_MODEL` — optional (default `openai/gpt-4o-mini`; use a paid model if you hit provider rate limits)
+
+HR manages LIA at `/admin/lia`: **Documents** for core policies (leave, attendance, pulse, benefits) and **Articles** for extra FAQs (summary + optional Google Doc/Notion link). Built-in policy slugs there are the canonical source for those topics.
+
+Company-wide **Policy** uploads on **Documents** (`/documents`, scope “for all”) are extracted (PDF/DOCX text) and synced into LIA as `org-policy-*` knowledge articles so members can ask LIA about them. Use **Admin → LIA → Sync Documents policies → LIA** to re-index existing uploads. Scanned PDFs without selectable text need policy text pasted under Admin → LIA or a text-based PDF.
+
 ## Made with love by the SIB team
 
 Empowering women across India — now, also empowering the team that empowers them.

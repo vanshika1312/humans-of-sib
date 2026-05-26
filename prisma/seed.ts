@@ -1,4 +1,4 @@
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient } from "../src/generated/prisma";
 import { WORKSPACE_DEPARTMENTS } from "../src/lib/workspace-departments";
 
 const prisma = new PrismaClient();
@@ -68,8 +68,41 @@ async function main() {
     if (!existing) await prisma.training.create({ data: t });
   }
 
+  const { LIA_CORE_DOCUMENTS } = await import("../src/lib/lia-core-documents");
+
+  for (const d of LIA_CORE_DOCUMENTS) {
+    await prisma.liaKnowledgeArticle.upsert({
+      where: { slug: d.slug },
+      update: {
+        title: d.title,
+        summary: d.summary,
+        body: d.body,
+        category: d.category,
+        keywords: d.keywords,
+        detailHref: d.detailHref ?? null,
+        sortOrder: d.sortOrder,
+        kind: "DOCUMENT",
+        published: true,
+      },
+      create: {
+        slug: d.slug,
+        title: d.title,
+        summary: d.summary,
+        body: d.body,
+        category: d.category,
+        keywords: d.keywords,
+        detailHref: d.detailHref ?? null,
+        sortOrder: d.sortOrder,
+        kind: "DOCUMENT",
+        published: true,
+      },
+    });
+  }
+
   console.log("✅ Seed complete.");
-  console.log(`   ${cities.length} cities, ${depts.length} departments, ${trainingSeed.length} trainings`);
+  console.log(
+    `   ${cities.length} cities, ${depts.length} departments, ${trainingSeed.length} trainings, ${LIA_CORE_DOCUMENTS.length} LIA documents`,
+  );
 }
 
 main()

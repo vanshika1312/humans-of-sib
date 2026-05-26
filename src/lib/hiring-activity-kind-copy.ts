@@ -25,6 +25,7 @@ export const HIRING_ACTIVITY_KIND_LABEL: Record<HiringActivityKind, string> = {
   HIRING_TEMPLATE_CREATED: "Template created",
   HIRING_TEMPLATE_UPDATED: "Template updated",
   HIRING_TEMPLATE_DELETED: "Template deleted",
+  APPLICATION_EMAIL_SENT: "Email sent to candidate",
   REQUISITION_APPROVED: "Requisition approved",
   REQUISITION_REJECTED: "Requisition declined",
 };
@@ -39,6 +40,7 @@ export const HIRING_ACTIVITY_KIND_FILTER_ORDER: HiringActivityKind[] = [
   "APPLICATION_REVIEW_ADDED",
   "APPLICATION_REVIEW_UPDATED",
   "APPLICATION_REVIEW_DELETED",
+  "APPLICATION_EMAIL_SENT",
   "APPLICATION_DELETED",
   "BULK_APPLICATIONS_DELETED",
   "CANDIDATE_CREATED",

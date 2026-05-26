@@ -16,6 +16,7 @@ export function Topbar({
   unreadNotifications = 0,
   navRole,
   navPermissions,
+  liaEnabled,
   signOutAction,
 }: {
   user: { name?: string | null; email?: string | null; image?: string | null };
@@ -24,6 +25,7 @@ export function Topbar({
   unreadNotifications?: number;
   navRole?: string;
   navPermissions?: string[];
+  liaEnabled?: boolean;
   signOutAction: () => Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
@@ -298,7 +300,12 @@ export function Topbar({
           >
             <X className="size-5" />
           </button>
-          <Sidebar onNavigate={() => setOpen(false)} role={navRole} permissions={navPermissions} />
+          <Sidebar
+            onNavigate={() => setOpen(false)}
+            role={navRole}
+            permissions={navPermissions}
+            liaEnabled={liaEnabled}
+          />
         </aside>
       </div>
     </>

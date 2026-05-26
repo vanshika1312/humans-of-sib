@@ -168,6 +168,7 @@ model User {
   winCertificates     WinCertificate[] @relation("WinCertificateRecipient")
   winCertificatesIssued WinCertificate[] @relation("WinCertificateIssuer")
   documents           Document[]
+  documentsUploaded   Document[]             @relation("DocumentUploadedBy")
   okrs                OKR[]
   oneOnOnesAsManager  OneOnOne[]             @relation("OneOnOneManager")
   oneOnOnesAsReport   OneOnOne[]             @relation("OneOnOneReport")
@@ -189,6 +190,7 @@ model User {
   hiringActivities            HiringActivity[]       @relation("HiringActivityActor")
   hiringApplicationAttachmentsAdded HiringApplicationAttachment[] @relation("HiringApplicationAttachmentAddedBy")
   hiringInterviewTemplatesAuthored HiringInterviewQuestionTemplate[] @relation("HiringInterviewTemplateAuthor")
+  hiringApplicationEmailsSent      HiringApplicationEmail[]          @relation("HiringApplicationEmailSender")
   hiringApplicationReviewsAuthored HiringApplicationReview[]         @relation("HiringApplicationReviewAuthor")
   hiringResumeImportBatchesCreated HiringResumeImportBatch[]        @relation("HiringResumeImportBatchCreator")
   hiringJobsRemovedFromList        HiringJob[]                      @relation("HiringJobRemovedBy")
@@ -209,6 +211,9 @@ model User {
   notificationsAuthored           Notification[] @relation("NotificationActor")
 
   homeFeedPostReactions           HomeFeedPostReaction[]
+
+  liaConversations                LiaConversation[]
+  liaKnowledgeArticlesUpdated     LiaKnowledgeArticle[] @relation("LiaKnowledgeArticleUpdatedBy")
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -347,6 +352,7 @@ enum HiringActivityKind {
   HIRING_TEMPLATE_CREATED
   HIRING_TEMPLATE_UPDATED
   HIRING_TEMPLATE_DELETED
+  APPLICATION_EMAIL_SENT
   REQUISITION_APPROVED
   REQUISITION_REJECTED
 }
@@ -356,6 +362,15 @@ enum HiringTemplateCategory {
   QUESTIONNAIRE_GUIDE
   EMAIL
   JOB_POST
+  OTHER
+}
+
+enum HiringEmailPurpose {
+  OUTREACH
+  SHORTLISTED
+  REJECTED
+  OFFER
+  INTERVIEW_INVITE
   OTHER
 }
 
@@ -492,6 +507,7 @@ model HiringApplication {
   activityLog HiringActivity[]
   attachments HiringApplicationAttachment[]
   reviews     HiringApplicationReview[]
+  emailsSent  HiringApplicationEmail[]
 
   @@unique([jobId, candidateId])
   @@index([jobId, pipelineStageId])
@@ -547,14 +563,39 @@ model HiringInterviewQuestionTemplate {
   title        String                   @db.VarChar(200)
   body         String                   @db.Text
   sortOrder    Int                      @default(0)
+  /// Email subject when category is EMAIL.
+  subject      String?                  @db.VarChar(500)
+  emailPurpose HiringEmailPurpose?
+  /// JSON snapshot (v1) for JOB_POST reusable fields — see hiring-job-template-fields.ts.
+  jobFieldsJson String?                 @db.Text
 
   createdById  String?
   createdBy    User?                    @relation("HiringInterviewTemplateAuthor", fields: [createdById], references: [id], onDelete: SetNull)
+
+  emailsSent   HiringApplicationEmail[]
 
   createdAt    DateTime                 @default(now())
   updatedAt    DateTime                 @updatedAt
 
   @@index([category, pipelineStageId, sortOrder])
+  @@index([category, emailPurpose])
+}
+
+/// Outbound candidate email sent from an application (audit trail).
+model HiringApplicationEmail {
+  id            String             @id @default(cuid())
+  applicationId String
+  application   HiringApplication  @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  templateId    String?
+  template      HiringInterviewQuestionTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  toEmail       String             @db.VarChar(320)
+  subject       String             @db.VarChar(500)
+  body          String             @db.Text
+  sentById      String
+  sentBy        User               @relation("HiringApplicationEmailSender", fields: [sentById], references: [id], onDelete: Cascade)
+  sentAt        DateTime           @default(now())
+
+  @@index([applicationId, sentAt])
 }
 
 model HiringApplicationReview {
@@ -1285,20 +1326,30 @@ enum DocumentType {
   OTHER
 }
 
-model Document {
-  id        String       @id @default(cuid())
-  userId    String
-  type      DocumentType @default(OTHER)
-  title     String
-  url       String
-  sizeBytes Int?
-  mimeType  String?
+enum DocumentScope {
+  PERSONAL
+  FOR_ALL
+}
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+model Document {
+  id           String        @id @default(cuid())
+  scope        DocumentScope @default(PERSONAL)
+  userId       String?
+  uploadedById String
+  type         DocumentType  @default(OTHER)
+  title        String
+  url          String
+  sizeBytes    Int?
+  mimeType     String?
+
+  user       User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+  uploadedBy User  @relation("DocumentUploadedBy", fields: [uploadedById], references: [id], onDelete: Restrict)
 
   createdAt DateTime @default(now())
 
   @@index([userId])
+  @@index([scope])
+  @@index([uploadedById])
   @@index([type])
 }
 
@@ -1371,6 +1422,14 @@ model OneOnOne {
 // ──────────────────────────────────────────────────────────────────────────────
 // Pulse Surveys (weekly)
 // ──────────────────────────────────────────────────────────────────────────────
+
+model PulseWeek {
+  weekStart   DateTime @id @db.Date
+  question    String
+  promptLabel String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
 
 model PulseResponse {
   id        String   @id @default(cuid())
@@ -1581,4 +1640,78 @@ model IncentiveSheet {
 
   @@unique([userId, year, month])
   @@index([year, month, status])
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// LIA — member assistant (knowledge base + conversations)
+// ──────────────────────────────────────────────────────────────────────────────
+
+enum LiaKnowledgeCategory {
+  LEAVE
+  ATTENDANCE
+  PULSE
+  GENERAL
+  BENEFITS
+  CULTURE
+}
+
+enum LiaMessageRole {
+  USER
+  ASSISTANT
+}
+
+enum LiaKnowledgeKind {
+  DOCUMENT
+  ARTICLE
+}
+
+model LiaKnowledgeArticle {
+  id          String               @id @default(cuid())
+  slug        String               @unique
+  title       String
+  summary     String               @db.Text
+  body        String               @db.Text
+  kind        LiaKnowledgeKind     @default(ARTICLE)
+  category    LiaKnowledgeCategory @default(GENERAL)
+  keywords    String[]             @default([])
+  detailHref  String?              @db.VarChar(2048)
+  detailUrl   String?              @db.VarChar(2048)
+  published   Boolean              @default(false)
+  sortOrder   Int                  @default(0)
+
+  updatedById String?
+  updatedBy   User?                @relation("LiaKnowledgeArticleUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([published, category, sortOrder])
+}
+
+model LiaConversation {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title  String @default("New chat") @db.VarChar(200)
+
+  messages LiaMessage[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, updatedAt])
+}
+
+model LiaMessage {
+  id             String         @id @default(cuid())
+  conversationId String
+  conversation   LiaConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  role           LiaMessageRole
+  content        String         @db.Text
+  sourcesJson    Json?
+  metaJson       Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([conversationId, createdAt])
 }

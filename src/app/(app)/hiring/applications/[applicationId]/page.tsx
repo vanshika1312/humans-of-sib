@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { ReactNode } from "react";
+import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -31,6 +32,8 @@ import { hiringJobActiveClause } from "@/lib/hiring-job-active";
 import { firstSearchParam } from "@/lib/search-param";
 import { cn } from "@/lib/utils";
 import { DeleteReviewForm } from "../../_components/delete-review-form";
+import { HiringApplicationEmailComposer } from "@/components/hiring/hiring-application-email-composer";
+import type { HiringTemplateMergeContext } from "@/lib/hiring-template-merge";
 
 type Props = {
   params: Promise<{ applicationId: string }>;
@@ -45,8 +48,12 @@ type Props = {
     reviewUpdated?: string | string[];
     reviewDeleted?: string | string[];
     jobMoved?: string | string[];
+    emailSent?: string | string[];
+    emailError?: string | string[];
   }>;
 };
+
+const HR_GATE = ["CEO", "ADMIN", "HR"];
 
 export default async function HiringApplicationDetailPage(props: Props) {
   const { applicationId } = await props.params;
@@ -63,6 +70,17 @@ export default async function HiringApplicationDetailPage(props: Props) {
   const reviewUpdated = firstSearchParam(sp.reviewUpdated) === "1";
   const reviewDeleted = firstSearchParam(sp.reviewDeleted) === "1";
   const jobMoved = firstSearchParam(sp.jobMoved) === "1";
+  const emailSent = firstSearchParam(sp.emailSent) === "1";
+  const emailError = firstSearchParam(sp.emailError);
+
+  const session = await auth();
+  const viewer = session?.user?.email
+    ? await prisma.user.findUnique({
+        where: { email: session.user.email },
+        select: { role: true, name: true, firstName: true, lastName: true, email: true },
+      })
+    : null;
+  const canSendHiringEmail = Boolean(viewer && HR_GATE.includes(viewer.role));
 
   const app = await prisma.hiringApplication.findUnique({
     where: { id: applicationId },
@@ -82,17 +100,34 @@ export default async function HiringApplicationDetailPage(props: Props) {
         include: { author: { select: { name: true, email: true } } },
       },
       job: { include: { department: true } },
-      pipelineStage: { select: { id: true, key: true, label: true } },
+      pipelineStage: { select: { id: true, key: true, label: true, isRejected: true, isHired: true } },
     },
   });
 
   if (!app) notFound();
 
-  const [pipelineStagesOrdered, interviewTemplates, moveTargetJobs] = await Promise.all([
+  const [pipelineStagesOrdered, interviewTemplates, allQuestionnaireTemplates, emailTemplates, sentEmails, moveTargetJobs] =
+    await Promise.all([
     loadPipelineStagesOrdered(),
     prisma.hiringInterviewQuestionTemplate.findMany({
       where: { category: "QUESTIONNAIRE_GUIDE", pipelineStageId: app.pipelineStageId },
       orderBy: [{ sortOrder: "asc" }, { updatedAt: "desc" }],
+    }),
+    prisma.hiringInterviewQuestionTemplate.findMany({
+      where: { category: "QUESTIONNAIRE_GUIDE" },
+      orderBy: [{ pipelineStageId: "asc" }, { sortOrder: "asc" }, { updatedAt: "desc" }],
+      include: { pipelineStage: { select: { id: true, label: true } } },
+    }),
+    prisma.hiringInterviewQuestionTemplate.findMany({
+      where: { category: "EMAIL" },
+      orderBy: [{ emailPurpose: "asc" }, { title: "asc" }],
+      select: { id: true, title: true, subject: true, body: true, emailPurpose: true },
+    }),
+    prisma.hiringApplicationEmail.findMany({
+      where: { applicationId },
+      orderBy: { sentAt: "desc" },
+      take: 30,
+      include: { sentBy: { select: { name: true, email: true } } },
     }),
     prisma.hiringJob.findMany({
       where: {
@@ -111,6 +146,37 @@ export default async function HiringApplicationDetailPage(props: Props) {
   const jobLoc = formatHiringJobLocation(app.job);
   const skills = jobSkillKeywords(app.job.skillsRequired);
   const recruiter = app.candidate.createdBy?.name ?? app.candidate.createdBy?.email ?? "—";
+  const recruiterName =
+    viewer?.name ||
+    [viewer?.firstName, viewer?.lastName].filter(Boolean).join(" ") ||
+    viewer?.email ||
+    "Recruiting team";
+
+  const emailMergeContext: HiringTemplateMergeContext = {
+    candidateName: app.candidate.fullName,
+    candidateEmail: app.candidate.email,
+    jobTitle: app.job.title,
+    stageLabel: app.pipelineStage.label,
+    recruiterName,
+  };
+
+  const emailTemplateOptions = emailTemplates
+    .filter((t) => t.subject && t.emailPurpose)
+    .map((t) => ({
+      id: t.id,
+      title: t.title,
+      subject: t.subject!,
+      body: t.body,
+      emailPurpose: t.emailPurpose!,
+    }));
+
+  const questionnairesByOtherStage = pipelineStagesOrdered
+    .filter((s) => s.id !== app.pipelineStageId)
+    .map((stage) => ({
+      stage,
+      templates: allQuestionnaireTemplates.filter((t) => t.pipelineStageId === stage.id),
+    }))
+    .filter((g) => g.templates.length > 0);
   const jobDept = app.job.department
     ? `${app.job.department.emoji ?? ""} ${app.job.department.name}`.trim()
     : "—";
@@ -716,7 +782,7 @@ export default async function HiringApplicationDetailPage(props: Props) {
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <CardTitle>Questionnaire templates</CardTitle>
                     <Link
-                      href="/hiring/templates?category=QUESTIONNAIRE_GUIDE"
+                      href="/hiring/templates?tab=questionnaire"
                       className="text-sm font-semibold text-sky-700 hover:underline shrink-0"
                     >
                       Manage templates →
@@ -724,36 +790,48 @@ export default async function HiringApplicationDetailPage(props: Props) {
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-6">
-                  {interviewTemplates.length === 0 ? (
-                    <div className="rounded-lg border border-dashed border-ink-200 bg-ink-50/50 p-4 text-sm text-ink-600">
-                      No questionnaire templates for this stage yet.{" "}
-                      <Link href="/hiring/templates?category=QUESTIONNAIRE_GUIDE" className="font-semibold text-sky-700 hover:underline">
-                        Create a template in Templates
-                      </Link>{" "}
-                      mapped to “{app.pipelineStage.label}”.
-                    </div>
-                  ) : (
-                    <ul className="space-y-4">
-                      {interviewTemplates.map((t) => (
-                        <li key={t.id} className="rounded-xl border border-ink-100 bg-white p-4">
-                          <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-                            <span className="font-semibold text-ink-800">{t.title}</span>
-                            <CopyTextButton
-                              label="Copy content"
-                              copiedLabel="Copied!"
-                              text={`${t.title}\n\n${t.body}`}
-                            />
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wider text-ink-500 mb-3">
+                      Current stage — {app.pipelineStage.label}
+                    </p>
+                    {interviewTemplates.length === 0 ? (
+                      <div className="rounded-lg border border-dashed border-ink-200 bg-ink-50/50 p-4 text-sm text-ink-600">
+                        No questionnaire templates for this stage yet.{" "}
+                        <Link href="/hiring/templates?tab=questionnaire" className="font-semibold text-sky-700 hover:underline">
+                          Create a template
+                        </Link>{" "}
+                        mapped to “{app.pipelineStage.label}”.
+                      </div>
+                    ) : (
+                      <ul className="space-y-4">
+                        {interviewTemplates.map((t) => (
+                          <QuestionnaireTemplateCard key={t.id} title={t.title} body={t.body} />
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+
+                  {questionnairesByOtherStage.length > 0 ? (
+                    <details className="rounded-xl border border-ink-100 bg-ink-50/30">
+                      <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-ink-700 select-none">
+                        All interview rounds (reference)
+                      </summary>
+                      <div className="px-4 pb-4 space-y-6 border-t border-ink-100 pt-4">
+                        {questionnairesByOtherStage.map(({ stage, templates }) => (
+                          <div key={stage.id}>
+                            <p className="text-xs font-semibold uppercase tracking-wider text-ink-400 mb-2">
+                              {stage.label}
+                            </p>
+                            <ul className="space-y-3">
+                              {templates.map((t) => (
+                                <QuestionnaireTemplateCard key={t.id} title={t.title} body={t.body} compact />
+                              ))}
+                            </ul>
                           </div>
-                          <pre className="text-sm text-ink-600 whitespace-pre-wrap bg-ink-50/60 rounded-lg p-3 border border-ink-100 max-h-[280px] overflow-auto">
-                            {t.body}
-                          </pre>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                  <Button type="button" variant="outline" size="sm" disabled className="opacity-60 cursor-not-allowed">
-                    + Schedule interview (planned)
-                  </Button>
+                        ))}
+                      </div>
+                    </details>
+                  ) : null}
                 </CardContent>
               </Card>
             </section>
@@ -778,10 +856,28 @@ export default async function HiringApplicationDetailPage(props: Props) {
                   <CardTitle>Emails</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <p className="text-sm text-ink-500">No tracked emails saved on this submission.</p>
-                  <Button type="button" variant="outline" size="sm" disabled className="opacity-60 cursor-not-allowed">
-                    Send mail (planned)
-                  </Button>
+                  {emailSent && (
+                    <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+                      Email sent to {app.candidate.email}.
+                    </div>
+                  )}
+                  {emailError && (
+                    <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">
+                      {decodeURIComponent(emailError)}
+                    </div>
+                  )}
+                  <HiringApplicationEmailComposer
+                    applicationId={applicationId}
+                    candidateEmail={app.candidate.email}
+                    mergeContext={emailMergeContext}
+                    templates={emailTemplateOptions}
+                    sentEmails={sentEmails}
+                    canSend={canSendHiringEmail}
+                    stageFlags={{
+                      isRejected: app.pipelineStage.isRejected,
+                      isHired: app.pipelineStage.isHired,
+                    }}
+                  />
                 </CardContent>
               </Card>
             </section>
@@ -789,6 +885,38 @@ export default async function HiringApplicationDetailPage(props: Props) {
         )}
       </div>
     </div>
+  );
+}
+
+function QuestionnaireTemplateCard({
+  title,
+  body,
+  compact,
+}: {
+  title: string;
+  body: string;
+  compact?: boolean;
+}) {
+  return (
+    <li
+      className={cn(
+        "rounded-xl border border-ink-100 bg-white p-4",
+        compact && "p-3",
+      )}
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+        <span className={cn("font-semibold text-ink-800", compact && "text-sm")}>{title}</span>
+        <CopyTextButton label="Copy content" copiedLabel="Copied!" text={`${title}\n\n${body}`} />
+      </div>
+      <pre
+        className={cn(
+          "text-sm text-ink-600 whitespace-pre-wrap bg-ink-50/60 rounded-lg p-3 border border-ink-100 overflow-auto",
+          compact ? "max-h-[180px]" : "max-h-[280px]",
+        )}
+      >
+        {body}
+      </pre>
+    </li>
   );
 }
 

@@ -1,1 +1,4 @@
-export const WEEKLY_QUESTION = "How are you feeling about work this week?";
+export {
+  DEFAULT_PULSE_QUESTION as WEEKLY_QUESTION,
+  DEFAULT_PULSE_PROMPT_LABEL as WEEKLY_PROMPT_LABEL,
+} from "@/lib/pulse";

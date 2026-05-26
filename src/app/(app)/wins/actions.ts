@@ -253,7 +253,7 @@ export async function issueCertificate(formData: FormData) {
   });
 
   const certNumber = await nextWinCertNumber();
-  await prisma.winCertificate.create({
+  const cert = await prisma.winCertificate.create({
     data: {
       userId: parsed.userId,
       issuedById: actor.id,
@@ -261,6 +261,15 @@ export async function issueCertificate(formData: FormData) {
       achievement: parsed.achievement,
       certNumber,
     },
+  });
+
+  await notifyWinRecipient({
+    recipientUserId: parsed.userId,
+    actorUserId: actor.id,
+    winId: parsed.linkWinId ?? null,
+    certId: cert.id,
+    title: parsed.achievement,
+    variant: "issued",
   });
 
   revalidateWins();

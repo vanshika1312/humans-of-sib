@@ -8,6 +8,10 @@ import { DepartmentNameField } from "@/components/workspace/department-name-fiel
 import { createJob } from "@/app/(app)/hiring/actions";
 import { HIRING_JOB_STATUSES, JOB_STATUS_LABEL } from "@/lib/hiring-copy";
 import { WORK_ARRANGEMENT_OPTIONS } from "@/lib/hiring-job-copy";
+import {
+  JobProfileTemplatePicker,
+  type JobProfileTemplateOption,
+} from "@/components/hiring/job-profile-template-picker";
 
 const STORAGE_KEY = "humans-of-sib:hiring-new-job-draft:v1";
 
@@ -33,7 +37,7 @@ function writeDraft(form: HTMLFormElement) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(o));
 }
 
-export function NewOpeningForm() {
+export function NewOpeningForm({ jobProfileTemplates = [] }: { jobProfileTemplates?: JobProfileTemplateOption[] }) {
   const formId = useId();
   const draftFormId = `${formId}-new-opening-draft`;
   const formRef = useRef<HTMLFormElement>(null);
@@ -82,6 +86,20 @@ export function NewOpeningForm() {
         Your inputs are remembered on this browser until you save - safe for drafts including when status stays{" "}
         <strong>Draft</strong>.
       </div>
+
+      <JobProfileTemplatePicker
+        templates={jobProfileTemplates}
+        formId={draftFormId}
+        fieldIds={{
+          description: `${draftFormId}-description`,
+          skillsRequired: `${draftFormId}-skillsRequired`,
+          experienceRequired: `${draftFormId}-experienceRequired`,
+          employmentType: `${draftFormId}-employmentType`,
+          workArrangement: `${draftFormId}-wa`,
+          location: `${draftFormId}-location`,
+          salaryRange: `${draftFormId}-salaryRange`,
+        }}
+      />
 
       <div>
         <Label htmlFor={`${draftFormId}-title`}>Job title</Label>

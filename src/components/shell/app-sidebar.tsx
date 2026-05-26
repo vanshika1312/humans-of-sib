@@ -6,7 +6,15 @@ import { cn } from "@/lib/utils";
 
 const STORAGE_KEY = "hosib-main-sidebar-collapsed";
 
-export function AppSidebar({ role, permissions }: { role: string; permissions: string[] }) {
+export function AppSidebar({
+  role,
+  permissions,
+  liaEnabled,
+}: {
+  role: string;
+  permissions: string[];
+  liaEnabled?: boolean;
+}) {
   const [collapsed, setCollapsed] = useState(false);
 
   useEffect(() => {
@@ -37,7 +45,13 @@ export function AppSidebar({ role, permissions }: { role: string; permissions: s
       )}
     >
       <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden">
-        <Sidebar role={role} permissions={permissions} collapsed={collapsed} onToggleCollapsed={toggle} />
+        <Sidebar
+          role={role}
+          permissions={permissions}
+          collapsed={collapsed}
+          onToggleCollapsed={toggle}
+          liaEnabled={liaEnabled}
+        />
       </div>
     </aside>
   );

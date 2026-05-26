@@ -3,8 +3,9 @@
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { weekStartDate } from "@/lib/utils";
+import { getPulseWeekConfig } from "@/lib/pulse";
 import { revalidatePath } from "next/cache";
-import { WEEKLY_QUESTION } from "./constants";
+import { redirect } from "next/navigation";
 
 export async function submitPulse(formData: FormData) {
   const session = await auth();
@@ -17,13 +18,15 @@ export async function submitPulse(formData: FormData) {
   if (!(score >= 1 && score <= 5)) throw new Error("Invalid score");
 
   const weekStart = weekStartDate();
+  const { question } = await getPulseWeekConfig(weekStart);
 
   await prisma.pulseResponse.upsert({
     where: { userId_weekStart: { userId: user.id, weekStart } },
-    update: { score, comment, question: WEEKLY_QUESTION },
-    create: { userId: user.id, weekStart, score, comment, question: WEEKLY_QUESTION },
+    update: { score, comment, question },
+    create: { userId: user.id, weekStart, score, comment, question },
   });
 
   revalidatePath("/pulse");
   revalidatePath("/home");
+  redirect("/pulse?saved=1");
 }

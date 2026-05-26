@@ -10,7 +10,8 @@
     "postinstall": "prisma generate",
     "db:push": "prisma db push",
     "db:seed": "tsx prisma/seed.ts",
-    "db:studio": "prisma studio"
+    "db:studio": "prisma studio",
+    "test:lia": "tsx src/lib/lia-knowledge.test.ts && tsx src/lib/lia-member-context.test.ts"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.11.2",

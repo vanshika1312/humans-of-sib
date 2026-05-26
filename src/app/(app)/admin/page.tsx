@@ -89,19 +89,47 @@ async function AdminPageBody() {
         />
       </div>
 
-      <Card className="mb-6">
-        <CardContent className="py-4 flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <div className="font-semibold text-ink-700">Attendance for payroll</div>
-            <p className="text-sm text-ink-500 mt-0.5">
-              Export everyone&apos;s monthly punches and approved leave weekdays as CSV.
-            </p>
-          </div>
-          <Link href="/admin/attendance-report">
-            <Button variant="outline">Open report</Button>
-          </Link>
-        </CardContent>
-      </Card>
+      <div className="grid gap-3 sm:grid-cols-2 mb-6">
+        <Card>
+          <CardContent className="py-4 flex flex-wrap items-center justify-between gap-3 h-full">
+            <div>
+              <div className="font-semibold text-ink-700">Attendance for payroll</div>
+              <p className="text-sm text-ink-500 mt-0.5">
+                Export everyone&apos;s monthly punches and approved leave weekdays as CSV.
+              </p>
+            </div>
+            <Link href="/admin/attendance-report">
+              <Button variant="outline">Open report</Button>
+            </Link>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="py-4 flex flex-wrap items-center justify-between gap-3 h-full">
+            <div>
+              <div className="font-semibold text-ink-700">Weekly Pulse</div>
+              <p className="text-sm text-ink-500 mt-0.5">
+                Team participation, scores, and this week&apos;s question — no private comments.
+              </p>
+            </div>
+            <Link href="/admin/pulse">
+              <Button variant="outline">Open pulse</Button>
+            </Link>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="py-4 flex flex-wrap items-center justify-between gap-3 h-full">
+            <div>
+              <div className="font-semibold text-ink-700">LIA knowledge base</div>
+              <p className="text-sm text-ink-500 mt-0.5">
+                Edit core policy documents and articles LIA uses to answer members.
+              </p>
+            </div>
+            <Link href="/admin/lia">
+              <Button variant="outline">Manage LIA</Button>
+            </Link>
+          </CardContent>
+        </Card>
+      </div>
 
       {/* Team table */}
       <Card>

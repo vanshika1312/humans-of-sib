@@ -25,11 +25,12 @@ export function winDescriptionWithRecipientTag(
 export async function notifyWinRecipient(args: {
   recipientUserId: string;
   actorUserId: string;
-  winId: string;
+  winId?: string | null;
+  certId?: string | null;
   title: string;
   rewardLabel?: string | null;
-  rewardType: WinRewardType;
-  variant: "celebration" | "nomination" | "certificate";
+  rewardType?: WinRewardType;
+  variant: "celebration" | "nomination" | "certificate" | "issued";
 }) {
   if (args.recipientUserId === args.actorUserId) return;
 
@@ -37,6 +38,14 @@ export async function notifyWinRecipient(args: {
     celebration: "You were celebrated on the Win Wall",
     nomination: "You were nominated for a win",
     certificate: "Your certificate was shared on the Win Wall",
+    issued: "You received a certificate of achievement",
+  };
+
+  const hrefs = {
+    celebration: "/wins?tab=wall",
+    nomination: "/wins?tab=wall",
+    certificate: "/wins?tab=wall",
+    issued: "/wins?tab=certificates",
   };
 
   const rewardBit = args.rewardLabel?.trim();
@@ -48,9 +57,14 @@ export async function notifyWinRecipient(args: {
       kind: "WIN_RECOGNITION",
       title: titles[args.variant],
       body,
-      href: "/wins?tab=wall",
+      href: hrefs[args.variant],
       actorUserId: args.actorUserId,
-      meta: { winId: args.winId, rewardType: args.rewardType, variant: args.variant },
+      meta: {
+        winId: args.winId ?? null,
+        certId: args.certId ?? null,
+        rewardType: args.rewardType ?? null,
+        variant: args.variant,
+      },
     });
   } catch {
     // non-critical

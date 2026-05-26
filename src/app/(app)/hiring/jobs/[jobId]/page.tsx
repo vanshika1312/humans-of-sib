@@ -19,6 +19,8 @@ import { WORK_ARRANGEMENT_LABEL, WORK_ARRANGEMENT_OPTIONS } from "@/lib/hiring-j
 import { formatCalendarDate, utcCalendarDateToInputValue } from "@/lib/calendar-date";
 import { applicationSourceLabel } from "@/lib/hiring-application-display";
 import { loadPipelineStagesOrdered } from "@/lib/hiring-pipeline";
+import { loadJobProfileTemplatesForPicker } from "@/lib/hiring-load-job-templates";
+import { JobProfileTemplatePicker } from "@/components/hiring/job-profile-template-picker";
 
 type Props = {
   params: Promise<{ jobId: string }>;
@@ -40,7 +42,7 @@ export default async function HiringJobDetailPage(props: Props) {
   const flashClosed = firstSearchParam(searchParams.closed) === "1";
   const showEditForm = firstSearchParam(searchParams.edit) === "1";
 
-  const [job, pipelineStagesOrdered] = await Promise.all([
+  const [job, pipelineStagesOrdered, jobProfileTemplates] = await Promise.all([
     prisma.hiringJob.findUnique({
       where: { id: jobId },
       include: {
@@ -57,6 +59,7 @@ export default async function HiringJobDetailPage(props: Props) {
       },
     }),
     loadPipelineStagesOrdered(),
+    loadJobProfileTemplatesForPicker(),
   ]);
 
   const stageSelectOptions = pipelineStagesOrdered.map((s) => ({ id: s.id, label: s.label }));
@@ -240,7 +243,20 @@ export default async function HiringJobDetailPage(props: Props) {
             </div>
           </CardHeader>
         <CardContent className="pt-6">
-          <form action={editAction} className="space-y-5">
+          <form action={editAction} className="space-y-5" id="job-edit-form">
+            <JobProfileTemplatePicker
+              templates={jobProfileTemplates}
+              formId="job-edit-form"
+              fieldIds={{
+                description: "description",
+                skillsRequired: "skillsRequired",
+                experienceRequired: "experienceRequired",
+                employmentType: "employmentType",
+                workArrangement: "workArrangement",
+                location: "location",
+                salaryRange: "salaryRange",
+              }}
+            />
             <div>
               <Label htmlFor="title">Job title</Label>
               <Input id="title" name="title" required defaultValue={job.title} className="mt-1.5" />

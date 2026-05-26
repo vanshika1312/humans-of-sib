@@ -3,6 +3,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
 import { NewOpeningForm } from "@/components/hiring/new-opening-form";
 import { firstSearchParam } from "@/lib/search-param";
+import { loadJobProfileTemplatesForPicker } from "@/lib/hiring-load-job-templates";
 
 type Props = {
   searchParams: Promise<{ error?: string | string[] }>;
@@ -11,6 +12,7 @@ type Props = {
 export default async function NewHiringJobPage(props: Props) {
   const sp = await props.searchParams;
   const error = firstSearchParam(sp.error);
+  const jobProfileTemplates = await loadJobProfileTemplatesForPicker();
 
   return (
     <div className="space-y-6 max-w-3xl mx-auto pb-8">
@@ -32,7 +34,7 @@ export default async function NewHiringJobPage(props: Props) {
         </div>
       )}
 
-      <NewOpeningForm />
+      <NewOpeningForm jobProfileTemplates={jobProfileTemplates} />
     </div>
   );
 }

@@ -28,11 +28,14 @@ import {
   ListTodo,
   ChevronLeft,
   ChevronRight,
+  Bot,
 } from "lucide-react";
 
-const nav = [
+function buildNav(liaEnabled?: boolean) {
+  return [
   { group: "Home", items: [
     { href: "/home", label: "Dashboard", icon: Home },
+    ...(liaEnabled ? [{ href: "/lia", label: "LIA", icon: Bot }] : []),
     { href: "/journey", label: "My Journey", icon: Compass, comingSoon: true },
   ]},
   { group: "Community", items: [
@@ -44,7 +47,7 @@ const nav = [
   ]},
   { group: "Work", items: [
     { href: "/attendance", label: "Attendance", icon: CalendarClock },
-    { href: "/pulse", label: "Pulse", icon: HeartPulse, comingSoon: true },
+    { href: "/pulse", label: "Pulse", icon: HeartPulse },
     { href: "/okrs", label: "OKRs", icon: Target, comingSoon: true },
     { href: "/one-on-one", label: "1-on-1s", icon: Users, comingSoon: true },
     { href: "/trainings", label: "Trainings", icon: GraduationCap, comingSoon: true },
@@ -58,7 +61,7 @@ const nav = [
   ]},
   { group: "Me", items: [
     { href: "/my-tasks", label: "My Tasks", icon: ListTodo },
-    { href: "/documents", label: "Documents", icon: FileText, comingSoon: true },
+    { href: "/documents", label: "Documents", icon: FileText },
     { href: "/impact", label: "Learner Impact", icon: Gem, comingSoon: true },
     { href: "/onboarding", label: "Onboarding", icon: Sparkles, comingSoon: true },
     { href: "/offboarding", label: "Offboarding", icon: DoorOpen, comingSoon: true },
@@ -67,6 +70,7 @@ const nav = [
     { href: "/feedback/ceo/new", label: "Message the CEO", icon: MessageCircleHeart },
   ]},
 ];
+}
 
 export function Sidebar({
   onNavigate,
@@ -74,14 +78,17 @@ export function Sidebar({
   permissions,
   collapsed,
   onToggleCollapsed,
+  liaEnabled,
 }: {
   onNavigate?: () => void;
   role?: string;
   permissions?: string[];
   collapsed?: boolean;
   onToggleCollapsed?: () => void;
+  liaEnabled?: boolean;
 }) {
   const pathname = usePathname();
+  const nav = buildNav(liaEnabled);
   const canSeeAdmin = (role && ["CEO", "ADMIN", "HR"].includes(role)) || (permissions ?? []).includes("ADMIN_PANEL");
 
   return (
@@ -235,6 +242,23 @@ export function Sidebar({
                 >
                   <Table2 className="size-4 shrink-0" />
                   {!collapsed && "Attendance report"}
+                </Link>
+              </li>
+              <li className={cn(collapsed && "w-full flex justify-center")}>
+                <Link
+                  href="/admin/pulse"
+                  title={collapsed ? "Weekly Pulse" : undefined}
+                  onClick={onNavigate}
+                  className={cn(
+                    "flex items-center gap-2.5 rounded-md text-sm font-medium transition-colors",
+                    collapsed ? "px-2 py-2 justify-center" : "px-4 py-3 w-full",
+                    pathname.startsWith("/admin/pulse")
+                      ? "bg-sky-50 text-sky-700"
+                      : "text-ink-500 hover:text-ink-700 hover:bg-ink-50",
+                  )}
+                >
+                  <HeartPulse className="size-4 shrink-0" />
+                  {!collapsed && "Weekly Pulse"}
                 </Link>
               </li>
               <li className={cn(collapsed && "w-full flex justify-center")}>

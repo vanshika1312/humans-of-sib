@@ -28,6 +28,14 @@ function normalizeEnvSecret(value: string | undefined): string | undefined {
   return s || undefined;
 }
 
+function plainTextToHtml(text: string): string {
+  const escaped = text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+  return `<!DOCTYPE html><html><body style="font-family:system-ui,sans-serif;line-height:1.5;color:#111827"><pre style="white-space:pre-wrap;font-family:inherit;margin:0">${escaped}</pre></body></html>`;
+}
+
 async function sendHtmlEmail(params: { to: string; subject: string; html: string }) {
   const provider = emailProvider();
   if (provider === "brevo") {
@@ -71,6 +79,14 @@ async function sendHtmlEmail(params: { to: string; subject: string; html: string
     to: params.to,
     subject: params.subject,
     html: params.html,
+  });
+}
+
+export async function sendPlainTextEmail(params: { to: string; subject: string; text: string }) {
+  await sendHtmlEmail({
+    to: params.to,
+    subject: params.subject,
+    html: plainTextToHtml(params.text),
   });
 }
 

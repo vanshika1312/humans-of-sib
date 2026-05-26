@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Avatar } from "@/components/ui/avatar";
 import { cn, formatDate, relativeTime, weekStartDate } from "@/lib/utils";
 import { renderTextWithMentions } from "@/lib/mentions";
-import { WEEKLY_QUESTION } from "@/app/(app)/pulse/constants";
+import { getPulseWeekConfig } from "@/lib/pulse";
 import { WinCertificateDisplay } from "@/app/(app)/wins/_components/WinCertificateDisplay";
 import { getWinCertificateTemplate } from "@/lib/win-certificate-template";
 import {
@@ -133,7 +133,7 @@ function normalizeMediaUrl(url: string): string {
 }
 
 export async function AnnouncementFeed({ viewer }: Props) {
-  const [announcements, wins, newJoiners] = await Promise.all([
+  const [announcements, wins, newJoiners, pulseWeek] = await Promise.all([
     prisma.notification.findMany({
       where: { userId: viewer.id, kind: "ANNOUNCEMENT" },
       orderBy: { createdAt: "desc" },
@@ -176,13 +176,14 @@ export async function AnnouncementFeed({ viewer }: Props) {
       take: 3,
       select: { id: true, name: true, image: true, joinedAt: true },
     }),
+    getPulseWeekConfig(),
   ]);
 
   const pollItem: FeedItem = {
     id: "weekly-pulse",
     kind: "POLL",
     title: "Weekly Pulse",
-    body: WEEKLY_QUESTION,
+    body: pulseWeek.question,
     createdAt: weekStartDate(),
     href: "/pulse",
   };
