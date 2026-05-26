@@ -20,6 +20,7 @@ import {
   WIN_CERT_TEMPLATE_ID,
 } from "@/lib/win-certificate-template";
 import { persistTaskAttachmentFile } from "@/lib/task-attachment-upload";
+import { notifyWinRecipient, winDescriptionWithRecipientTag } from "@/lib/win-recognition";
 
 const categoryEnum = z.enum(["LEARNING", "OPERATIONS", "SALES", "INNOVATION"]);
 const rewardEnum = z.enum(["CASH", "CERTIFICATE", "CASH_AND_CERTIFICATE", "VOUCHER", "SHOUTOUT", "NONE"]);
@@ -61,6 +62,7 @@ function revalidateWins() {
   revalidatePath("/wins");
   revalidatePath("/home");
   revalidatePath("/journey");
+  revalidatePath("/notifications");
 }
 
 export async function createWin(formData: FormData) {
@@ -128,12 +130,20 @@ export async function celebrateWin(formData: FormData) {
     });
   }
 
+  const recipient = await prisma.user.findUnique({
+    where: { id: parsed.userId },
+    select: { id: true, name: true, firstName: true, lastName: true },
+  });
+  if (!recipient) throw new Error("Recipient not found");
+
+  const description = winDescriptionWithRecipientTag(parsed.description, recipient);
+
   const win = await prisma.win.create({
     data: {
       userId: parsed.userId,
       celebratedById: actor.id,
       title: parsed.title,
-      description: parsed.description,
+      description,
       category: parsed.category as WinCategory,
       rewardType,
       rewardAmountPaise: amountPaise,
@@ -162,9 +172,19 @@ export async function celebrateWin(formData: FormData) {
       userId: parsed.userId,
       type: "WIN",
       title: parsed.title,
-      description: parsed.description,
+      description,
       emoji: "🏆",
     },
+  });
+
+  await notifyWinRecipient({
+    recipientUserId: recipient.id,
+    actorUserId: actor.id,
+    winId: win.id,
+    title: parsed.title,
+    rewardLabel,
+    rewardType,
+    variant: "celebration",
   });
 
   revalidateWins();
@@ -186,12 +206,20 @@ export async function nominateWin(formData: FormData) {
   const amountPaise = parseRewardAmountToPaise(parsed.rewardAmount);
   const rewardLabel = buildRewardLabel(rewardType, amountPaise, parsed.rewardLabel);
 
-  await prisma.win.create({
+  const recipient = await prisma.user.findUnique({
+    where: { id: parsed.userId },
+    select: { id: true, name: true, firstName: true, lastName: true },
+  });
+  if (!recipient) throw new Error("Recipient not found");
+
+  const description = winDescriptionWithRecipientTag(parsed.description, recipient);
+
+  const win = await prisma.win.create({
     data: {
       userId: parsed.userId,
       celebratedById: actor.id,
       title: parsed.title,
-      description: parsed.description,
+      description,
       category: parsed.category as WinCategory,
       rewardType,
       rewardAmountPaise: amountPaise,
@@ -199,6 +227,16 @@ export async function nominateWin(formData: FormData) {
       source: "NOMINATION",
       pointsAwarded: pointsForCelebration(rewardType) - 50,
     },
+  });
+
+  await notifyWinRecipient({
+    recipientUserId: recipient.id,
+    actorUserId: actor.id,
+    winId: win.id,
+    title: parsed.title,
+    rewardLabel,
+    rewardType,
+    variant: "nomination",
   });
 
   revalidateWins();
@@ -255,6 +293,14 @@ const templateSchema = z.object({
   recognitionPrefix: z.string().min(2).max(120),
   signatoryName: z.string().min(2).max(120),
   signatoryTitle: z.string().min(2).max(120),
+  stylePreset: z.enum(["classic", "modern", "formal", "minimal"]),
+  fontFamily: z.enum(["serif", "sans", "mono"]),
+  primaryColor: z.string().regex(/^#[0-9A-Fa-f]{6}$/),
+  secondaryColor: z.string().regex(/^#[0-9A-Fa-f]{6}$/),
+  backgroundFrom: z.string().regex(/^#[0-9A-Fa-f]{6}$/),
+  backgroundTo: z.string().regex(/^#[0-9A-Fa-f]{6}$/),
+  textColor: z.string().regex(/^#[0-9A-Fa-f]{6}$/),
+  borderColor: z.string().regex(/^#[0-9A-Fa-f]{6}$/),
 });
 
 const MAX_CERT_BG_BYTES = 5 * 1024 * 1024;
@@ -280,6 +326,14 @@ export async function saveWinCertificateTemplate(
     recognitionPrefix: formData.get("recognitionPrefix"),
     signatoryName: formData.get("signatoryName"),
     signatoryTitle: formData.get("signatoryTitle"),
+    stylePreset: formData.get("stylePreset"),
+    fontFamily: formData.get("fontFamily"),
+    primaryColor: formData.get("primaryColor"),
+    secondaryColor: formData.get("secondaryColor"),
+    backgroundFrom: formData.get("backgroundFrom"),
+    backgroundTo: formData.get("backgroundTo"),
+    textColor: formData.get("textColor"),
+    borderColor: formData.get("borderColor"),
   });
   if (!parsed.success) {
     return { ok: false, error: "Please check all template fields." };
@@ -416,16 +470,25 @@ export async function shareWinCertificateOnWall(
   const title =
     cert.achievement.length > 200 ? `${cert.achievement.slice(0, 197)}…` : cert.achievement;
 
-  await prisma.$transaction(async (tx) => {
+  const recipient = await prisma.user.findUnique({
+    where: { id: cert.userId },
+    select: { id: true, name: true, firstName: true, lastName: true },
+  });
+  if (!recipient) return { ok: false, error: "Recipient not found." };
+
+  const description = winDescriptionWithRecipientTag(cert.achievement, recipient);
+  const rewardLabel = buildRewardLabel("CERTIFICATE");
+
+  const win = await prisma.$transaction(async (tx) => {
     const created = await tx.win.create({
       data: {
         userId: cert.userId,
         celebratedById: actor.id,
         title,
-        description: cert.achievement,
+        description,
         category: "OPERATIONS",
         rewardType: "CERTIFICATE",
-        rewardLabel: buildRewardLabel("CERTIFICATE"),
+        rewardLabel,
         source: "CELEBRATION",
         pointsAwarded: pointsForCelebration("CERTIFICATE"),
       },
@@ -439,10 +502,21 @@ export async function shareWinCertificateOnWall(
         userId: cert.userId,
         type: "WIN",
         title,
-        description: cert.achievement,
+        description,
         emoji: "🏆",
       },
     });
+    return created;
+  });
+
+  await notifyWinRecipient({
+    recipientUserId: recipient.id,
+    actorUserId: actor.id,
+    winId: win.id,
+    title,
+    rewardLabel,
+    rewardType: "CERTIFICATE",
+    variant: "certificate",
   });
 
   revalidateWins();

@@ -59,6 +59,16 @@ export function formatRewardLabel(opts: {
   return REWARD_TYPE_LABEL[opts.rewardType];
 }
 
+/** Cash, voucher, or certificate wins that should stand out on the home feed. */
+export function isFeedHighlightReward(rewardType: WinRewardType) {
+  return (
+    rewardType === "CASH" ||
+    rewardType === "CERTIFICATE" ||
+    rewardType === "CASH_AND_CERTIFICATE" ||
+    rewardType === "VOUCHER"
+  );
+}
+
 export function rewardBadgeTone(rewardType: WinRewardType) {
   switch (rewardType) {
     case "CASH":

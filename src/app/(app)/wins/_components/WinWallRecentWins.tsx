@@ -7,6 +7,7 @@ import {
   WIN_CATEGORY_LABEL,
   WIN_CATEGORY_TONE,
 } from "@/lib/win-wall";
+import { renderTextWithMentions } from "@/lib/mentions";
 import { WinReactionButtons } from "./WinReactionButtons";
 import type { WinWallData } from "../_lib/win-wall-data";
 import type { WinCategory, WinReactionKind } from "@prisma/client";
@@ -74,7 +75,9 @@ export function WinWallRecentWins({
                     )}
                     <h3 className="mt-2 font-semibold text-ink-800">{w.title}</h3>
                     {w.description && (
-                      <p className="mt-1 text-sm text-ink-500 line-clamp-3">{w.description}</p>
+                      <p className="mt-1 text-sm text-ink-500 line-clamp-3">
+                        {renderTextWithMentions(w.description)}
+                      </p>
                     )}
                     <div className="mt-4 flex flex-wrap items-end justify-between gap-3">
                       {w.rewardType !== "NONE" && (

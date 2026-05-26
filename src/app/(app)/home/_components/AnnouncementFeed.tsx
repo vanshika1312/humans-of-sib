@@ -1,12 +1,21 @@
 import Link from "next/link";
+import type { WinRewardType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Avatar } from "@/components/ui/avatar";
-import { relativeTime, weekStartDate } from "@/lib/utils";
+import { cn, formatDate, relativeTime, weekStartDate } from "@/lib/utils";
 import { renderTextWithMentions } from "@/lib/mentions";
 import { WEEKLY_QUESTION } from "@/app/(app)/pulse/constants";
-import { Megaphone, Sparkles, Trophy, Vote } from "lucide-react";
+import { WinCertificateDisplay } from "@/app/(app)/wins/_components/WinCertificateDisplay";
+import { getWinCertificateTemplate } from "@/lib/win-certificate-template";
+import {
+  formatRewardLabel,
+  isFeedHighlightReward,
+  REWARD_TYPE_LABEL,
+  rewardBadgeTone,
+} from "@/lib/win-wall";
+import { Award, Banknote, Megaphone, ScrollText, Sparkles, Trophy, Vote } from "lucide-react";
 import { AnnouncementComposer } from "./AnnouncementComposer";
 import { HomeFeedPostActions } from "./HomeFeedPostActions";
 import { HomeFeedReactions } from "./HomeFeedReactions";
@@ -44,6 +53,14 @@ type FeedItem =
       createdAt: Date;
       actor: { name: string | null; image: string | null } | null;
       href: string;
+      rewardType: WinRewardType;
+      rewardLabel: string | null;
+      rewardAmountPaise: number | null;
+      certificate: {
+        achievement: string;
+        certNumber: string;
+        issuedAt: Date;
+      } | null;
     }
   | {
       id: string;
@@ -133,14 +150,24 @@ export async function AnnouncementFeed({ viewer }: Props) {
       },
     }),
     prisma.win.findMany({
-      take: 3,
+      take: 8,
       orderBy: { createdAt: "desc" },
       select: {
         id: true,
         title: true,
         description: true,
         createdAt: true,
+        rewardType: true,
+        rewardLabel: true,
+        rewardAmountPaise: true,
         user: { select: { name: true, image: true } },
+        certificate: {
+          select: {
+            achievement: true,
+            certNumber: true,
+            issuedAt: true,
+          },
+        },
       },
     }),
     prisma.user.findMany({
@@ -184,6 +211,10 @@ export async function AnnouncementFeed({ viewer }: Props) {
         createdAt: w.createdAt,
         actor: w.user,
         href: "/wins",
+        rewardType: w.rewardType,
+        rewardLabel: w.rewardLabel,
+        rewardAmountPaise: w.rewardAmountPaise,
+        certificate: w.certificate,
       }),
     ),
     ...newJoiners.map(
@@ -200,6 +231,11 @@ export async function AnnouncementFeed({ viewer }: Props) {
   ].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 
   const visibleItems = items.slice(0, 20);
+
+  const showCertOnFeed = visibleItems.some(
+    (it) => it.kind === "SHOUTOUT" && it.certificate != null,
+  );
+  const certTemplate = showCertOnFeed ? await getWinCertificateTemplate() : null;
 
   const reactionPostIds = visibleItems
     .flatMap((it) => {
@@ -267,6 +303,7 @@ export async function AnnouncementFeed({ viewer }: Props) {
                 key={`${it.kind}-${it.id}`}
                 item={it}
                 viewer={viewer}
+                certTemplate={certTemplate}
                 reactionCountsByPostId={reactionCountsByPostId}
                 viewerReactionsByPostId={viewerReactionsByPostId}
               />
@@ -278,25 +315,54 @@ export async function AnnouncementFeed({ viewer }: Props) {
   );
 }
 
+function feedRowMeta(item: FeedItem) {
+  if (item.kind === "ANNOUNCEMENT") {
+    return { tone: "sky" as const, label: "Announcement", icon: Megaphone, highlighted: false };
+  }
+  if (item.kind === "POLL") {
+    return { tone: "orange" as const, label: "Poll / Survey", icon: Vote, highlighted: false };
+  }
+  if (item.kind === "SHOUTOUT") {
+    if (isFeedHighlightReward(item.rewardType)) {
+      const label = REWARD_TYPE_LABEL[item.rewardType];
+      if (item.rewardType === "CASH") {
+        return { tone: "green" as const, label, icon: Banknote, highlighted: true };
+      }
+      if (item.rewardType === "VOUCHER") {
+        return { tone: "orange" as const, label, icon: Award, highlighted: true };
+      }
+      return { tone: "sun" as const, label, icon: ScrollText, highlighted: true };
+    }
+    return { tone: "sun" as const, label: "Badge / Shoutout", icon: Trophy, highlighted: false };
+  }
+  return { tone: "green" as const, label: "Congrats", icon: Sparkles, highlighted: false as const };
+}
+
 function FeedRow({
   item,
   viewer,
+  certTemplate,
   reactionCountsByPostId,
   viewerReactionsByPostId,
 }: {
   item: FeedItem;
   viewer: Props["viewer"];
+  certTemplate: Awaited<ReturnType<typeof getWinCertificateTemplate>> | null;
   reactionCountsByPostId: Record<string, Record<string, number>>;
   viewerReactionsByPostId: Record<string, string[]>;
 }) {
-  const meta = (() => {
-    if (item.kind === "ANNOUNCEMENT") return { tone: "sky" as const, label: "Announcement", icon: Megaphone };
-    if (item.kind === "POLL") return { tone: "orange" as const, label: "Poll / Survey", icon: Vote };
-    if (item.kind === "SHOUTOUT") return { tone: "sun" as const, label: "Badge / Shoutout", icon: Trophy };
-    return { tone: "green" as const, label: "Congrats", icon: Sparkles };
-  })();
+  const meta = feedRowMeta(item);
 
   const Icon = meta.icon;
+  const isAwardWin = item.kind === "SHOUTOUT" && isFeedHighlightReward(item.rewardType);
+  const rewardLabel =
+    item.kind === "SHOUTOUT"
+      ? formatRewardLabel({
+          rewardType: item.rewardType,
+          rewardLabel: item.rewardLabel,
+          rewardAmountPaise: item.rewardAmountPaise,
+        })
+      : null;
   const homePost = item.kind === "ANNOUNCEMENT" ? parseHomeFeedPostMeta(item.meta) : null;
   const canManageHomePost =
     item.kind === "ANNOUNCEMENT" &&
@@ -315,7 +381,14 @@ function FeedRow({
   })();
 
   return (
-    <div className="rounded-xl border border-ink-100 bg-white px-4 py-3 shadow-sm flex items-start gap-3">
+    <div
+      className={cn(
+        "rounded-xl border px-4 py-3 shadow-sm flex items-start gap-3",
+        meta.highlighted
+          ? "border-amber-300/90 bg-gradient-to-br from-amber-50/90 via-white to-violet-50/50 ring-1 ring-amber-200/70"
+          : "border-ink-100 bg-white",
+      )}
+    >
       <div className="pt-0.5">
         {"actor" in item && item.actor ? (
           <Avatar src={item.actor.image} name={item.actor.name} size="sm" />
@@ -337,6 +410,40 @@ function FeedRow({
             {renderTextWithMentions(item.body)}
           </p>
         )}
+
+        {isAwardWin && rewardLabel ? (
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <span
+              className={cn(
+                "inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full",
+                rewardBadgeTone(item.rewardType),
+              )}
+            >
+              {item.rewardType === "CASH" || item.rewardType === "VOUCHER" ? (
+                <Banknote className="size-3.5 shrink-0" aria-hidden />
+              ) : (
+                <ScrollText className="size-3.5 shrink-0" aria-hidden />
+              )}
+              {rewardLabel}
+            </span>
+          </div>
+        ) : null}
+
+        {item.kind === "SHOUTOUT" && item.certificate && certTemplate ? (
+          <div className="mt-3">
+            <WinCertificateDisplay
+              compact
+              template={certTemplate}
+              recipientName={item.actor?.name ?? "Team member"}
+              achievement={item.certificate.achievement}
+              issuedLabel={formatDate(item.certificate.issuedAt, {
+                month: "long",
+                year: "numeric",
+              })}
+              certNumber={item.certificate.certNumber}
+            />
+          </div>
+        ) : null}
 
         {canReact ? (
           <HomeFeedReactions

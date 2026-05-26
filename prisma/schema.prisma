@@ -45,6 +45,7 @@ enum NotificationKind {
   TASK_COMMENT
   CEO_FEEDBACK_REPLY
   ANNOUNCEMENT
+  WIN_RECOGNITION
 }
 
 model OrgCounter {
@@ -1254,6 +1255,14 @@ model WinCertificateTemplate {
   signatoryName      String   @default("CEO, Skillinabox")
   signatoryTitle     String   @default("Authorised Signatory")
   backgroundImageUrl String?
+  stylePreset        String   @default("classic")
+  fontFamily         String   @default("serif")
+  primaryColor       String   @default("#fbbf24")
+  secondaryColor     String   @default("#fde68a")
+  backgroundFrom     String   @default("#1e293b")
+  backgroundTo       String   @default("#0f172a")
+  textColor          String   @default("#e2e8f0")
+  borderColor        String   @default("#fcd34d")
   updatedAt          DateTime @updatedAt
 }
 
