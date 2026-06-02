@@ -3,7 +3,16 @@
 // server-side in page loaders / server actions via auth().
 import { NextResponse, type NextRequest } from "next/server";
 
-const PUBLIC_PATHS = ["/sign-in", "/api/auth", "/_next", "/favicon", "/logo", "/images"];
+const PUBLIC_PATHS = [
+  "/sign-in",
+  "/onboarding",
+  "/api/auth",
+  "/api/integrations/eod",
+  "/_next",
+  "/favicon",
+  "/logo",
+  "/images",
+];
 
 export default function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;

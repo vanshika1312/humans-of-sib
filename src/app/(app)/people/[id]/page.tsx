@@ -80,6 +80,7 @@ async function PersonPageBody({ id }: { id: string }) {
     viewerHeadedDepartmentId: viewer.headedDept?.id ?? null,
   });
 
+  const isSelf = viewer.id === person.id;
   const pn = displayName(person);
   const showGovIds = canSeeGovernmentIds({
     viewerUserId: viewer.id,
@@ -114,7 +115,7 @@ async function PersonPageBody({ id }: { id: string }) {
             where: { userId: id },
             orderBy: { createdAt: "desc" },
             take: 5,
-            include: { _count: { select: { claps: true } } },
+            include: { reactions: { select: { kind: true } } },
           }),
           prisma.oKR.findMany({
             where: { userId: id, status: { in: ["ON_TRACK", "AT_RISK", "OFF_TRACK"] } },
@@ -197,8 +198,8 @@ async function PersonPageBody({ id }: { id: string }) {
             </div>
           </div>
 
-          {canOpenTasksShortcut && (
-            <div className="mt-3">
+          <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1">
+            {canOpenTasksShortcut && (
               <Link
                 href={viewer.id === person.id ? "/my-tasks" : `/my-tasks?userId=${person.id}`}
                 className="inline-flex items-center gap-2 text-sm font-medium text-sky-600 hover:text-sky-700 hover:underline"
@@ -206,8 +207,16 @@ async function PersonPageBody({ id }: { id: string }) {
                 <ListTodo className="size-4 shrink-0" />
                 {viewer.id === person.id ? "Open my tasks" : "View task list"}
               </Link>
-            </div>
-          )}
+            )}
+            {viewer.id === person.id && (
+              <Link
+                href="/me"
+                className="inline-flex items-center gap-2 text-sm font-medium text-sky-600 hover:text-sky-700 hover:underline"
+              >
+                Edit profile
+              </Link>
+            )}
+          </div>
 
           {access.level === "limited" ? (
             <div className="grid sm:grid-cols-2 gap-3 mt-5 pt-5 border-t border-ink-100">
@@ -388,7 +397,9 @@ async function PersonPageBody({ id }: { id: string }) {
                   )}
                   <div className="flex items-center justify-between mt-1.5">
                     <span className="text-xs text-ink-400">{relativeTime(w.createdAt)}</span>
-                    <span className="text-xs text-ink-400">👏 {w._count.claps}</span>
+                    <span className="text-xs text-ink-400">
+                      👏 {w.reactions.filter((r) => r.kind === "CLAP").length}
+                    </span>
                   </div>
                 </div>
               ))}
@@ -448,8 +459,16 @@ async function PersonPageBody({ id }: { id: string }) {
                     <div className="text-sm font-medium text-ink-700 truncate">
                       {c.training.title}
                     </div>
-                    <div className="text-xs text-ink-400">{formatDate(c.issuedAt)}</div>
+                    <div className="text-xs text-ink-400">#{c.number} · {formatDate(c.issuedAt)}</div>
                   </div>
+                  {isSelf ? (
+                    <Link
+                      href={`/trainings/certificates/${c.id}/print`}
+                      className="text-xs text-sky-700 font-medium hover:underline shrink-0"
+                    >
+                      Print
+                    </Link>
+                  ) : null}
                 </div>
               ))}
             </CardContent>

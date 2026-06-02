@@ -41,7 +41,7 @@ function buildNav(liaEnabled?: boolean) {
   { group: "Community", items: [
     { href: "/people", label: "People", icon: Users },
     { href: "/wins", label: "Win Wall", icon: Trophy },
-    { href: "/birthdays", label: "Celebrations", icon: Cake, comingSoon: true },
+    { href: "/celebrations", label: "Celebrations", icon: Cake },
     { href: "/feedback/ceo", label: "Direct to CEO", icon: Megaphone },
     { href: "/feedback/dept", label: "Dept Feedback", icon: Building2 },
   ]},
@@ -50,7 +50,7 @@ function buildNav(liaEnabled?: boolean) {
     { href: "/pulse", label: "Pulse", icon: HeartPulse },
     { href: "/okrs", label: "OKRs", icon: Target, comingSoon: true },
     { href: "/one-on-one", label: "1-on-1s", icon: Users, comingSoon: true },
-    { href: "/trainings", label: "Trainings", icon: GraduationCap, comingSoon: true },
+    { href: "/trainings", label: "Trainings", icon: GraduationCap },
     { href: "/incentives", label: "Incentives", icon: Gift },
     {
       href: "/requisitions",
@@ -259,6 +259,23 @@ export function Sidebar({
                 >
                   <HeartPulse className="size-4 shrink-0" />
                   {!collapsed && "Weekly Pulse"}
+                </Link>
+              </li>
+              <li className={cn(collapsed && "w-full flex justify-center")}>
+                <Link
+                  href="/admin/trainings"
+                  title={collapsed ? "Training library" : undefined}
+                  onClick={onNavigate}
+                  className={cn(
+                    "flex items-center gap-2.5 rounded-md text-sm font-medium transition-colors",
+                    collapsed ? "px-2 py-2 justify-center" : "px-4 py-3 w-full",
+                    pathname.startsWith("/admin/trainings")
+                      ? "bg-sky-50 text-sky-700"
+                      : "text-ink-500 hover:text-ink-700 hover:bg-ink-50",
+                  )}
+                >
+                  <GraduationCap className="size-4 shrink-0" />
+                  {!collapsed && "Training library"}
                 </Link>
               </li>
               <li className={cn(collapsed && "w-full flex justify-center")}>

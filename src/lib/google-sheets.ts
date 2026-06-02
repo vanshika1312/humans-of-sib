@@ -1,4 +1,5 @@
 import { google } from "googleapis";
+import { getGoogleServiceAccountCredentials } from "@/lib/google-service-account";
 
 /**
  * Parse a Google Sheets URL and extract the spreadsheet ID.
@@ -19,45 +20,16 @@ export function extractSpreadsheetId(url: string): string | null {
  * contents of the service-account JSON key file downloaded from Google Cloud.
  */
 function getSheetsClient() {
-  // Support two ways to provide credentials:
-  //
-  // OPTION A (recommended) — split vars, base64 private key:
-  //   GOOGLE_SERVICE_ACCOUNT_EMAIL=my-sa@project.iam.gserviceaccount.com
-  //   GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY_B64=<base64-encoded PEM key>
-  //
-  //   To get the base64 key from your downloaded JSON file, run:
-  //   node -e "const k=require('./service-account.json').private_key; console.log(Buffer.from(k).toString('base64'))"
-  //
-  // OPTION B — full JSON blob (works if newlines are preserved correctly):
-  //   GOOGLE_SERVICE_ACCOUNT_JSON={"type":"service_account",...}
-
-  let clientEmail: string;
-  let privateKey: string;
-
-  const email  = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
-  const keyB64 = process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY_B64;
-
-  if (email && keyB64) {
-    // OPTION A — decode base64 → real PEM (newlines always correct)
-    clientEmail = email;
-    privateKey  = Buffer.from(keyB64, "base64").toString("utf8");
-  } else {
-    // OPTION B — full JSON blob
-    const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
-    if (!raw) {
-      throw new Error(
-        "Set GOOGLE_SERVICE_ACCOUNT_EMAIL + GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY_B64, " +
+  const creds = getGoogleServiceAccountCredentials();
+  if (!creds) {
+    throw new Error(
+      "Set GOOGLE_SERVICE_ACCOUNT_EMAIL + GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY_B64, " +
         "or GOOGLE_SERVICE_ACCOUNT_JSON.",
-      );
-    }
-    const creds = JSON.parse(raw);
-    clientEmail = creds.client_email;
-    // Unescape \\n → real newline in case the var was double-encoded
-    privateKey  = (creds.private_key as string).replace(/\\n/g, "\n");
+    );
   }
 
   const auth = new google.auth.GoogleAuth({
-    credentials: { client_email: clientEmail, private_key: privateKey },
+    credentials: { client_email: creds.clientEmail, private_key: creds.privateKey },
     scopes: ["https://www.googleapis.com/auth/spreadsheets.readonly"],
   });
   return google.sheets({ version: "v4", auth });

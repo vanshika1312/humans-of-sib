@@ -33,7 +33,11 @@ import { firstSearchParam } from "@/lib/search-param";
 import { cn } from "@/lib/utils";
 import { DeleteReviewForm } from "../../_components/delete-review-form";
 import { HiringApplicationEmailComposer } from "@/components/hiring/hiring-application-email-composer";
+import { HiringInterviewScheduleTrigger } from "@/components/hiring/hiring-interview-scheduler";
+import { isBulkImportStoredResumeUrl } from "@/lib/hiring-resume-upload";
 import type { HiringTemplateMergeContext } from "@/lib/hiring-template-merge";
+import { googleCalendarConfigured } from "@/lib/google-calendar";
+import { displayName } from "@/lib/user-display-name";
 
 type Props = {
   params: Promise<{ applicationId: string }>;
@@ -50,6 +54,8 @@ type Props = {
     jobMoved?: string | string[];
     emailSent?: string | string[];
     emailError?: string | string[];
+    interviewScheduled?: string | string[];
+    interviewError?: string | string[];
   }>;
 };
 
@@ -72,6 +78,8 @@ export default async function HiringApplicationDetailPage(props: Props) {
   const jobMoved = firstSearchParam(sp.jobMoved) === "1";
   const emailSent = firstSearchParam(sp.emailSent) === "1";
   const emailError = firstSearchParam(sp.emailError);
+  const interviewScheduled = firstSearchParam(sp.interviewScheduled) === "1";
+  const interviewError = firstSearchParam(sp.interviewError);
 
   const session = await auth();
   const viewer = session?.user?.email
@@ -81,6 +89,8 @@ export default async function HiringApplicationDetailPage(props: Props) {
       })
     : null;
   const canSendHiringEmail = Boolean(viewer && HR_GATE.includes(viewer.role));
+  const canScheduleInterview = canSendHiringEmail;
+  const calendarConfigured = googleCalendarConfigured();
 
   const app = await prisma.hiringApplication.findUnique({
     where: { id: applicationId },
@@ -106,8 +116,16 @@ export default async function HiringApplicationDetailPage(props: Props) {
 
   if (!app) notFound();
 
-  const [pipelineStagesOrdered, interviewTemplates, allQuestionnaireTemplates, emailTemplates, sentEmails, moveTargetJobs] =
-    await Promise.all([
+  const [
+    pipelineStagesOrdered,
+    interviewTemplates,
+    allQuestionnaireTemplates,
+    emailTemplates,
+    sentEmails,
+    moveTargetJobs,
+    scheduledInterviews,
+    interviewerOptions,
+  ] = await Promise.all([
     loadPipelineStagesOrdered(),
     prisma.hiringInterviewQuestionTemplate.findMany({
       where: { category: "QUESTIONNAIRE_GUIDE", pipelineStageId: app.pipelineStageId },
@@ -138,6 +156,17 @@ export default async function HiringApplicationDetailPage(props: Props) {
       orderBy: { title: "asc" },
       select: { id: true, title: true },
       take: 400,
+    }),
+    prisma.hiringInterview.findMany({
+      where: { applicationId, status: "SCHEDULED" },
+      orderBy: { scheduledAt: "asc" },
+      include: { scheduledBy: { select: { name: true, email: true } } },
+    }),
+    prisma.user.findMany({
+      where: { invitationPending: false },
+      orderBy: [{ name: "asc" }, { email: "asc" }],
+      select: { id: true, name: true, firstName: true, lastName: true, email: true },
+      take: 300,
     }),
   ]);
 
@@ -224,8 +253,8 @@ export default async function HiringApplicationDetailPage(props: Props) {
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex gap-1 p-1 bg-ink-100/70 rounded-xl w-fit border border-ink-100">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
+            <div className="flex gap-1 p-1 bg-ink-100/70 rounded-xl w-fit border border-ink-100 shrink-0">
               <Link
                 href={overviewHref}
                 scroll={false}
@@ -251,7 +280,27 @@ export default async function HiringApplicationDetailPage(props: Props) {
                 Timeline
               </Link>
             </div>
-            <div className="flex flex-wrap gap-2 text-sm items-center">
+            <div className="flex flex-wrap gap-2 text-sm items-center ml-auto">
+              <HiringInterviewScheduleTrigger
+                applicationId={applicationId}
+                candidateName={app.candidate.fullName}
+                jobTitle={app.job.title}
+                canSchedule={canScheduleInterview}
+                calendarConfigured={calendarConfigured}
+                scheduledInterviews={scheduledInterviews}
+                candidateResumeUrl={profileResumeHref ?? null}
+                applicationAttachments={app.attachments.map((a) => ({
+                  id: a.id,
+                  fileName: a.fileName,
+                  category: a.category,
+                  canAttachToCalendar: isBulkImportStoredResumeUrl(a.url),
+                }))}
+                interviewers={interviewerOptions.map((u) => ({
+                  id: u.id,
+                  name: displayName(u),
+                  email: u.email,
+                }))}
+              />
               <a href={`mailto:${encodeURIComponent(app.candidate.email)}`}>
                 <Button type="button" variant="outline" size="sm">
                   Email
@@ -306,6 +355,16 @@ export default async function HiringApplicationDetailPage(props: Props) {
         {reviewDeleted && (
           <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
             Feedback deleted — timeline entry added.
+          </div>
+        )}
+        {interviewScheduled && (
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+            Interview scheduled — calendar invites sent to the candidate and interviewers.
+          </div>
+        )}
+        {interviewError && (
+          <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">
+            {decodeURIComponent(interviewError)}
           </div>
         )}
         {flashError && (

@@ -146,7 +146,8 @@ async function NewMemberPageBody() {
 
             <p className="text-xs text-ink-500 bg-ink-50 border border-ink-100 rounded-lg px-3 py-2">
               Employee ID is assigned automatically. Personal details (DOB, PAN, Aadhaar, personal email, parents,
-              emergency contact, home address, location) are collected on the onboarding link we email.
+              emergency contact, home address, location) are filled in by the employee on first sign-in — we also email
+              an optional link they can use beforehand.
             </p>
 
             {isCeoOrAdmin && (

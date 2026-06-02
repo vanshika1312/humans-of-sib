@@ -4,8 +4,8 @@ import { prisma } from "@/lib/prisma";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input, Select, Label, Textarea } from "@/components/ui/input";
 import { displayName } from "@/lib/user-display-name";
+import { EmployeeSelfProfileFields } from "@/components/profile/employee-self-profile-fields";
 import { completeEmployeeOnboarding } from "../actions";
 
 type Props = { params: Promise<{ token: string }>; searchParams: Promise<{ error?: string }> };
@@ -41,7 +41,7 @@ export default async function OnboardingInvitePage({ params, searchParams }: Pro
         <PageHeader
           title="Complete your profile"
           emoji="👋"
-          subtitle={`Hi ${displayName(user)} (${user.email}). A few details left — then you can sign in with Google.`}
+          subtitle={`Hi ${displayName(user)} (${user.email}). Add your personal details here, or skip and fill them in when you sign in with Google for the first time.`}
         />
 
         {user.employeeCode && (
@@ -62,109 +62,7 @@ export default async function OnboardingInvitePage({ params, searchParams }: Pro
           <CardContent className="pt-6">
             <form action={completeEmployeeOnboarding} className="space-y-4">
               <input type="hidden" name="inviteToken" value={token} />
-
-              <div>
-                <Label htmlFor="personalEmail">Personal email *</Label>
-                <Input
-                  id="personalEmail"
-                  name="personalEmail"
-                  type="email"
-                  required
-                  autoComplete="email"
-                  placeholder="you@gmail.com"
-                />
-              </div>
-
-              <div>
-                <Label htmlFor="birthday">Date of birth *</Label>
-                <Input id="birthday" name="birthday" type="date" required />
-              </div>
-
-              <div>
-                <Label htmlFor="gender">Gender *</Label>
-                <Select id="gender" name="gender" required defaultValue="">
-                  <option value="" disabled>
-                    Choose…
-                  </option>
-                  <option value="MALE">Male</option>
-                  <option value="FEMALE">Female</option>
-                  <option value="NON_BINARY">Non-binary</option>
-                  <option value="PREFER_NOT_TO_SAY">Prefer not to say</option>
-                </Select>
-              </div>
-
-              <div>
-                <Label htmlFor="cityId">Location (city) *</Label>
-                <Select id="cityId" name="cityId" required defaultValue="">
-                  <option value="" disabled>
-                    Choose your city…
-                  </option>
-                  {cities.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                      {c.isHQ ? " (HQ)" : ""}
-                    </option>
-                  ))}
-                </Select>
-              </div>
-
-              <div>
-                <Label htmlFor="residentialAddress">Full address *</Label>
-                <Textarea
-                  id="residentialAddress"
-                  name="residentialAddress"
-                  required
-                  placeholder="House no., street, area, PIN code"
-                />
-              </div>
-
-              <div className="grid sm:grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="pan">PAN *</Label>
-                  <Input id="pan" name="pan" required placeholder="ABCDE1234F" maxLength={10} />
-                </div>
-                <div>
-                  <Label htmlFor="aadhar">Aadhaar (12 digits) *</Label>
-                  <Input id="aadhar" name="aadhar" required inputMode="numeric" maxLength={12} />
-                </div>
-              </div>
-
-              <div className="grid sm:grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="fatherName">Father&apos;s name *</Label>
-                  <Input id="fatherName" name="fatherName" required />
-                </div>
-                <div>
-                  <Label htmlFor="motherName">Mother&apos;s name *</Label>
-                  <Input id="motherName" name="motherName" required />
-                </div>
-              </div>
-
-              <div>
-                <Label htmlFor="emergencyContactName">Emergency contact name *</Label>
-                <Input id="emergencyContactName" name="emergencyContactName" required />
-              </div>
-              <div className="grid sm:grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="emergencyContactPhone">Emergency contact phone *</Label>
-                  <Input id="emergencyContactPhone" name="emergencyContactPhone" required />
-                </div>
-                <div>
-                  <Label htmlFor="emergencyContactRelation">Relationship *</Label>
-                  <Input
-                    id="emergencyContactRelation"
-                    name="emergencyContactRelation"
-                    required
-                    placeholder="e.g. Spouse"
-                  />
-                </div>
-              </div>
-
-              <p className="text-xs text-ink-400">
-                Your official work email is <span className="font-medium text-ink-600">{user.email}</span> — use
-                that account when you sign in with Google after submitting.
-              </p>
-
+              <EmployeeSelfProfileFields cities={cities} officialEmail={user.email} />
               <Button type="submit" variant="accent" className="w-full">
                 Submit &amp; continue to sign in
               </Button>

@@ -1,4 +1,5 @@
 import { Suspense } from "react";
+import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { requireAppViewer } from "@/lib/app-viewer";
 import { RouteBodyFallback } from "@/components/app-route-body-fallback";
@@ -9,20 +10,25 @@ import { Avatar } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Input, Textarea, Label } from "@/components/ui/input";
 import { formatDate } from "@/lib/utils";
+import { genderDisplayLabel } from "@/lib/employee-self-profile";
+import { EmployeeSelfProfileFields } from "@/components/profile/employee-self-profile-fields";
 import { updateProfile } from "./actions";
 
-export default function MePage() {
+type Props = { searchParams: Promise<{ error?: string; saved?: string }> };
+
+export default function MePage({ searchParams }: Props) {
   return (
     <div>
-      <PageHeader title="My Profile" emoji="🙋" subtitle="Your face at SIB." />
+      <PageHeader title="My Profile" emoji="🙋" subtitle="Your details at SIB — you can update these anytime." />
       <Suspense fallback={<RouteBodyFallback />}>
-        <MePageBody />
+        <MePageBody searchParams={searchParams} />
       </Suspense>
     </div>
   );
 }
 
-async function MePageBody() {
+async function MePageBody({ searchParams }: Props) {
+  const { error: errorParam, saved } = await searchParams;
   const base = await requireAppViewer();
   if (!base) return null;
 
@@ -32,12 +38,21 @@ async function MePageBody() {
       manager: true,
       reports: { orderBy: { name: "asc" } },
       compensation: true,
+      city: true,
     },
   });
   if (!profile) return null;
 
+  const cities = await prisma.city.findMany({ orderBy: { name: "asc" } });
   const me = { ...base, ...profile };
   const tenure = Math.floor((Date.now() - me.joinedAt.getTime()) / (1000 * 60 * 60 * 24));
+
+  const emergencyContactDisplay =
+    me.emergencyContactName || me.emergencyContactPhone || me.emergencyContactRelation
+      ? [me.emergencyContactName, me.emergencyContactRelation ? `(${me.emergencyContactRelation})` : "", me.emergencyContactPhone]
+          .filter(Boolean)
+          .join(" ")
+      : "—";
 
   return (
     <>
@@ -62,41 +77,104 @@ async function MePageBody() {
           </div>
 
           <div className="grid md:grid-cols-3 gap-3 mt-5 pt-5 border-t border-ink-100">
-            <Info label="Email" value={me.email} />
+            <Info label="Employee ID" value={me.employeeCode || "—"} />
             <Info label="Joined" value={`${formatDate(me.joinedAt)} · ${tenure}d`} />
             <Info label="Manager" value={me.manager?.name || "—"} />
+          </div>
+
+          <p className="mt-4 text-sm">
+            <Link href={`/people/${me.id}`} className="text-sky-600 hover:underline font-medium">
+              View your public profile
+            </Link>
+          </p>
+        </CardContent>
+      </Card>
+
+      <Card className="mb-5">
+        <CardContent className="pt-5">
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-ink-400 mb-3">
+            Contact &amp; personal
+          </h3>
+          <div className="grid sm:grid-cols-2 gap-3 mb-5">
+            <Info label="Official email" value={me.email} />
+            <Info label="Personal email" value={me.personalEmail || "—"} />
+            <Info label="Phone" value={me.phone || "—"} />
+            <Info label="Date of birth" value={me.birthday ? formatDate(me.birthday) : "—"} />
+            <Info label="Gender" value={genderDisplayLabel(me.gender)} />
+            <Info label="Location" value={me.city?.name || "—"} />
+            <Info label="Address" value={me.residentialAddress || "—"} className="sm:col-span-2" />
+            <Info label="Emergency contact" value={emergencyContactDisplay} className="sm:col-span-2" />
+            <Info label="Father's name" value={me.fatherName || "—"} />
+            <Info label="Mother's name" value={me.motherName || "—"} />
+            <Info label="PAN" value={me.pan || "—"} />
+            <Info label="Aadhaar" value={me.aadhar || "—"} />
           </div>
         </CardContent>
       </Card>
 
       <Card className="mb-5">
         <CardContent className="pt-5">
-          <h3 className="font-semibold text-ink-700 mb-3">Edit profile</h3>
-          <form action={updateProfile} className="space-y-3">
+          <h3 className="font-semibold text-ink-700 mb-1">Edit profile</h3>
+          <p className="text-sm text-ink-400 mb-4">
+            Update your contact and personal details, title, and bio.
+          </p>
+
+          {saved === "1" && (
+            <div className="mb-4 rounded-md bg-emerald-50 text-emerald-800 text-sm px-4 py-3">
+              Profile saved.
+            </div>
+          )}
+          {errorParam && (
+            <div className="mb-4 rounded-md bg-red-50 text-red-700 text-sm px-4 py-3">
+              {decodeURIComponent(errorParam)}
+            </div>
+          )}
+
+          <form action={updateProfile} className="space-y-5">
             <div className="grid md:grid-cols-2 gap-3">
               <div>
-                <Label htmlFor="title">Title</Label>
-                <Input id="title" name="title" defaultValue={me.title || ""} placeholder="e.g. Senior Product Designer" />
+                <Label htmlFor="title">Job title</Label>
+                <Input
+                  id="title"
+                  name="title"
+                  defaultValue={me.title || ""}
+                  placeholder="e.g. Senior Product Designer"
+                />
               </div>
               <div>
-                <Label htmlFor="phone">Phone</Label>
-                <Input id="phone" name="phone" defaultValue={me.phone || ""} placeholder="+91…" />
+                <Label htmlFor="bio">Bio</Label>
+                <Textarea
+                  id="bio"
+                  name="bio"
+                  rows={2}
+                  defaultValue={me.bio || ""}
+                  placeholder="A sentence or two about you."
+                  className="min-h-[2.5rem]"
+                />
               </div>
             </div>
-            <div>
-              <Label htmlFor="birthday">Birthday</Label>
-              <Input
-                id="birthday"
-                name="birthday"
-                type="date"
-                defaultValue={me.birthday ? me.birthday.toISOString().slice(0, 10) : ""}
-              />
-            </div>
-            <div>
-              <Label htmlFor="bio">Bio</Label>
-              <Textarea id="bio" name="bio" rows={3} defaultValue={me.bio || ""} placeholder="A sentence or two about you." />
-            </div>
-            <Button type="submit">Save</Button>
+
+            <EmployeeSelfProfileFields
+              cities={cities}
+              officialEmail={me.email}
+              defaults={{
+                personalEmail: me.personalEmail,
+                birthday: me.birthday,
+                gender: me.gender,
+                cityId: me.cityId,
+                residentialAddress: me.residentialAddress,
+                pan: me.pan,
+                aadhar: me.aadhar,
+                fatherName: me.fatherName,
+                motherName: me.motherName,
+                emergencyContactName: me.emergencyContactName,
+                emergencyContactPhone: me.emergencyContactPhone,
+                emergencyContactRelation: me.emergencyContactRelation,
+                phone: me.phone,
+              }}
+            />
+
+            <Button type="submit">Save changes</Button>
           </form>
         </CardContent>
       </Card>
@@ -143,11 +221,19 @@ async function MePageBody() {
   );
 }
 
-function Info({ label, value }: { label: string; value: string }) {
+function Info({
+  label,
+  value,
+  className,
+}: {
+  label: string;
+  value: string;
+  className?: string;
+}) {
   return (
-    <div>
-      <div className="text-xs text-ink-400">{label}</div>
-      <div className="text-sm font-medium text-ink-700 truncate">{value}</div>
+    <div className={className}>
+      <div className="text-xs text-ink-400 uppercase tracking-wide">{label}</div>
+      <div className="text-sm font-medium text-ink-700">{value}</div>
     </div>
   );
 }

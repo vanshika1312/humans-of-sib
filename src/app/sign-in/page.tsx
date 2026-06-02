@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { signIn, auth } from "@/auth";
 import { redirect } from "next/navigation";
+import { prisma } from "@/lib/prisma";
+import { isEmployeeProfileComplete } from "@/lib/employee-self-profile";
 
 export default async function SignInPage({
   searchParams,
@@ -8,7 +10,29 @@ export default async function SignInPage({
   searchParams: Promise<{ error?: string; callbackUrl?: string; notice?: string }>;
 }) {
   const session = await auth();
-  if (session?.user) redirect("/home");
+  if (session?.user?.email) {
+    const dbUser = await prisma.user.findUnique({
+      where: { email: session.user.email.toLowerCase() },
+      select: {
+        personalEmail: true,
+        birthday: true,
+        gender: true,
+        cityId: true,
+        residentialAddress: true,
+        pan: true,
+        aadhar: true,
+        fatherName: true,
+        motherName: true,
+        emergencyContactName: true,
+        emergencyContactPhone: true,
+        emergencyContactRelation: true,
+      },
+    });
+    if (dbUser && !isEmployeeProfileComplete(dbUser)) {
+      redirect("/complete-profile");
+    }
+    redirect("/home");
+  }
   const params = await searchParams;
   const error = params.error;
   const notice = params.notice;
@@ -56,8 +80,6 @@ export default async function SignInPage({
                 ? "Only @skillinabox.in emails can access Humans of SIB."
                 : error === "not_registered"
                 ? "You haven't been added to Humans of SIB yet. Ask HR to set up your account."
-                : error === "pending_onboarding"
-                ? "Finish your profile using the secure link HR emailed you. After that you can sign in with Google."
                 : error === "invalid_invite"
                 ? "That onboarding link is invalid or has expired."
                 : "Sign-in failed. Please try again."}

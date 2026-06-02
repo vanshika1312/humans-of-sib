@@ -1,0 +1,185 @@
+// HR EOD Reporting & Interview Tracker — Database 2 (standalone app)
+// Copy into the EOD app's prisma/schema.prisma when scaffolding that project.
+// HRMS remains read-only via GET /api/integrations/eod/snapshot
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ── Synced reference from HRMS (read-only copies) ───────────────────────────
+
+model HrmsPipelineStage {
+  id         String   @id
+  key        String
+  label      String
+  sortOrder  Int
+  isHired    Boolean
+  isRejected Boolean
+  eodBucket  String   @db.VarChar(32)
+  syncedAt   DateTime @default(now())
+
+  @@index([key])
+}
+
+model HrmsDepartment {
+  id       String   @id
+  name     String
+  slug     String
+  emoji    String?
+  syncedAt DateTime @default(now())
+}
+
+model HrmsCity {
+  id       String   @id
+  name     String
+  slug     String
+  isHQ     Boolean  @default(false)
+  syncedAt DateTime @default(now())
+}
+
+model HrmsUser {
+  id        String   @id
+  email     String   @unique
+  name      String?
+  role      String
+  status    String
+  cityId    String?
+  departmentId String?
+  syncedAt  DateTime @default(now())
+}
+
+/// Cached JSON from GET /api/integrations/eod/snapshot for a calendar day
+model HrmsDailySnapshot {
+  id           String   @id @default(cuid())
+  reportDate   DateTime @db.Date
+  timezone     String   @default("Asia/Kolkata") @db.VarChar(64)
+  payloadJson  Json
+  fetchedAt    DateTime @default(now())
+
+  @@unique([reportDate, timezone])
+  @@index([reportDate])
+}
+
+/// Optional per-stage bucket override when HRMS key does not match defaults
+model EodStageMetricOverride {
+  id              String   @id @default(cuid())
+  hrmsStageId     String   @unique
+  eodBucket       String   @db.VarChar(32)
+  note            String?  @db.VarChar(500)
+  updatedAt       DateTime @updatedAt
+}
+
+// ── EOD submissions (owned by this app) ─────────────────────────────────────
+
+enum EodReportStatus {
+  DRAFT
+  SUBMITTED
+}
+
+model EodReport {
+  id              String          @id @default(cuid())
+  reportDate      DateTime        @db.Date
+  recruiterUserId String
+  locationName    String          @db.VarChar(200)
+  status          EodReportStatus @default(DRAFT)
+  submittedAt     DateTime?
+
+  /// Manual counts recruiters confirm/adjust (machine hints from HrmsDailySnapshot)
+  metricsJson     Json
+
+  notes           String?         @db.Text
+
+  interviews      Interview[]
+  lineItems       EodReportLineItem[]
+
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  @@unique([reportDate, recruiterUserId, locationName])
+  @@index([reportDate])
+  @@index([recruiterUserId])
+}
+
+/// Optional per-candidate / per-application notes on the EOD report
+model EodReportLineItem {
+  id                 String    @id @default(cuid())
+  eodReportId        String
+  eodReport          EodReport @relation(fields: [eodReportId], references: [id], onDelete: Cascade)
+
+  hrmsApplicationId  String?
+  hrmsCandidateId    String?
+  candidateName      String?   @db.VarChar(200)
+  jobTitle           String?   @db.VarChar(280)
+  activitySummary    String?   @db.VarChar(500)
+  eodBucket          String?   @db.VarChar(32)
+
+  createdAt          DateTime  @default(now())
+
+  @@index([eodReportId])
+  @@index([hrmsApplicationId])
+}
+
+// ── Interview tracker (not in HRMS) ─────────────────────────────────────────
+
+enum InterviewStatus {
+  SCHEDULED
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+enum InterviewOutcome {
+  PENDING
+  PASS
+  FAIL
+  HOLD
+}
+
+model Interview {
+  id                 String            @id @default(cuid())
+  eodReportId        String?
+  eodReport          EodReport?        @relation(fields: [eodReportId], references: [id], onDelete: SetNull)
+
+  hrmsApplicationId  String?
+  hrmsJobId          String?
+  candidateName      String            @db.VarChar(200)
+  candidateEmail     String?           @db.VarChar(320)
+
+  scheduledAt        DateTime
+  durationMinutes    Int               @default(60)
+  timezone           String            @default("Asia/Kolkata") @db.VarChar(64)
+  locationOrLink     String?           @db.VarChar(500)
+  eodBucket          String?           @db.VarChar(32)
+
+  status             InterviewStatus   @default(SCHEDULED)
+  outcome            InterviewOutcome  @default(PENDING)
+  feedback           String?           @db.Text
+
+  recruiterUserId    String
+  interviewerUserIds String[]          @default([])
+
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  @@index([scheduledAt])
+  @@index([recruiterUserId])
+  @@index([hrmsApplicationId])
+  @@index([eodReportId])
+}
+
+// ── Local auth (EOD app users mirror HRMS ids or separate login) ──────────────
+
+model EodAppUser {
+  id           String   @id @default(cuid())
+  hrmsUserId   String?  @unique
+  email        String   @unique
+  name         String?
+  role         String   @default("RECRUITER")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}

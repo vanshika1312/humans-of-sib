@@ -10,6 +10,7 @@ import { RouteLoadingFallback } from "@/components/ui/route-loading-fallback";
 import { GlobalRequestLoader } from "@/components/ui/global-request-loader";
 import { LiaAppShell } from "@/components/lia/lia-app-shell";
 import { isLiaEnabled } from "@/lib/lia-config";
+import { isEmployeeProfileComplete } from "@/lib/employee-self-profile";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const session = await auth();
@@ -17,8 +18,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   const user = await requireAppViewer();
   if (!user) redirect("/sign-in?error=not_registered");
-  if (user.invitationPending) {
-    redirect("/sign-in?error=pending_onboarding");
+  if (!isEmployeeProfileComplete(user)) {
+    redirect("/complete-profile");
   }
 
   async function signOutAction() {

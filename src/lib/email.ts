@@ -415,7 +415,8 @@ export async function sendEmployeeOnboardingInvite({
           <p style="margin:0;font-size:18px;font-weight:700;color:#111827">Welcome to Humans of SIB</p>
           <p style="margin:12px 0 0;font-size:14px;color:#6b7280;line-height:1.5">
             Hi ${firstName}, your profile has been set up. Your employee ID is <strong>${employeeCode}</strong>.
-            Complete your details to access the workspace — this link expires in 14 days.
+            You can complete your personal details using this link (expires in 14 days), or sign in with Google
+            and fill them in on your first visit.
           </p>
         </td></tr>
         <tr><td style="padding:8px 28px 28px">

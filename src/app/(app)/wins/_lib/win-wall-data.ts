@@ -20,6 +20,7 @@ export async function loadWinWallData(viewerId: string) {
     certTemplate,
   ] = await Promise.all([
     prisma.win.findMany({
+      where: { source: { not: "TRAINING" } },
       orderBy: { createdAt: "desc" },
       take: 12,
       include: {
@@ -134,7 +135,7 @@ export async function loadWinWallData(viewerId: string) {
   }[];
 
   const historyWins = await prisma.win.findMany({
-    where: { createdAt: { gte: yearStart } },
+    where: { createdAt: { gte: yearStart }, source: { not: "TRAINING" } },
     orderBy: { createdAt: "desc" },
     take: 40,
     include: {

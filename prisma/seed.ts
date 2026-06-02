@@ -68,6 +68,137 @@ async function main() {
     if (!existing) await prisma.training.create({ data: t });
   }
 
+  const librarySeed = [
+    {
+      title: "Atomic Habits",
+      description: "Tiny changes, remarkable results — build better habits and break bad ones.",
+      type: "READING" as const,
+      author: "James Clear",
+      durationMin: 180,
+      category: "Growth",
+      pointsAwarded: 75,
+      isPublished: true,
+      quiz: [
+        {
+          prompt: "What is the core idea behind habit stacking?",
+          options: [
+            { label: "Link a new habit to an existing one", isCorrect: true },
+            { label: "Do all habits at once", isCorrect: false },
+            { label: "Skip weekends", isCorrect: false },
+          ],
+        },
+        {
+          prompt: "The 1% improvement rule suggests that small daily gains compound over time.",
+          options: [
+            { label: "True", isCorrect: true },
+            { label: "False", isCorrect: false },
+          ],
+        },
+        {
+          prompt: "Which framework describes cue, craving, response, and reward?",
+          options: [
+            { label: "The habit loop", isCorrect: true },
+            { label: "The OKR cycle", isCorrect: false },
+            { label: "The sales funnel", isCorrect: false },
+          ],
+        },
+      ],
+    },
+    {
+      title: "The 7 Habits of Highly Effective People",
+      description: "Principles for personal and interpersonal effectiveness.",
+      type: "READING" as const,
+      author: "Stephen R. Covey",
+      durationMin: 240,
+      category: "Leadership",
+      pointsAwarded: 80,
+      isPublished: true,
+      quiz: [
+        {
+          prompt: "Which habit focuses on envisioning desired outcomes before acting?",
+          options: [
+            { label: "Begin with the end in mind", isCorrect: true },
+            { label: "Sharpen the saw", isCorrect: false },
+            { label: "Think lose-win", isCorrect: false },
+          ],
+        },
+        {
+          prompt: "Synergy means valuing differences to create better solutions together.",
+          options: [
+            { label: "True", isCorrect: true },
+            { label: "False", isCorrect: false },
+          ],
+        },
+        {
+          prompt: "Putting first things first is primarily about:",
+          options: [
+            { label: "Time management and priorities", isCorrect: true },
+            { label: "Working longer hours", isCorrect: false },
+            { label: "Avoiding collaboration", isCorrect: false },
+          ],
+        },
+      ],
+    },
+    {
+      title: "Google Digital Garage — Fundamentals of Digital Marketing",
+      description: "Free certification course covering SEO, analytics, and online strategy.",
+      type: "EXTERNAL_COURSE" as const,
+      provider: "Google Digital Garage",
+      externalUrl: "https://learndigital.withgoogle.com/digitalgarage",
+      durationMin: 300,
+      category: "Marketing",
+      pointsAwarded: 100,
+      isPublished: true,
+      quiz: [
+        {
+          prompt: "SEO primarily helps your content:",
+          options: [
+            { label: "Rank better in search results", isCorrect: true },
+            { label: "Print faster", isCorrect: false },
+            { label: "Reduce payroll costs", isCorrect: false },
+          ],
+        },
+        {
+          prompt: "A call-to-action (CTA) tells users what to do next.",
+          options: [
+            { label: "True", isCorrect: true },
+            { label: "False", isCorrect: false },
+          ],
+        },
+        {
+          prompt: "Which metric shows how many users completed a desired action?",
+          options: [
+            { label: "Conversion rate", isCorrect: true },
+            { label: "Bounce height", isCorrect: false },
+            { label: "Server uptime", isCorrect: false },
+          ],
+        },
+      ],
+    },
+  ];
+
+  for (const item of librarySeed) {
+    const { quiz, ...data } = item;
+    let training = await prisma.training.findFirst({ where: { title: data.title } });
+    if (!training) {
+      training = await prisma.training.create({ data });
+    }
+    const qCount = await prisma.trainingQuestion.count({ where: { trainingId: training.id } });
+    if (qCount === 0) {
+      for (let i = 0; i < quiz.length; i++) {
+        const q = quiz[i]!;
+        await prisma.trainingQuestion.create({
+          data: {
+            trainingId: training.id,
+            prompt: q.prompt,
+            sortOrder: i,
+            options: { create: q.options },
+          },
+        });
+      }
+    }
+  }
+
   const { LIA_CORE_DOCUMENTS } = await import("../src/lib/lia-core-documents");
 
   for (const d of LIA_CORE_DOCUMENTS) {
@@ -101,7 +232,7 @@ async function main() {
 
   console.log("✅ Seed complete.");
   console.log(
-    `   ${cities.length} cities, ${depts.length} departments, ${trainingSeed.length} trainings, ${LIA_CORE_DOCUMENTS.length} LIA documents`,
+    `   ${cities.length} cities, ${depts.length} departments, ${trainingSeed.length + librarySeed.length} trainings, ${LIA_CORE_DOCUMENTS.length} LIA documents`,
   );
 }
 

@@ -119,6 +119,19 @@ async function AdminPageBody() {
         <Card>
           <CardContent className="py-4 flex flex-wrap items-center justify-between gap-3 h-full">
             <div>
+              <div className="font-semibold text-ink-700">Training library</div>
+              <p className="text-sm text-ink-500 mt-0.5">
+                Books, external courses, quizzes, and completion points.
+              </p>
+            </div>
+            <Link href="/admin/trainings">
+              <Button variant="outline">Manage trainings</Button>
+            </Link>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="py-4 flex flex-wrap items-center justify-between gap-3 h-full">
+            <div>
               <div className="font-semibold text-ink-700">LIA knowledge base</div>
               <p className="text-sm text-ink-500 mt-0.5">
                 Edit core policy documents and articles LIA uses to answer members.

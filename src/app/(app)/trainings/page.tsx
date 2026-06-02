@@ -1,112 +1,166 @@
 import { Suspense } from "react";
+import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { requireAppViewer } from "@/lib/app-viewer";
 import { RouteBodyFallback } from "@/components/app-route-body-fallback";
-import { PageHeader, EmptyState } from "@/components/ui/page-header";
+import { EmptyState } from "@/components/ui/page-header";
 import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Input, Label } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import { formatDate } from "@/lib/utils";
-import { enrollInTraining, markTrainingComplete } from "./actions";
+import { loadTrainingLeaderboard } from "@/lib/training-data";
+import { TrainingHubChrome, parseTrainingTab } from "./_components/training-hub-chrome";
+import { TrainingCatalogCard, TrainingLeaderboard } from "./_components/training-catalog";
+import { firstSearchParam } from "@/lib/search-param";
 
-export default function TrainingsPage() {
+type SearchParams = Promise<{ tab?: string | string[] }>;
+
+export default function TrainingsPage({ searchParams }: { searchParams: SearchParams }) {
   return (
-    <div>
-      <PageHeader title="Internal Trainings" emoji="🎓" subtitle="Level up. Complete to earn a SIB certificate." />
-      <Suspense fallback={<RouteBodyFallback />}>
-        <TrainingsPageBody />
-      </Suspense>
-    </div>
+    <Suspense fallback={<RouteBodyFallback />}>
+      <TrainingsPageInner searchParams={searchParams} />
+    </Suspense>
   );
 }
 
-async function TrainingsPageBody() {
+async function TrainingsPageInner({ searchParams }: { searchParams: SearchParams }) {
   const me = await requireAppViewer();
   if (!me) return null;
 
-  const [trainings, myCerts] = await Promise.all([
+  const sp = await searchParams;
+  const tab = parseTrainingTab(firstSearchParam(sp.tab));
+  const year = new Date().getFullYear();
+
+  const [trainings, myCerts, enrollments, leaderboard] = await Promise.all([
     prisma.training.findMany({
       where: { isPublished: true },
       orderBy: { createdAt: "desc" },
-      include: {
-        enrollments: { where: { userId: me.id }, take: 1 },
-      },
     }),
     prisma.certificate.findMany({
       where: { userId: me.id },
       include: { training: true },
       orderBy: { issuedAt: "desc" },
     }),
+    prisma.trainingEnrollment.findMany({
+      where: { userId: me.id },
+      include: { training: true },
+      orderBy: { completedAt: "desc" },
+    }),
+    loadTrainingLeaderboard(year),
   ]);
 
+  const enrollmentByTraining = new Map(enrollments.map((e) => [e.trainingId, e]));
+  const books = trainings.filter((t) => t.type === "READING");
+  const courses = trainings.filter((t) => t.type === "EXTERNAL_COURSE");
+  const other = trainings.filter((t) => t.type !== "READING" && t.type !== "EXTERNAL_COURSE");
+
+  const trainingPoints = await prisma.win.aggregate({
+    where: { userId: me.id, source: "TRAINING", createdAt: { gte: new Date(year, 0, 1) } },
+    _sum: { pointsAwarded: true },
+  });
+  const myPoints = trainingPoints._sum.pointsAwarded ?? 0;
+
   return (
-    <>
-      {myCerts.length > 0 && (
-        <Card className="mb-6 overflow-hidden">
-          <div className="brand-gradient p-5 text-white">
-            <h3 className="font-semibold flex items-center gap-2">
-              🏅 Your certificates <span className="text-sm opacity-80">({myCerts.length})</span>
-            </h3>
-          </div>
-          <CardContent className="pt-4">
-            <div className="grid md:grid-cols-2 gap-3">
-              {myCerts.map((c) => (
-                <div key={c.id} className="flex items-center gap-3 p-3 bg-ink-50 rounded-lg">
-                  <div className="size-10 rounded-md brand-gradient flex items-center justify-center text-lg">🎓</div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-semibold text-ink-700 truncate">{c.training.title}</div>
-                    <div className="text-xs text-ink-400">#{c.number} · {formatDate(c.issuedAt)}</div>
-                  </div>
-                </div>
+    <div className="max-w-5xl">
+      <TrainingHubChrome tab={tab} />
+      <TrainingLeaderboard entries={leaderboard} year={year} />
+
+      {tab === "books" && (
+        <>
+          {books.length === 0 && other.length === 0 ? (
+            <EmptyState emoji="📖" title="No books yet" description="HR will add motivational reads here soon." />
+          ) : (
+            <div className="grid md:grid-cols-2 gap-4">
+              {[...books, ...other].map((t) => (
+                <TrainingCatalogCard
+                  key={t.id}
+                  training={t}
+                  enrollmentStatus={enrollmentByTraining.get(t.id)?.status}
+                />
               ))}
             </div>
-          </CardContent>
-        </Card>
+          )}
+        </>
       )}
 
-      {trainings.length === 0 ? (
-        <EmptyState emoji="📚" title="No trainings yet" description="Admins will add trainings here soon." />
-      ) : (
-        <div className="grid md:grid-cols-2 gap-4">
-          {trainings.map((t) => {
-            const enrolled = t.enrollments[0];
-            const done = enrolled?.status === "COMPLETED";
-            return (
-              <Card key={t.id} className="overflow-hidden">
-                <div className="h-24 brand-gradient confetti relative">
-                  <div className="absolute inset-0 bg-white/60" />
-                  <div className="relative p-4 text-ink-700 text-sm font-medium flex items-center gap-2">
-                    <Badge tone="sky">{t.type}</Badge>
-                    {t.category && <Badge tone="ink">{t.category}</Badge>}
-                    {t.durationMin && <Badge tone="ink">{t.durationMin} min</Badge>}
-                  </div>
-                </div>
-                <CardContent className="pt-4">
-                  <h3 className="font-semibold text-ink-700">{t.title}</h3>
-                  {t.description && <p className="text-sm text-ink-500 mt-1 line-clamp-2">{t.description}</p>}
+      {tab === "courses" && (
+        <>
+          {courses.length === 0 ? (
+            <EmptyState emoji="🌐" title="No courses yet" description="Free external courses will appear here." />
+          ) : (
+            <div className="grid md:grid-cols-2 gap-4">
+              {courses.map((t) => (
+                <TrainingCatalogCard
+                  key={t.id}
+                  training={t}
+                  enrollmentStatus={enrollmentByTraining.get(t.id)?.status}
+                />
+              ))}
+            </div>
+          )}
+        </>
+      )}
 
-                  {done ? (
-                    <Badge tone="green" className="mt-3">✅ Completed · {enrolled?.score}%</Badge>
-                  ) : enrolled?.status === "IN_PROGRESS" ? (
-                    <form action={async (fd) => { "use server"; await markTrainingComplete(t.id, fd); }} className="mt-3 flex items-end gap-2">
-                      <div className="flex-1">
-                        <Label htmlFor={`s-${t.id}`}>Score %</Label>
-                        <Input id={`s-${t.id}`} name="score" type="number" min={0} max={100} required placeholder="e.g. 85" />
+      {tab === "progress" && (
+        <div className="space-y-4">
+          <Card>
+            <CardContent className="pt-5">
+              <div className="text-sm text-ink-500">Your learning points in {year}</div>
+              <div className="text-3xl font-bold text-ink-800 mt-1">{myPoints} pts</div>
+              <p className="text-xs text-ink-400 mt-1">Also counts toward the Win Wall yearly leaderboard.</p>
+            </CardContent>
+          </Card>
+          {enrollments.length === 0 ? (
+            <EmptyState emoji="📚" title="Nothing in progress" description="Start a book or course from the other tabs." />
+          ) : (
+            <div className="space-y-3">
+              {enrollments.map((e) => (
+                <Card key={e.id}>
+                  <CardContent className="py-4 flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <div className="font-semibold text-ink-700">{e.training.title}</div>
+                      <div className="text-xs text-ink-400 mt-0.5">
+                        <Badge tone={e.status === "COMPLETED" ? "green" : e.status === "IN_PROGRESS" ? "orange" : "ink"}>
+                          {e.status.replace("_", " ")}
+                        </Badge>
+                        {e.score != null ? ` · Quiz ${e.score}%` : ""}
                       </div>
-                      <Button type="submit" size="sm">Submit &amp; earn cert</Button>
-                    </form>
-                  ) : (
-                    <form action={async () => { "use server"; await enrollInTraining(t.id); }} className="mt-3">
-                      <Button type="submit" size="sm" variant="accent">Start training →</Button>
-                    </form>
-                  )}
-                </CardContent>
-              </Card>
-            );
-          })}
+                    </div>
+                    <Link href={`/trainings/${e.trainingId}`}>
+                      <Button size="sm" variant="outline">Open</Button>
+                    </Link>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
         </div>
       )}
-    </>
+
+      {tab === "certificates" && (
+        <>
+          {myCerts.length === 0 ? (
+            <EmptyState emoji="🏅" title="No certificates yet" description="Pass a quiz to earn your first certificate." />
+          ) : (
+            <div className="grid md:grid-cols-2 gap-3">
+              {myCerts.map((c) => (
+                <Card key={c.id}>
+                  <CardContent className="py-4 flex items-center gap-3">
+                    <div className="size-10 rounded-md brand-gradient flex items-center justify-center text-lg">🎓</div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-semibold text-ink-700 truncate">{c.training.title}</div>
+                      <div className="text-xs text-ink-400">#{c.number} · {formatDate(c.issuedAt)}</div>
+                    </div>
+                    <Link href={`/trainings/certificates/${c.id}/print`}>
+                      <Button size="sm" variant="outline">Print</Button>
+                    </Link>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </div>
   );
 }

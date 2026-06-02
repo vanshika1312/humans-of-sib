@@ -2,6 +2,7 @@ import NextAuth from "next-auth";
 import Google from "next-auth/providers/google";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import { prisma } from "@/lib/prisma";
+import { isEmployeeProfileComplete } from "@/lib/employee-self-profile";
 
 const ALLOWED_DOMAIN = process.env.ALLOWED_EMAIL_DOMAIN || "skillinabox.in";
 
@@ -38,13 +39,30 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       if (token.email && (!token.uid || trigger === "update")) {
         const dbUser = await prisma.user.findUnique({
           where: { email: token.email },
-          select: { id: true, role: true, departmentId: true, invitationPending: true },
+          select: {
+            id: true,
+            role: true,
+            departmentId: true,
+            invitationPending: true,
+            personalEmail: true,
+            birthday: true,
+            gender: true,
+            cityId: true,
+            residentialAddress: true,
+            pan: true,
+            aadhar: true,
+            fatherName: true,
+            motherName: true,
+            emergencyContactName: true,
+            emergencyContactPhone: true,
+            emergencyContactRelation: true,
+          },
         });
         if (dbUser) {
           token.uid = dbUser.id;
           token.role = dbUser.role;
           token.departmentId = dbUser.departmentId;
-          token.approved = !dbUser.invitationPending;
+          token.approved = isEmployeeProfileComplete(dbUser);
         } else {
           token.approved = false;
         }

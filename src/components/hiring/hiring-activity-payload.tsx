@@ -166,6 +166,52 @@ function readableExtras(
         </ul>
       );
     }
+    case "APPLICATION_INTERVIEW_SCHEDULED": {
+      const when =
+        typeof o.scheduledAt === "string"
+          ? new Date(o.scheduledAt)
+          : null;
+      const tz = typeof o.timezone === "string" ? o.timezone : null;
+      const mins = typeof o.durationMinutes === "number" ? o.durationMinutes : null;
+      const link =
+        typeof o.googleCalendarHtmlLink === "string" && o.googleCalendarHtmlLink.trim()
+          ? o.googleCalendarHtmlLink.trim()
+          : null;
+      const interviewers =
+        Array.isArray(o.interviewerNames) && o.interviewerNames.length
+          ? o.interviewerNames.map(String).join(", ")
+          : null;
+      const loc = typeof o.locationOrLink === "string" && o.locationOrLink.trim() ? o.locationOrLink.trim() : null;
+
+      return (
+        <ul className="list-disc list-inside space-y-0.5 text-ink-700">
+          {when && !Number.isNaN(when.getTime()) ? (
+            <li>
+              <span className="text-ink-400">When:</span> {when.toLocaleString("en-IN", { timeZone: tz ?? undefined })}
+              {tz ? ` (${tz})` : ""}
+              {mins ? ` · ${mins} min` : ""}
+            </li>
+          ) : null}
+          {interviewers ? (
+            <li>
+              <span className="text-ink-400">Interviewers:</span> {interviewers}
+            </li>
+          ) : null}
+          {loc ? (
+            <li>
+              <span className="text-ink-400">Location / link:</span> {loc}
+            </li>
+          ) : null}
+          {link ? (
+            <li>
+              <a href={link} target="_blank" rel="noopener noreferrer" className="text-sky-700 hover:underline">
+                Open in Google Calendar
+              </a>
+            </li>
+          ) : null}
+        </ul>
+      );
+    }
     case "APPLICATION_CREATED": {
       const src = o.applicationSource;
       if (typeof src === "string" && src.trim()) {

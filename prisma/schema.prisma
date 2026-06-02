@@ -152,6 +152,7 @@ model User {
   // Modules
   journeyEvents       JourneyEvent[]
   enrollments         TrainingEnrollment[]
+  trainingQuizAttempts TrainingQuizAttempt[]
   certificates        Certificate[]
   attendance          Attendance[]
   leaveBalances       LeaveBalance[]
@@ -192,6 +193,7 @@ model User {
   hiringInterviewTemplatesAuthored HiringInterviewQuestionTemplate[] @relation("HiringInterviewTemplateAuthor")
   hiringApplicationEmailsSent      HiringApplicationEmail[]          @relation("HiringApplicationEmailSender")
   hiringApplicationReviewsAuthored HiringApplicationReview[]         @relation("HiringApplicationReviewAuthor")
+  hiringInterviewsScheduled        HiringInterview[]                 @relation("HiringInterviewScheduledBy")
   hiringResumeImportBatchesCreated HiringResumeImportBatch[]        @relation("HiringResumeImportBatchCreator")
   hiringJobsRemovedFromList        HiringJob[]                      @relation("HiringJobRemovedBy")
 
@@ -353,8 +355,14 @@ enum HiringActivityKind {
   HIRING_TEMPLATE_UPDATED
   HIRING_TEMPLATE_DELETED
   APPLICATION_EMAIL_SENT
+  APPLICATION_INTERVIEW_SCHEDULED
   REQUISITION_APPROVED
   REQUISITION_REJECTED
+}
+
+enum HiringInterviewStatus {
+  SCHEDULED
+  CANCELLED
 }
 
 enum HiringTemplateCategory {
@@ -508,6 +516,7 @@ model HiringApplication {
   attachments HiringApplicationAttachment[]
   reviews     HiringApplicationReview[]
   emailsSent  HiringApplicationEmail[]
+  interviews  HiringInterview[]
 
   @@unique([jobId, candidateId])
   @@index([jobId, pipelineStageId])
@@ -613,6 +622,37 @@ model HiringApplicationReview {
   updatedAt DateTime               @default(now()) @updatedAt
 
   @@index([applicationId, createdAt])
+}
+
+/// Scheduled interview for a hiring application (Google Calendar invite + audit).
+model HiringInterview {
+  id            String                @id @default(cuid())
+  applicationId String
+  application   HiringApplication     @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  scheduledAt     DateTime
+  durationMinutes Int                  @default(60)
+  timezone        String               @default("Asia/Kolkata") @db.VarChar(64)
+  title           String               @db.VarChar(280)
+  notes           String?              @db.Text
+  locationOrLink  String?              @db.VarChar(500)
+
+  status HiringInterviewStatus @default(SCHEDULED)
+
+  googleCalendarEventId  String? @db.VarChar(256)
+  googleCalendarHtmlLink String? @db.VarChar(2048)
+
+  /// Internal interviewers (User ids); candidate is always included from application profile.
+  interviewerUserIds String[] @default([])
+
+  scheduledById String
+  scheduledBy   User   @relation("HiringInterviewScheduledBy", fields: [scheduledById], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([applicationId, scheduledAt])
+  @@index([scheduledAt])
 }
 
 enum HiringResumeImportSourceChannel {
@@ -926,6 +966,7 @@ enum TrainingType {
   LIVE
   WORKSHOP
   READING
+  EXTERNAL_COURSE
 }
 
 enum EnrollmentStatus {
@@ -936,22 +977,68 @@ enum EnrollmentStatus {
 }
 
 model Training {
-  id          String       @id @default(cuid())
-  title       String
-  description String?
-  type        TrainingType @default(SELF_PACED)
-  durationMin Int?
-  category    String?
-  coverImage  String?
-  contentUrl  String?
-  passingScore Int?        @default(70)
-  isPublished Boolean      @default(true)
+  id           String       @id @default(cuid())
+  title        String
+  description  String?
+  type         TrainingType @default(SELF_PACED)
+  durationMin  Int?
+  category     String?
+  coverImage   String?
+  contentUrl   String?
+  author       String?
+  externalUrl  String?
+  provider     String?
+  passingScore Int?         @default(70)
+  pointsAwarded Int         @default(50)
+  isPublished  Boolean      @default(true)
 
-  enrollments  TrainingEnrollment[]
-  certificates Certificate[]
+  enrollments   TrainingEnrollment[]
+  certificates  Certificate[]
+  questions     TrainingQuestion[]
+  quizAttempts  TrainingQuizAttempt[]
+  wins          Win[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model TrainingQuestion {
+  id         String   @id @default(cuid())
+  trainingId String
+  prompt     String
+  sortOrder  Int      @default(0)
+
+  training Training                 @relation(fields: [trainingId], references: [id], onDelete: Cascade)
+  options  TrainingQuestionOption[]
+
+  @@index([trainingId, sortOrder])
+}
+
+model TrainingQuestionOption {
+  id         String  @id @default(cuid())
+  questionId String
+  label      String
+  isCorrect  Boolean @default(false)
+
+  question TrainingQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@index([questionId])
+}
+
+model TrainingQuizAttempt {
+  id          String   @id @default(cuid())
+  userId      String
+  trainingId  String
+  score       Int
+  passed      Boolean
+  answers     Json
+  attemptedAt DateTime @default(now())
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  training Training @relation(fields: [trainingId], references: [id], onDelete: Cascade)
+
+  @@index([userId, trainingId])
+  @@index([trainingId])
 }
 
 model TrainingEnrollment {
@@ -1216,6 +1303,7 @@ enum WinSource {
   SELF
   NOMINATION
   CELEBRATION
+  TRAINING
 }
 
 enum WinReactionKind {
@@ -1240,18 +1328,22 @@ model Win {
   pointsAwarded     Int            @default(100)
   /// YYYY-MM when this win is the monthly spotlight (at most one per month).
   spotlightMonth    String?
+  trainingId        String?
 
   user         User           @relation("WinRecipient", fields: [userId], references: [id], onDelete: Cascade)
   celebratedBy User?          @relation("WinCelebrator", fields: [celebratedById], references: [id], onDelete: SetNull)
+  training     Training?      @relation(fields: [trainingId], references: [id], onDelete: SetNull)
   reactions    WinReaction[]
   certificate  WinCertificate?
 
   createdAt DateTime @default(now())
 
+  @@unique([userId, trainingId])
   @@index([createdAt])
   @@index([userId])
   @@index([spotlightMonth])
   @@index([source])
+  @@index([trainingId])
 }
 
 model WinReaction {

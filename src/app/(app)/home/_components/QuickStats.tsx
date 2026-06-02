@@ -43,7 +43,7 @@ export async function QuickStats({ userId }: Props) {
       <StatCard
         href="/trainings"
         icon={<GraduationCap className="size-5" />}
-        label="Trainings"
+        label="Learning"
         value={`${myTrainings} in progress`}
         tone="ink"
       />
