@@ -1,4 +1,6 @@
+import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
+import { ArrowLeft } from "lucide-react";
 import { requireAppViewer } from "@/lib/app-viewer";
 import { prisma } from "@/lib/prisma";
 import { formatDate } from "@/lib/utils";
@@ -38,6 +40,12 @@ export default async function TrainingCertificatePrintPage({ params }: Props) {
   return (
     <div className="min-h-screen bg-white p-6 print:p-0 print:min-h-0">
       <PrintOnLoad />
+      <Link
+        href="/trainings?tab=certificates"
+        className="inline-flex items-center gap-1.5 text-sm text-ink-500 hover:text-ink-700 transition-colors mb-4 print:hidden"
+      >
+        <ArrowLeft className="size-3.5" /> Back to certificates
+      </Link>
       <p className="text-center text-xs text-ink-500 mb-4 print:hidden">
         Use your browser&apos;s print dialog and choose &quot;Save as PDF&quot; to download.
       </p>

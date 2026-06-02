@@ -55,6 +55,27 @@ export function HiringActivityPayloadBlock({
   );
 }
 
+function reviewRoundInterviewerLines(o: Record<string, unknown>): ReactNode[] {
+  const lines: ReactNode[] = [];
+  const roundLabel = typeof o.roundLabel === "string" ? o.roundLabel : null;
+  if (roundLabel) {
+    lines.push(
+      <p key="round">
+        <span className="text-ink-400">Round:</span> {roundLabel}
+      </p>,
+    );
+  }
+  const interviewer = typeof o.interviewer === "string" ? o.interviewer : null;
+  if (interviewer) {
+    lines.push(
+      <p key="interviewer">
+        <span className="text-ink-400">Interviewer:</span> {interviewer}
+      </p>,
+    );
+  }
+  return lines;
+}
+
 function readableExtras(
   kind: HiringActivityKind,
   payload: unknown,
@@ -94,6 +115,7 @@ function readableExtras(
       const changedObj = typeof o.changed === "object" && o.changed ? (o.changed as Record<string, unknown>) : {};
       const ratingChanged = changedObj.rating === true;
       const commentChanged = changedObj.comment === true;
+      const interviewerChanged = changedObj.interviewer === true;
 
       const before = typeof o.before === "object" && o.before ? (o.before as Record<string, unknown>) : {};
       const after = typeof o.after === "object" && o.after ? (o.after as Record<string, unknown>) : {};
@@ -102,8 +124,10 @@ function readableExtras(
       const afterRating = after.rating;
       const beforeComment = typeof before.comment === "string" ? before.comment : null;
       const afterComment = typeof after.comment === "string" ? after.comment : null;
+      const beforeInterviewer = typeof before.interviewer === "string" ? before.interviewer : null;
+      const afterInterviewer = typeof after.interviewer === "string" ? after.interviewer : null;
 
-      const lines: ReactNode[] = [];
+      const lines: ReactNode[] = [...reviewRoundInterviewerLines(o)];
       if (ratingChanged) {
         lines.push(
           <span key="rating">
@@ -127,6 +151,15 @@ function readableExtras(
           </span>,
         );
       }
+      if (interviewerChanged) {
+        lines.push(
+          <span key="interviewer-change">
+            <span className="text-ink-400">Interviewer:</span>{" "}
+            <span className="text-ink-500">{beforeInterviewer ?? "—"}</span> →{" "}
+            <span>{afterInterviewer ?? "—"}</span>
+          </span>,
+        );
+      }
 
       if (lines.length === 0) return null;
 
@@ -142,7 +175,7 @@ function readableExtras(
       const del = typeof o.deleted === "object" && o.deleted ? (o.deleted as Record<string, unknown>) : {};
       const rating = del.rating;
       const comment = typeof del.comment === "string" ? del.comment : null;
-      const lines: ReactNode[] = [];
+      const lines: ReactNode[] = [...reviewRoundInterviewerLines(o)];
       if (rating != null) {
         lines.push(
           <span key="rating">
@@ -330,20 +363,23 @@ function readableExtras(
     case "APPLICATION_REVIEW_ADDED": {
       const rating = o.rating;
       const comment = typeof o.comment === "string" ? o.comment : null;
-      return (
-        <div className="space-y-1 text-ink-600">
-          {rating != null ? (
-            <p>
-              <span className="text-ink-400">Rating:</span> {String(rating)}
-            </p>
-          ) : null}
-          {comment ? (
-            <p className="whitespace-pre-wrap">
-              <span className="text-ink-400">Feedback:</span> “{comment}”
-            </p>
-          ) : null}
-        </div>
-      );
+      const lines = [...reviewRoundInterviewerLines(o)];
+      if (rating != null) {
+        lines.push(
+          <p key="rating">
+            <span className="text-ink-400">Rating:</span> {String(rating)}
+          </p>,
+        );
+      }
+      if (comment) {
+        lines.push(
+          <p key="comment" className="whitespace-pre-wrap">
+            <span className="text-ink-400">Feedback:</span> “{comment}”
+          </p>,
+        );
+      }
+      if (lines.length === 0) return null;
+      return <div className="space-y-1 text-ink-600">{lines}</div>;
     }
     case "JOB_UPDATED": {
       const before = typeof o.before === "object" && o.before ? (o.before as Record<string, unknown>) : null;

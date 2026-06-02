@@ -19,10 +19,8 @@ import { HiringActivityPayloadBlock } from "@/components/hiring/hiring-activity-
 import { HIRING_ACTIVITY_KIND_LABEL } from "@/lib/hiring-activity-kind-copy";
 import {
   addHiringApplicationAttachment,
-  createHiringApplicationReview,
   deleteHiringApplicationAttachment,
   moveHiringApplicationToJob,
-  updateHiringApplicationReview,
 } from "../../actions";
 import { DeleteApplicationForm } from "../../_components/delete-application-form";
 import { ApplicationStageControl } from "../../_components/application-stage-control";
@@ -31,7 +29,14 @@ import { CopyTextButton } from "@/components/ui/copy-text-button";
 import { hiringJobActiveClause } from "@/lib/hiring-job-active";
 import { firstSearchParam } from "@/lib/search-param";
 import { cn } from "@/lib/utils";
-import { DeleteReviewForm } from "../../_components/delete-review-form";
+import { HIRING_INTERVIEW_ROUNDS } from "@/lib/hiring-interview-rounds";
+import type { HiringInterviewRound } from "@/generated/prisma";
+import {
+  RoundFeedbackRowForm,
+  type RoundFeedbackInitial,
+} from "./_components/round-feedback-row-form";
+import type { InterviewerOption } from "./_components/round-interviewer-field";
+import { LegacyReviewAssignRoundForm } from "./_components/legacy-review-assign-round-form";
 import { HiringApplicationEmailComposer } from "@/components/hiring/hiring-application-email-composer";
 import { HiringInterviewScheduleTrigger } from "@/components/hiring/hiring-interview-scheduler";
 import { isBulkImportStoredResumeUrl } from "@/lib/hiring-resume-upload";
@@ -51,6 +56,7 @@ type Props = {
     reviewSaved?: string | string[];
     reviewUpdated?: string | string[];
     reviewDeleted?: string | string[];
+    reviewAssigned?: string | string[];
     jobMoved?: string | string[];
     emailSent?: string | string[];
     emailError?: string | string[];
@@ -75,6 +81,7 @@ export default async function HiringApplicationDetailPage(props: Props) {
   const reviewSaved = firstSearchParam(sp.reviewSaved) === "1";
   const reviewUpdated = firstSearchParam(sp.reviewUpdated) === "1";
   const reviewDeleted = firstSearchParam(sp.reviewDeleted) === "1";
+  const reviewAssigned = firstSearchParam(sp.reviewAssigned) === "1";
   const jobMoved = firstSearchParam(sp.jobMoved) === "1";
   const emailSent = firstSearchParam(sp.emailSent) === "1";
   const emailError = firstSearchParam(sp.emailError);
@@ -107,7 +114,12 @@ export default async function HiringApplicationDetailPage(props: Props) {
       reviews: {
         orderBy: { createdAt: "desc" },
         take: 50,
-        include: { author: { select: { name: true, email: true } } },
+        include: {
+          author: { select: { name: true, email: true } },
+          interviewerUser: {
+            select: { name: true, firstName: true, lastName: true, email: true },
+          },
+        },
       },
       job: { include: { department: true } },
       pipelineStage: { select: { id: true, key: true, label: true, isRejected: true, isHired: true } },
@@ -229,14 +241,41 @@ export default async function HiringApplicationDetailPage(props: Props) {
   const detailReturnPath = overviewHref;
   const profileResumeHref = app.candidate.resumeUrl?.trim();
 
-  const reviewAction = createHiringApplicationReview.bind(null, applicationId);
-  const updateReviewAction = updateHiringApplicationReview;
   const moveJobAction = moveHiringApplicationToJob.bind(null, applicationId);
+
+  const legacyReviews = app.reviews.filter((r) => r.round === null);
+  const reviewsByRound = new Map(
+    app.reviews.filter((r) => r.round !== null).map((r) => [r.round!, r]),
+  );
+  const occupiedRounds = [...reviewsByRound.keys()];
+
+  const interviewerFieldOptions: InterviewerOption[] = interviewerOptions.map((u) => {
+    const name = displayName(u);
+    const email = u.email ?? "";
+    const label = email && name !== "—" ? `${name} (${email})` : email || name;
+    return {
+      id: u.id,
+      label,
+      searchText: `${name} ${email} ${u.id}`.toLowerCase(),
+    };
+  });
+
+  function roundFeedbackInitial(round: HiringInterviewRound): RoundFeedbackInitial | null {
+    const r = reviewsByRound.get(round);
+    if (!r) return null;
+    return {
+      rating: r.rating,
+      comment: r.comment,
+      interviewerUserId: r.interviewerUserId,
+      interviewerName: r.interviewerName,
+      updatedAt: r.updatedAt,
+    };
+  }
 
   return (
     <div className="flex flex-col lg:flex-row gap-8 lg:gap-10 items-start pb-14">
       <aside className="w-full lg:w-[220px] shrink-0 space-y-4 lg:sticky lg:top-20">
-        <HiringApplicationSectionNav />
+        <HiringApplicationSectionNav overviewPath={overviewHref} />
       </aside>
 
       <div className="min-w-0 flex-1 space-y-6">
@@ -355,6 +394,20 @@ export default async function HiringApplicationDetailPage(props: Props) {
         {reviewDeleted && (
           <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
             Feedback deleted — timeline entry added.
+          </div>
+        )}
+        {reviewAssigned && (
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+            Earlier feedback linked to an interview round.
+          </div>
+        )}
+        {isTimeline && (
+          <div className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900">
+            Interview feedback is on the{" "}
+            <Link href={`${overviewHref}#section-reviews`} className="font-semibold underline">
+              Overview
+            </Link>{" "}
+            tab — save notes per round there.
           </div>
         )}
         {interviewScheduled && (
@@ -713,124 +766,65 @@ export default async function HiringApplicationDetailPage(props: Props) {
             <section id="section-reviews" className="scroll-mt-24">
               <Card>
                 <CardHeader>
-                  <CardTitle>Ratings and reviews</CardTitle>
+                  <CardTitle>Interview feedback</CardTitle>
+                  <CardDescription>
+                    Fill in a row for each interview round (Screening through Final), then click Save. One note per
+                    round — pick a team interviewer or type an external name.
+                  </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
-                  {app.reviews.length === 0 ? (
-                    <p className="text-sm text-ink-500">No feedback logged on this submission yet.</p>
-                  ) : (
-                    <ul className="space-y-4">
-                      {app.reviews.map((r) => {
-                        const by = r.author.name ?? r.author.email ?? "—";
-                        const edited = r.updatedAt && r.updatedAt.getTime() !== r.createdAt.getTime();
-                        return (
-                          <li key={r.id} className="rounded-xl border border-ink-100 bg-white p-4">
-                            <div className="flex flex-wrap items-baseline gap-2 gap-y-1 text-xs text-ink-400">
-                              <span className="font-semibold uppercase tracking-wide text-sky-800">Feedback</span>
-                              <span>{formatDate(r.createdAt)}</span>
-                              <span>· {by}</span>
-                              {r.rating !== null ? (
-                                <span className="tabular-nums text-ink-600">Rating {r.rating}/5</span>
-                              ) : null}
-                              {edited ? <span className="text-ink-400">· edited {formatDate(r.updatedAt)}</span> : null}
-                            </div>
-                            <p className="text-sm text-ink-700 whitespace-pre-wrap mt-2">{r.comment}</p>
-                            <details className="mt-3 rounded-lg border border-ink-100 bg-ink-50/40">
-                              <summary className="cursor-pointer px-3 py-2 text-xs font-semibold text-ink-600 hover:text-ink-800 select-none">
-                                Edit feedback
-                              </summary>
-                              <div className="border-t border-ink-100 px-3 py-3">
-                                <form
-                                  action={updateReviewAction.bind(null, r.id)}
-                                  className="space-y-4 max-w-xl"
-                                >
-                                  <input type="hidden" name="returnPath" value={detailReturnPath} />
-                                  <div>
-                                    <Label htmlFor={`rating-${r.id}`}>Rating (optional)</Label>
-                                    <Select
-                                      id={`rating-${r.id}`}
-                                      name="rating"
-                                      className="mt-1.5"
-                                      defaultValue={r.rating === null ? "" : String(r.rating)}
-                                    >
-                                      <option value="">No rating</option>
-                                      {[1, 2, 3, 4, 5].map((n) => (
-                                        <option key={n} value={String(n)}>
-                                          {n} —{" "}
-                                          {n >= 5
-                                            ? "Strong yes"
-                                            : n >= 4
-                                              ? "Positive"
-                                              : n >= 3
-                                                ? "Mixed"
-                                                : n >= 2
-                                                  ? "Concerns"
-                                                  : "Hard no"}
-                                        </option>
-                                      ))}
-                                    </Select>
-                                  </div>
-                                  <div>
-                                    <Label htmlFor={`comment-${r.id}`}>Written feedback</Label>
-                                    <Textarea
-                                      id={`comment-${r.id}`}
-                                      name="comment"
-                                      required
-                                      rows={5}
-                                      className="mt-1.5"
-                                      defaultValue={r.comment}
-                                    />
-                                  </div>
-                                  <Button type="submit" variant="accent" size="sm">
-                                    Save changes
-                                  </Button>
-                                  <p className="text-[11px] text-ink-400 leading-relaxed">
-                                    Saving edits will add an entry to the submission timeline.
-                                  </p>
-                                </form>
-                                <div className="mt-4 pt-4 border-t border-ink-100">
-                                  <p className="text-[11px] font-semibold uppercase tracking-wider text-red-700 mb-2">
-                                    Danger zone
-                                  </p>
-                                  <DeleteReviewForm reviewId={r.id} returnPath={detailReturnPath} />
-                                </div>
-                              </div>
-                            </details>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  )}
-                  <form action={reviewAction} className="rounded-xl border border-ink-200 bg-ink-50/50 p-4 space-y-4 max-w-xl">
-                    <input type="hidden" name="returnPath" value={detailReturnPath} />
-                    <p className="text-xs font-semibold uppercase tracking-wider text-ink-500">Add feedback</p>
-                    <div>
-                      <Label htmlFor="rating">Rating (optional)</Label>
-                      <Select id="rating" name="rating" className="mt-1.5" defaultValue="">
-                        <option value="">No rating</option>
-                        {[1, 2, 3, 4, 5].map((n) => (
-                          <option key={n} value={String(n)}>
-                            {n} —{" "}
-                            {n >= 5 ? "Strong yes" : n >= 4 ? "Positive" : n >= 3 ? "Mixed" : n >= 2 ? "Concerns" : "Hard no"}
-                          </option>
-                        ))}
-                      </Select>
+                  <div className="rounded-xl border border-ink-100 text-sm overflow-hidden">
+                    <div
+                      className="hidden sm:grid sm:grid-cols-[minmax(7.5rem,auto)_minmax(11rem,1fr)_5.5rem_minmax(12rem,1fr)_auto] gap-x-4 px-4 py-3 bg-ink-50/50 border-b border-ink-100 text-left text-[10px] font-semibold uppercase tracking-wider text-ink-400"
+                      aria-hidden
+                    >
+                      <span>Round</span>
+                      <span>Interviewer</span>
+                      <span>Rating</span>
+                      <span>Feedback</span>
+                      <span className="text-right">Actions</span>
                     </div>
-                    <div>
-                      <Label htmlFor="comment">Written feedback</Label>
-                      <Textarea
-                        id="comment"
-                        name="comment"
-                        required
-                        rows={5}
-                        className="mt-1.5"
-                        placeholder="Panel notes, bar-raiser callouts, calibration…"
+                    {HIRING_INTERVIEW_ROUNDS.map((round) => (
+                      <RoundFeedbackRowForm
+                        key={round}
+                        applicationId={applicationId}
+                        round={round}
+                        returnPath={detailReturnPath}
+                        interviewerOptions={interviewerFieldOptions}
+                        initial={roundFeedbackInitial(round)}
                       />
-                    </div>
-                    <Button type="submit" variant="accent">
-                      Submit feedback
-                    </Button>
-                  </form>
+                    ))}
+                  </div>
+
+                  {legacyReviews.length > 0 ? (
+                    <details className="rounded-xl border border-ink-100 bg-ink-50/30">
+                      <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-ink-700 select-none">
+                        Earlier feedback (not tied to a round) — {legacyReviews.length}
+                      </summary>
+                      <ul className="px-4 pb-4 space-y-4 border-t border-ink-100 pt-4">
+                        {legacyReviews.map((r) => {
+                          const by = r.author.name ?? r.author.email ?? "—";
+                          return (
+                            <li key={r.id} className="rounded-lg border border-ink-100 bg-white p-4">
+                              <div className="flex flex-wrap items-baseline gap-2 text-xs text-ink-400">
+                                <span>{formatDate(r.createdAt)}</span>
+                                <span>· {by}</span>
+                                {r.rating !== null ? (
+                                  <span className="tabular-nums text-ink-600">Rating {r.rating}/5</span>
+                                ) : null}
+                              </div>
+                              <p className="text-sm text-ink-700 whitespace-pre-wrap mt-2">{r.comment}</p>
+                              <LegacyReviewAssignRoundForm
+                                reviewId={r.id}
+                                returnPath={detailReturnPath}
+                                occupiedRounds={occupiedRounds}
+                              />
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </details>
+                  ) : null}
                 </CardContent>
               </Card>
             </section>

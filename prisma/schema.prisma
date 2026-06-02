@@ -193,6 +193,7 @@ model User {
   hiringInterviewTemplatesAuthored HiringInterviewQuestionTemplate[] @relation("HiringInterviewTemplateAuthor")
   hiringApplicationEmailsSent      HiringApplicationEmail[]          @relation("HiringApplicationEmailSender")
   hiringApplicationReviewsAuthored HiringApplicationReview[]         @relation("HiringApplicationReviewAuthor")
+  hiringApplicationReviewsAsInterviewer HiringApplicationReview[]    @relation("HiringApplicationReviewInterviewer")
   hiringInterviewsScheduled        HiringInterview[]                 @relation("HiringInterviewScheduledBy")
   hiringResumeImportBatchesCreated HiringResumeImportBatch[]        @relation("HiringResumeImportBatchCreator")
   hiringJobsRemovedFromList        HiringJob[]                      @relation("HiringJobRemovedBy")
@@ -363,6 +364,14 @@ enum HiringActivityKind {
 enum HiringInterviewStatus {
   SCHEDULED
   CANCELLED
+}
+
+/// Fixed interview rounds for per-round feedback on an application.
+enum HiringInterviewRound {
+  SCREENING
+  FIRST_VIRTUAL
+  SECOND_ROUND
+  FINAL_ROUND
 }
 
 enum HiringTemplateCategory {
@@ -612,6 +621,13 @@ model HiringApplicationReview {
   applicationId String
   application   HiringApplication  @relation(fields: [applicationId], references: [id], onDelete: Cascade)
 
+  /// When set, at most one review per application per round.
+  round              HiringInterviewRound?
+  interviewerUserId  String?
+  interviewerUser    User?                 @relation("HiringApplicationReviewInterviewer", fields: [interviewerUserId], references: [id], onDelete: SetNull)
+  /// Free-text interviewer when not linked to a User (external panelist).
+  interviewerName    String?               @db.VarChar(200)
+
   rating   Int?
   comment  String                   @db.Text
 
@@ -621,6 +637,7 @@ model HiringApplicationReview {
   createdAt DateTime               @default(now())
   updatedAt DateTime               @default(now()) @updatedAt
 
+  @@unique([applicationId, round])
   @@index([applicationId, createdAt])
 }
 

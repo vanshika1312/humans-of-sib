@@ -21,6 +21,9 @@ import {
   hiringJobAcceptingApplications,
   hiringJobActiveClause,
 } from "@/lib/hiring-job-active";
+import type { HiringInterviewRound } from "@/generated/prisma";
+import { isHiringInterviewRound, roundLabel } from "@/lib/hiring-interview-rounds";
+import { displayName } from "@/lib/user-display-name";
 
 async function mergeResumeForIntake(formData: FormData): Promise<{ resumeUrl: string | null; error: string | null }> {
   const drive = nu(String(formData.get("resumeDriveUrl")));
@@ -753,26 +756,118 @@ export async function updateApplicationStage(applicationId: string, formData: Fo
   }
 }
 
-export async function createHiringApplicationReview(applicationId: string, formData: FormData) {
-  const me = await requireHiringUser();
-  const comment = String(formData.get("comment") || "").trim();
+type InterviewerUserSelect = {
+  name: string | null;
+  firstName: string | null;
+  lastName: string | null;
+  email: string | null;
+};
+
+function parseRatingFromForm(formData: FormData): { rating: number | null; error: string | null } {
   const ratingRaw = String(formData.get("rating") || "").trim();
-  const ratingNull = ratingRaw === "" ? null : Number(ratingRaw);
+  if (ratingRaw === "") return { rating: null, error: null };
+  const ratingNull = Number(ratingRaw);
+  if (!Number.isInteger(ratingNull) || ratingNull < 1 || ratingNull > 5) {
+    return { rating: null, error: "Rating must be between 1 and 5, or leave it blank." };
+  }
+  return { rating: ratingNull, error: null };
+}
+
+function parseInterviewerFromForm(formData: FormData): {
+  interviewerUserId: string | null;
+  interviewerName: string | null;
+} {
+  const interviewerUserId = String(formData.get("interviewerUserId") || "").trim() || null;
+  const interviewerNameRaw = String(formData.get("interviewerName") || "").trim();
+  const interviewerName = interviewerNameRaw ? interviewerNameRaw.slice(0, 200) : null;
+  if (interviewerUserId) {
+    return { interviewerUserId, interviewerName: null };
+  }
+  return { interviewerUserId: null, interviewerName };
+}
+
+function interviewerDisplayForPayload(args: {
+  interviewerUser: InterviewerUserSelect | null;
+  interviewerName: string | null;
+}): string | null {
+  if (args.interviewerUser) {
+    const label = displayName(args.interviewerUser);
+    if (label !== "—") return label;
+    if (args.interviewerUser.email) return args.interviewerUser.email;
+  }
+  return args.interviewerName?.trim() || null;
+}
+
+function reviewPayloadExtras(review: {
+  round: HiringInterviewRound | null;
+  interviewerUser: InterviewerUserSelect | null;
+  interviewerName: string | null;
+}): Record<string, unknown> {
+  const extras: Record<string, unknown> = {};
+  if (review.round) {
+    extras.round = review.round;
+    extras.roundLabel = roundLabel(review.round);
+  }
+  const interviewer = interviewerDisplayForPayload({
+    interviewerUser: review.interviewerUser,
+    interviewerName: review.interviewerName,
+  });
+  if (interviewer) extras.interviewer = interviewer;
+  return extras;
+}
+
+export async function upsertHiringApplicationRoundFeedback(
+  applicationId: string,
+  round: string,
+  formData: FormData,
+) {
+  const me = await requireHiringUser();
   const returnPath = safeHiringReturnPath(formData.get("returnPath"));
 
-  if (comment.length < 3) {
+  if (!isHiringInterviewRound(round)) {
     redirect(
       mergeHiringReturnQuery(returnPath, {
-        error: "Feedback needs at least a few words.",
+        error: "Invalid interview round.",
       }),
     );
   }
-  if (ratingNull !== null && (!Number.isInteger(ratingNull) || ratingNull < 1 || ratingNull > 5)) {
+
+  const comment = String(formData.get("comment") || "").trim();
+  const { rating: ratingNull, error: ratingError } = parseRatingFromForm(formData);
+  if (ratingError) {
+    redirect(mergeHiringReturnQuery(returnPath, { error: ratingError }));
+  }
+
+  if (comment.length > 0 && comment.length < 3) {
     redirect(
       mergeHiringReturnQuery(returnPath, {
-        error: "Rating must be between 1 and 5, or leave it blank.",
+        error: "Feedback needs at least a few words, or leave it blank.",
       }),
     );
+  }
+
+  const { interviewerUserId, interviewerName } = parseInterviewerFromForm(formData);
+
+  if (!comment && ratingNull === null && !interviewerUserId && !interviewerName) {
+    redirect(
+      mergeHiringReturnQuery(returnPath, {
+        error: "Add written feedback, a rating, or an interviewer before saving.",
+      }),
+    );
+  }
+
+  if (interviewerUserId) {
+    const valid = await prisma.user.findFirst({
+      where: { id: interviewerUserId, invitationPending: false },
+      select: { id: true },
+    });
+    if (!valid) {
+      redirect(
+        mergeHiringReturnQuery(returnPath, {
+          error: "Select a valid team member or type an external interviewer name.",
+        }),
+      );
+    }
   }
 
   const app = await prisma.hiringApplication.findUnique({
@@ -793,39 +888,404 @@ export async function createHiringApplicationReview(applicationId: string, formD
     );
   }
 
+  const existing = await prisma.hiringApplicationReview.findUnique({
+    where: {
+      applicationId_round: { applicationId, round },
+    },
+    include: {
+      interviewerUser: {
+        select: { name: true, firstName: true, lastName: true, email: true },
+      },
+    },
+  });
+
   const candidateLabel = app.candidate.fullName || app.candidate.email || "Candidate";
   const jobLabel = app.job.title || "Opening";
+  const roundLabelText = roundLabel(round);
 
-  await prisma.$transaction(async (tx) => {
-    await tx.hiringApplicationReview.create({
-      data: {
-        applicationId,
-        authorId: me.id,
-        comment,
-        rating: ratingNull,
-      },
+  const data = {
+    comment: comment || "",
+    rating: ratingNull,
+    interviewerUserId,
+    interviewerName,
+  };
+
+  const payloadBase = {
+    applicationId,
+    jobId: app.jobId,
+    rating: ratingNull,
+    comment: comment ? timelineExcerpt(comment) : null,
+    ...reviewPayloadExtras({
+      round,
+      interviewerUser: null,
+      interviewerName,
+    }),
+  };
+
+  if (interviewerUserId) {
+    const u = await prisma.user.findUnique({
+      where: { id: interviewerUserId },
+      select: { name: true, firstName: true, lastName: true, email: true },
     });
-    await tx.hiringActivity.create({
-      data: {
-        kind: "APPLICATION_REVIEW_ADDED",
-        summary: `Feedback added · ${candidateLabel} · ${jobLabel}`,
-        payloadJson: JSON.stringify({
-          applicationId,
-          jobId: app.jobId,
-          rating: ratingNull,
-          comment: timelineExcerpt(comment),
+    Object.assign(payloadBase, reviewPayloadExtras({ round, interviewerUser: u, interviewerName: null }));
+  }
+
+  if (existing) {
+    const changed =
+      existing.comment !== data.comment ||
+      (existing.rating === null ? null : existing.rating) !== (ratingNull === null ? null : ratingNull) ||
+      existing.interviewerUserId !== interviewerUserId ||
+      (existing.interviewerName ?? null) !== interviewerName;
+
+    if (!changed) {
+      redirect(
+        mergeHiringReturnQuery(returnPath, {
+          error: "No changes to save.",
         }),
-        candidateId: app.candidateId,
-        applicationId,
-        actorUserId: me.id,
-      },
+      );
+    }
+
+    const afterInterviewerUser = interviewerUserId
+      ? await prisma.user.findUnique({
+          where: { id: interviewerUserId },
+          select: { name: true, firstName: true, lastName: true, email: true },
+        })
+      : null;
+
+    try {
+      await prisma.$transaction(async (tx) => {
+        await tx.hiringApplicationReview.update({
+          where: { id: existing.id },
+          data,
+        });
+        await tx.hiringActivity.create({
+          data: {
+            kind: "APPLICATION_REVIEW_UPDATED",
+            summary: `${roundLabelText} feedback updated · ${candidateLabel} · ${jobLabel}`,
+            payloadJson: JSON.stringify({
+              reviewId: existing.id,
+              ...payloadBase,
+              before: {
+                rating: existing.rating,
+                comment: existing.comment ? timelineExcerpt(existing.comment) : null,
+                ...reviewPayloadExtras({
+                  round,
+                  interviewerUser: existing.interviewerUser,
+                  interviewerName: existing.interviewerName,
+                }),
+              },
+              after: {
+                rating: ratingNull,
+                comment: comment ? timelineExcerpt(comment) : null,
+                ...reviewPayloadExtras({
+                  round,
+                  interviewerUser: afterInterviewerUser,
+                  interviewerName,
+                }),
+              },
+              changed: {
+                rating: existing.rating !== ratingNull,
+                comment: existing.comment !== data.comment,
+                interviewer:
+                  existing.interviewerUserId !== interviewerUserId ||
+                  (existing.interviewerName ?? null) !== interviewerName,
+              },
+            }),
+            candidateId: app.candidateId,
+            applicationId,
+            actorUserId: me.id,
+          },
+        });
+      });
+    } catch {
+      redirect(
+        mergeHiringReturnQuery(returnPath, {
+          error: "Could not save interview feedback.",
+        }),
+      );
+    }
+
+    invalidateHiring(app.jobId, applicationId);
+    revalidatePath(`/hiring/timeline/${app.candidateId}`);
+    redirect(
+      mergeHiringReturnQuery(returnPath, {
+        reviewUpdated: "1",
+      }),
+    );
+  }
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.hiringApplicationReview.create({
+        data: {
+          applicationId,
+          round,
+          authorId: me.id,
+          ...data,
+        },
+      });
+      await tx.hiringActivity.create({
+        data: {
+          kind: "APPLICATION_REVIEW_ADDED",
+          summary: `${roundLabelText} feedback added · ${candidateLabel} · ${jobLabel}`,
+          payloadJson: JSON.stringify(payloadBase),
+          candidateId: app.candidateId,
+          applicationId,
+          actorUserId: me.id,
+        },
+      });
     });
-  });
+  } catch {
+    redirect(
+      mergeHiringReturnQuery(returnPath, {
+        error: "Could not save interview feedback.",
+      }),
+    );
+  }
 
   invalidateHiring(app.jobId, applicationId);
   redirect(
     mergeHiringReturnQuery(returnPath, {
       reviewSaved: "1",
+    }),
+  );
+}
+
+export async function clearHiringApplicationRoundFeedback(
+  applicationId: string,
+  round: string,
+  formData: FormData,
+) {
+  const me = await requireHiringUser();
+  const returnPath = safeHiringReturnPath(formData.get("returnPath"));
+
+  if (!isHiringInterviewRound(round)) {
+    redirect(
+      mergeHiringReturnQuery(returnPath, {
+        error: "Invalid interview round.",
+      }),
+    );
+  }
+
+  const existing = await prisma.hiringApplicationReview.findUnique({
+    where: {
+      applicationId_round: { applicationId, round },
+    },
+    include: {
+      author: { select: { name: true, email: true } },
+      interviewerUser: {
+        select: { name: true, firstName: true, lastName: true, email: true },
+      },
+      application: {
+        select: {
+          id: true,
+          jobId: true,
+          candidateId: true,
+          job: { select: { title: true } },
+          candidate: { select: { fullName: true, email: true } },
+        },
+      },
+    },
+  });
+
+  if (!existing?.application) {
+    redirect(
+      mergeHiringReturnQuery(returnPath, {
+        error: "No feedback saved for this round yet.",
+      }),
+    );
+  }
+
+  const candidateLabel =
+    existing.application.candidate.fullName ||
+    existing.application.candidate.email ||
+    "Candidate";
+  const jobLabel = existing.application.job.title || "Opening";
+  const roundLabelText = roundLabel(round);
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.hiringApplicationReview.delete({ where: { id: existing.id } });
+      await tx.hiringActivity.create({
+        data: {
+          kind: "APPLICATION_REVIEW_DELETED",
+          summary: `${roundLabelText} feedback cleared · ${candidateLabel} · ${jobLabel}`,
+          payloadJson: JSON.stringify({
+            reviewId: existing.id,
+            applicationId: existing.application.id,
+            deleted: {
+              rating: existing.rating,
+              comment: existing.comment ? timelineExcerpt(existing.comment) : null,
+              ...reviewPayloadExtras({
+                round,
+                interviewerUser: existing.interviewerUser,
+                interviewerName: existing.interviewerName,
+              }),
+            },
+            ...reviewPayloadExtras({
+              round,
+              interviewerUser: existing.interviewerUser,
+              interviewerName: existing.interviewerName,
+            }),
+          }),
+          candidateId: existing.application.candidateId,
+          applicationId: existing.application.id,
+          actorUserId: me.id,
+        },
+      });
+    });
+  } catch {
+    redirect(
+      mergeHiringReturnQuery(returnPath, {
+        error: "Could not clear interview feedback.",
+      }),
+    );
+  }
+
+  invalidateHiring(existing.application.jobId, existing.application.id);
+  revalidatePath(`/hiring/timeline/${existing.application.candidateId}`);
+  redirect(
+    mergeHiringReturnQuery(returnPath, {
+      reviewDeleted: "1",
+    }),
+  );
+}
+
+export async function createHiringApplicationReview(_applicationId: string, formData: FormData) {
+  const returnPath = safeHiringReturnPath(formData.get("returnPath"));
+  await requireHiringUser();
+  redirect(
+    mergeHiringReturnQuery(returnPath, {
+      error: "Use the interview feedback table to save feedback for each round.",
+    }),
+  );
+}
+
+export async function assignHiringApplicationReviewToRound(
+  reviewId: string,
+  formData: FormData,
+) {
+  const me = await requireHiringUser();
+  const returnPath = safeHiringReturnPath(formData.get("returnPath"));
+  const roundRaw = String(formData.get("round") || "").trim();
+
+  if (!reviewId.trim()) {
+    redirect(
+      mergeHiringReturnQuery(returnPath, {
+        error: "Feedback not found.",
+      }),
+    );
+  }
+
+  if (!isHiringInterviewRound(roundRaw)) {
+    redirect(
+      mergeHiringReturnQuery(returnPath, {
+        error: "Pick a valid interview round.",
+      }),
+    );
+  }
+
+  const round = roundRaw;
+
+  const existing = await prisma.hiringApplicationReview.findUnique({
+    where: { id: reviewId },
+    include: {
+      author: { select: { name: true, email: true } },
+      interviewerUser: {
+        select: { name: true, firstName: true, lastName: true, email: true },
+      },
+      application: {
+        select: {
+          id: true,
+          jobId: true,
+          candidateId: true,
+          job: { select: { title: true } },
+          candidate: { select: { fullName: true, email: true } },
+        },
+      },
+    },
+  });
+
+  if (!existing?.application) {
+    redirect(
+      mergeHiringReturnQuery(returnPath, {
+        error: "Feedback not found.",
+      }),
+    );
+  }
+
+  if (existing.round) {
+    redirect(
+      mergeHiringReturnQuery(returnPath, {
+        error: "This feedback is already linked to a round.",
+      }),
+    );
+  }
+
+  const slotTaken = await prisma.hiringApplicationReview.findUnique({
+    where: {
+      applicationId_round: { applicationId: existing.applicationId, round },
+    },
+    select: { id: true },
+  });
+
+  if (slotTaken) {
+    redirect(
+      mergeHiringReturnQuery(returnPath, {
+        error: `${roundLabel(round)} already has feedback on this submission. Clear that round first, or pick another.`,
+      }),
+    );
+  }
+
+  const candidateLabel =
+    existing.application.candidate.fullName ||
+    existing.application.candidate.email ||
+    "Candidate";
+  const jobLabel = existing.application.job.title || "Opening";
+  const roundLabelText = roundLabel(round);
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.hiringApplicationReview.update({
+        where: { id: reviewId },
+        data: { round },
+      });
+      await tx.hiringActivity.create({
+        data: {
+          kind: "APPLICATION_REVIEW_UPDATED",
+          summary: `Earlier feedback linked to ${roundLabelText} · ${candidateLabel} · ${jobLabel}`,
+          payloadJson: JSON.stringify({
+            reviewId: existing.id,
+            applicationId: existing.applicationId,
+            assignedRound: round,
+            roundLabel: roundLabelText,
+            rating: existing.rating,
+            comment: existing.comment ? timelineExcerpt(existing.comment) : null,
+            ...reviewPayloadExtras({
+              round,
+              interviewerUser: existing.interviewerUser,
+              interviewerName: existing.interviewerName,
+            }),
+          }),
+          candidateId: existing.application.candidateId,
+          applicationId: existing.application.id,
+          actorUserId: me.id,
+        },
+      });
+    });
+  } catch {
+    redirect(
+      mergeHiringReturnQuery(returnPath, {
+        error: "Could not link feedback to that round.",
+      }),
+    );
+  }
+
+  invalidateHiring(existing.application.jobId, existing.application.id);
+  revalidatePath(`/hiring/timeline/${existing.application.candidateId}`);
+  redirect(
+    mergeHiringReturnQuery(returnPath, {
+      reviewAssigned: "1",
     }),
   );
 }
@@ -864,6 +1324,9 @@ export async function updateHiringApplicationReview(reviewId: string, formData: 
     where: { id: reviewId },
     include: {
       author: { select: { id: true, name: true, email: true } },
+      interviewerUser: {
+        select: { name: true, firstName: true, lastName: true, email: true },
+      },
       application: {
         select: {
           id: true,
@@ -880,6 +1343,14 @@ export async function updateHiringApplicationReview(reviewId: string, formData: 
     redirect(
       mergeHiringReturnQuery(returnPath, {
         error: "Feedback not found.",
+      }),
+    );
+  }
+
+  if (existing.round) {
+    redirect(
+      mergeHiringReturnQuery(returnPath, {
+        error: "Edit round feedback using the interview feedback table on the application page.",
       }),
     );
   }
@@ -923,13 +1394,28 @@ export async function updateHiringApplicationReview(reviewId: string, formData: 
           payloadJson: JSON.stringify({
             reviewId,
             applicationId: existing.application.id,
+            ...reviewPayloadExtras({
+              round: existing.round,
+              interviewerUser: existing.interviewerUser,
+              interviewerName: existing.interviewerName,
+            }),
             before: {
               rating: existing.rating,
               comment: beforeComment,
+              ...reviewPayloadExtras({
+                round: existing.round,
+                interviewerUser: existing.interviewerUser,
+                interviewerName: existing.interviewerName,
+              }),
             },
             after: {
               rating: ratingNull,
               comment: afterComment,
+              ...reviewPayloadExtras({
+                round: existing.round,
+                interviewerUser: existing.interviewerUser,
+                interviewerName: existing.interviewerName,
+              }),
             },
             changed: {
               rating: existing.rating !== ratingNull,
@@ -967,6 +1453,9 @@ export async function deleteHiringApplicationReview(reviewId: string, formData: 
     where: { id: reviewId },
     include: {
       author: { select: { id: true, name: true, email: true } },
+      interviewerUser: {
+        select: { name: true, firstName: true, lastName: true, email: true },
+      },
       application: {
         select: {
           id: true,
@@ -983,6 +1472,14 @@ export async function deleteHiringApplicationReview(reviewId: string, formData: 
     redirect(
       mergeHiringReturnQuery(returnPath, {
         error: "Feedback not found.",
+      }),
+    );
+  }
+
+  if (existing.round) {
+    redirect(
+      mergeHiringReturnQuery(returnPath, {
+        error: "Clear round feedback using the interview feedback table on the application page.",
       }),
     );
   }
@@ -1004,9 +1501,19 @@ export async function deleteHiringApplicationReview(reviewId: string, formData: 
           payloadJson: JSON.stringify({
             reviewId,
             applicationId: existing.application.id,
+            ...reviewPayloadExtras({
+              round: existing.round,
+              interviewerUser: existing.interviewerUser,
+              interviewerName: existing.interviewerName,
+            }),
             deleted: {
               rating: existing.rating,
               comment: timelineExcerpt(existing.comment),
+              ...reviewPayloadExtras({
+                round: existing.round,
+                interviewerUser: existing.interviewerUser,
+                interviewerName: existing.interviewerName,
+              }),
             },
             author: {
               name: existing.author?.name ?? null,

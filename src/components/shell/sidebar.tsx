@@ -36,7 +36,7 @@ function buildNav(liaEnabled?: boolean) {
   { group: "Home", items: [
     { href: "/home", label: "Dashboard", icon: Home },
     ...(liaEnabled ? [{ href: "/lia", label: "LIA", icon: Bot }] : []),
-    { href: "/journey", label: "My Journey", icon: Compass, comingSoon: true },
+    { href: "/journey", label: "My Journey", icon: Compass },
   ]},
   { group: "Community", items: [
     { href: "/people", label: "People", icon: Users },

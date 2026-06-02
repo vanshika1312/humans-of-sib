@@ -12,13 +12,18 @@ const LINKS = [
   { href: "#section-move-delete", label: "Move / delete" },
   { href: "#section-attachments", label: "Attachments" },
   { href: "#section-tags", label: "Tags" },
-  { href: "#section-reviews", label: "Ratings & reviews" },
+  { href: "#section-reviews", label: "Interview feedback" },
   { href: "#section-templates", label: "Questionnaires" },
   { href: "#section-submissions", label: "Hiring manager" },
   { href: "#section-emails", label: "Emails" },
 ] as const;
 
-export function HiringApplicationSectionNav() {
+export function HiringApplicationSectionNav({
+  overviewPath,
+}: {
+  /** Application overview URL (no timeline tab) so section anchors resolve. */
+  overviewPath: string;
+}) {
   const [expanded, setExpanded] = useState(true);
   const [ready, setReady] = useState(false);
 
@@ -63,7 +68,7 @@ export function HiringApplicationSectionNav() {
             {LINKS.map((l) => (
               <li key={l.href}>
                 <a
-                  href={l.href}
+                  href={`${overviewPath}${l.href}`}
                   className="block rounded-lg px-2 py-1.5 text-sm text-ink-600 hover:bg-white hover:text-ink-800 transition-colors scroll-mt-24"
                 >
                   {l.label}
