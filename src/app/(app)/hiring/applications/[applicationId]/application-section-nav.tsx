@@ -63,7 +63,10 @@ export function HiringApplicationSectionNav({
         {expanded ? <ChevronDown className="size-4 text-ink-400 shrink-0" /> : <ChevronRight className="size-4 text-ink-400 shrink-0" />}
       </button>
       {expanded ? (
-        <nav className="border-t border-ink-100 px-2 pb-2 pt-1">
+        <nav
+          className="border-t border-ink-100 px-2 pb-2 pt-1 max-h-[min(70vh,calc(100vh-9rem))] overflow-y-auto overscroll-y-contain"
+          aria-label="Page sections"
+        >
           <ul className="space-y-0.5">
             {LINKS.map((l) => (
               <li key={l.href}>

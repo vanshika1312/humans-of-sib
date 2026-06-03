@@ -274,7 +274,7 @@ export default async function HiringApplicationDetailPage(props: Props) {
 
   return (
     <div className="flex flex-col lg:flex-row gap-8 lg:gap-10 items-start pb-14">
-      <aside className="w-full lg:w-[220px] shrink-0 space-y-4 lg:sticky lg:top-20">
+      <aside className="w-full lg:w-[220px] shrink-0 lg:sticky lg:top-20 lg:self-start lg:z-10">
         <HiringApplicationSectionNav overviewPath={overviewHref} />
       </aside>
 
