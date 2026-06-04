@@ -149,11 +149,19 @@ function mergeHiringReturnQuery(returnPath: string, params: Record<string, strin
     for (const [key, value] of Object.entries(params)) {
       u.searchParams.set(key, value);
     }
-    return `${u.pathname}${u.search}`;
+    return `${u.pathname}${u.search}${u.hash}`;
   } catch {
+    const hashIdx = returnPath.indexOf("#");
+    const pathWithoutHash = hashIdx >= 0 ? returnPath.slice(0, hashIdx) : returnPath;
+    const hash = hashIdx >= 0 ? returnPath.slice(hashIdx) : "";
     const qs = new URLSearchParams(params).toString();
-    return `${returnPath}${returnPath.includes("?") ? "&" : "?"}${qs}`;
+    return `${pathWithoutHash}${pathWithoutHash.includes("?") ? "&" : "?"}${qs}${hash}`;
   }
+}
+
+function hiringActivitySummary(text: string): string {
+  const trimmed = text.trim();
+  return trimmed.length <= 500 ? trimmed : `${trimmed.slice(0, 497)}…`;
 }
 
 function invalidateHiring(jobId?: string, applicationId?: string) {
@@ -961,7 +969,9 @@ export async function upsertHiringApplicationRoundFeedback(
         await tx.hiringActivity.create({
           data: {
             kind: "APPLICATION_REVIEW_UPDATED",
-            summary: `${roundLabelText} feedback updated · ${candidateLabel} · ${jobLabel}`,
+            summary: hiringActivitySummary(
+              `${roundLabelText} feedback updated · ${candidateLabel} · ${jobLabel}`,
+            ),
             payloadJson: JSON.stringify({
               reviewId: existing.id,
               ...payloadBase,
@@ -997,7 +1007,8 @@ export async function upsertHiringApplicationRoundFeedback(
           },
         });
       });
-    } catch {
+    } catch (err) {
+      console.error("[hiring] update round feedback failed", err);
       redirect(
         mergeHiringReturnQuery(returnPath, {
           error: "Could not save interview feedback.",
@@ -1006,6 +1017,7 @@ export async function upsertHiringApplicationRoundFeedback(
     }
 
     invalidateHiring(app.jobId, applicationId);
+    revalidatePath(`/hiring/applications/${applicationId}`, "page");
     revalidatePath(`/hiring/timeline/${app.candidateId}`);
     redirect(
       mergeHiringReturnQuery(returnPath, {
@@ -1027,7 +1039,9 @@ export async function upsertHiringApplicationRoundFeedback(
       await tx.hiringActivity.create({
         data: {
           kind: "APPLICATION_REVIEW_ADDED",
-          summary: `${roundLabelText} feedback added · ${candidateLabel} · ${jobLabel}`,
+          summary: hiringActivitySummary(
+            `${roundLabelText} feedback added · ${candidateLabel} · ${jobLabel}`,
+          ),
           payloadJson: JSON.stringify(payloadBase),
           candidateId: app.candidateId,
           applicationId,
@@ -1035,7 +1049,8 @@ export async function upsertHiringApplicationRoundFeedback(
         },
       });
     });
-  } catch {
+  } catch (err) {
+    console.error("[hiring] create round feedback failed", err);
     redirect(
       mergeHiringReturnQuery(returnPath, {
         error: "Could not save interview feedback.",
@@ -1044,6 +1059,8 @@ export async function upsertHiringApplicationRoundFeedback(
   }
 
   invalidateHiring(app.jobId, applicationId);
+  revalidatePath(`/hiring/applications/${applicationId}`, "page");
+  revalidatePath(`/hiring/timeline/${app.candidateId}`);
   redirect(
     mergeHiringReturnQuery(returnPath, {
       reviewSaved: "1",

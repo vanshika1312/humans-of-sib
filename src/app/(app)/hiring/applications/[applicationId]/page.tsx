@@ -19,8 +19,10 @@ import { HiringActivityPayloadBlock } from "@/components/hiring/hiring-activity-
 import { HIRING_ACTIVITY_KIND_LABEL } from "@/lib/hiring-activity-kind-copy";
 import {
   addHiringApplicationAttachment,
+  clearHiringApplicationRoundFeedback,
   deleteHiringApplicationAttachment,
   moveHiringApplicationToJob,
+  upsertHiringApplicationRoundFeedback,
 } from "../../actions";
 import { DeleteApplicationForm } from "../../_components/delete-application-form";
 import { ApplicationStageControl } from "../../_components/application-stage-control";
@@ -238,7 +240,7 @@ export default async function HiringApplicationDetailPage(props: Props) {
     ? (`/hiring/applications/${applicationId}?from=${encodeURIComponent(from)}` as const)
     : (`/hiring/applications/${applicationId}` as const);
   const timelineHref = (`/hiring/applications/${applicationId}?tab=timeline${qsFrom}` as const);
-  const detailReturnPath = overviewHref;
+  const detailReturnPath = `${overviewHref}#section-reviews`;
   const profileResumeHref = app.candidate.resumeUrl?.trim();
 
   const moveJobAction = moveHiringApplicationToJob.bind(null, applicationId);
@@ -773,6 +775,21 @@ export default async function HiringApplicationDetailPage(props: Props) {
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
+                  {reviewSaved ? (
+                    <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+                      Feedback saved on this submission.
+                    </div>
+                  ) : null}
+                  {reviewUpdated ? (
+                    <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+                      Feedback updated — timeline entry added.
+                    </div>
+                  ) : null}
+                  {flashError ? (
+                    <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">
+                      {decodeURIComponent(flashError)}
+                    </div>
+                  ) : null}
                   <div className="rounded-xl border border-ink-100 text-sm overflow-hidden">
                     <div
                       className="hidden sm:grid sm:grid-cols-[minmax(7.5rem,auto)_minmax(11rem,1fr)_5.5rem_minmax(12rem,1fr)_auto] gap-x-4 px-4 py-3 bg-ink-50/50 border-b border-ink-100 text-left text-[10px] font-semibold uppercase tracking-wider text-ink-400"
@@ -787,9 +804,10 @@ export default async function HiringApplicationDetailPage(props: Props) {
                     {HIRING_INTERVIEW_ROUNDS.map((round) => (
                       <RoundFeedbackRowForm
                         key={round}
-                        applicationId={applicationId}
-                        round={round}
+                        upsertAction={upsertHiringApplicationRoundFeedback.bind(null, applicationId, round)}
+                        clearAction={clearHiringApplicationRoundFeedback.bind(null, applicationId, round)}
                         returnPath={detailReturnPath}
+                        round={round}
                         interviewerOptions={interviewerFieldOptions}
                         initial={roundFeedbackInitial(round)}
                       />
