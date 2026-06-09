@@ -17,7 +17,7 @@ import {
 } from "@/lib/personal-tasks-access";
 import type { ClientBoard } from "./task-kanban-types";
 import { persistTaskAttachmentFile } from "@/lib/task-attachment-upload";
-import type { ClientBoardTask } from "./task-kanban-types";
+import type { ClientBoardTask, ClientRelatedTaskCopy } from "./task-kanban-types";
 
 const PATH = "/my-tasks";
 
@@ -252,82 +252,235 @@ export async function loadPersonalTaskBoardForModal(
   return { ok: true, board: serializePersonalBoardForClient(visibleBoard) };
 }
 
+const MAX_ASSIGN_TASK_ROWS = 25;
+
+function parseAssignFormTitles(formData: FormData): string[] {
+  const fromList = formData
+    .getAll("titles")
+    .map((value) => nu(value, 500))
+    .filter((value) => value.length > 0);
+  if (fromList.length > 0) return fromList.slice(0, MAX_ASSIGN_TASK_ROWS);
+
+  const single = nu(formData.get("title"), 500);
+  return single.length > 0 ? [single] : [];
+}
+
+function parseAssignFormAssigneeIds(formData: FormData): string[] {
+  const fromList = [
+    ...new Set(
+      formData
+        .getAll("assignedToUserIds")
+        .map((value) => nu(value, 191))
+        .filter((value) => value.length > 0),
+    ),
+  ];
+  if (fromList.length > 0) return fromList;
+
+  const single = nu(formData.get("assignedToUserId"), 191);
+  return single.length > 0 ? [single] : [];
+}
+
 export async function assignTaskToUser(
   formData: FormData,
-): Promise<{ ok: boolean; error?: string; userId?: string; taskId?: string }> {
+): Promise<{
+  ok: boolean;
+  error?: string;
+  userId?: string;
+  taskId?: string;
+  created?: { userId: string; taskId: string }[];
+}> {
   const viewer = await sessionViewer();
   if (!viewer) return { ok: false, error: "Unauthorized" };
 
-  const title = nu(formData.get("title"), 500);
+  const titles = parseAssignFormTitles(formData);
+  const assigneeIds = parseAssignFormAssigneeIds(formData);
   const description = nu(formData.get("description"), 32000);
-  const assignedToUserId = nu(formData.get("assignedToUserId"), 191);
-  if (!title.length) return { ok: false, error: "Task title is required." };
-  if (!assignedToUserId.length) return { ok: false, error: "Choose a teammate." };
 
-  const assignee = await prisma.user.findUnique({
-    where: { id: assignedToUserId },
+  if (!titles.length) return { ok: false, error: "Add at least one task title." };
+  if (!assigneeIds.length) return { ok: false, error: "Choose at least one teammate." };
+
+  const assignees = await prisma.user.findMany({
+    where: { id: { in: assigneeIds }, status: "ACTIVE" },
     select: { id: true, status: true },
   });
-  if (!assignee || assignee.status !== "ACTIVE") {
-    return { ok: false, error: "Assignee not found." };
+  if (assignees.length !== assigneeIds.length) {
+    return { ok: false, error: "One or more teammates could not be found." };
   }
 
-  const canAssign = canAssignPersonalTasks({
-    viewerUserId: viewer.id,
-    viewerStatus: viewer.status,
-    assigneeUserId: assignee.id,
-    assigneeStatus: assignee.status,
-  });
-  if (!canAssign) return { ok: false, error: "You can’t assign tasks right now." };
-
-  const board = await getOrCreatePersonalTaskBoard(assignee.id);
-  const targetStage =
-    board.stages.find((stage) => !stage.isFinishedColumn) ??
-    board.stages[0];
-  if (!targetStage) return { ok: false, error: "No stage available on that board." };
-
-  const agg = await prisma.personalTask.aggregate({
-    where: { stageId: targetStage.id },
-    _max: { sortOrder: true },
-  });
-
-  const created = await prisma.$transaction(async (tx) => {
-    const task = await tx.personalTask.create({
-      data: {
-        boardId: board.id,
-        stageId: targetStage.id,
-        title,
-        description: description.length > 0 ? description : null,
-        sortOrder: (agg._max.sortOrder ?? 0) + 1,
-        assignedToUserId: assignee.id,
-        assignedByUserId: viewer.id,
-      },
+  for (const assignee of assignees) {
+    const canAssign = canAssignPersonalTasks({
+      viewerUserId: viewer.id,
+      viewerStatus: viewer.status,
+      assigneeUserId: assignee.id,
+      assigneeStatus: assignee.status,
     });
-    await tx.personalTaskBoard.update({
-      where: { id: board.id },
-      data: { updatedAt: new Date() },
-    });
-    return task;
+    if (!canAssign) return { ok: false, error: "You can’t assign tasks right now." };
+  }
+
+  type BoardTarget = {
+    boardId: string;
+    stageId: string;
+  };
+  const boardTargetByUserId = new Map<string, BoardTarget>();
+
+  for (const assignee of assignees) {
+    const board = await getOrCreatePersonalTaskBoard(assignee.id);
+    const targetStage =
+      board.stages.find((stage) => !stage.isFinishedColumn) ?? board.stages[0];
+    if (!targetStage) {
+      return { ok: false, error: "No stage available on a teammate board." };
+    }
+    boardTargetByUserId.set(assignee.id, { boardId: board.id, stageId: targetStage.id });
+  }
+
+  const sortOrderByStageId = new Map<string, number>();
+  const touchedBoardIds = new Set<string>();
+  const created: { userId: string; taskId: string; title: string }[] = [];
+
+  await prisma.$transaction(async (tx) => {
+    for (const title of titles) {
+      const assignmentGroupId = assigneeIds.length > 1 ? crypto.randomUUID() : null;
+
+      for (const assigneeId of assigneeIds) {
+        const target = boardTargetByUserId.get(assigneeId);
+        if (!target) continue;
+
+        let nextSort = sortOrderByStageId.get(target.stageId);
+        if (nextSort === undefined) {
+          const agg = await tx.personalTask.aggregate({
+            where: { stageId: target.stageId },
+            _max: { sortOrder: true },
+          });
+          nextSort = agg._max.sortOrder ?? 0;
+        }
+        nextSort += 1;
+        sortOrderByStageId.set(target.stageId, nextSort);
+
+        const task = await tx.personalTask.create({
+          data: {
+            boardId: target.boardId,
+            stageId: target.stageId,
+            title,
+            description: description.length > 0 ? description : null,
+            sortOrder: nextSort,
+            assignedToUserId: assigneeId,
+            assignedByUserId: viewer.id,
+            assignmentGroupId,
+          },
+        });
+
+        touchedBoardIds.add(target.boardId);
+        created.push({ userId: assigneeId, taskId: task.id, title });
+      }
+    }
+
+    for (const boardId of touchedBoardIds) {
+      await tx.personalTaskBoard.update({
+        where: { id: boardId },
+        data: { updatedAt: new Date() },
+      });
+    }
   });
 
   revalidateTasks();
 
-  if (assignee.id !== viewer.id) {
-    try {
-      await createNotification({
-        userId: assignee.id,
-        kind: "TASK_ASSIGNED",
-        title: "You were assigned a task",
-        body: `You have been assigned task: ${title}`,
-        href: `/my-tasks?task=${encodeURIComponent(created.id)}`,
-        actorUserId: viewer.id,
-        meta: { taskId: created.id },
-      });
-    } catch {
-      // non-critical
-    }
+  const notificationsByUser = new Map<string, string[]>();
+  for (const row of created) {
+    if (row.userId === viewer.id) continue;
+    const titlesForUser = notificationsByUser.get(row.userId) ?? [];
+    titlesForUser.push(row.title);
+    notificationsByUser.set(row.userId, titlesForUser);
   }
-  return { ok: true, userId: assignee.id, taskId: created.id };
+
+  try {
+    await Promise.allSettled(
+      Array.from(notificationsByUser.entries()).map(([userId, userTitles]) => {
+        const uniqueTitles = [...new Set(userTitles)];
+        const firstTask = created.find((row) => row.userId === userId);
+        const body =
+          uniqueTitles.length === 1
+            ? `You have been assigned task: ${uniqueTitles[0]}`
+            : `You have been assigned ${uniqueTitles.length} tasks.`;
+        return createNotification({
+          userId,
+          kind: "TASK_ASSIGNED",
+          title: uniqueTitles.length === 1 ? "You were assigned a task" : "You were assigned tasks",
+          body,
+          href: firstTask
+            ? `/my-tasks?task=${encodeURIComponent(firstTask.taskId)}`
+            : "/my-tasks",
+          actorUserId: viewer.id,
+          meta: { taskIds: created.filter((row) => row.userId === userId).map((row) => row.taskId) },
+        });
+      }),
+    );
+  } catch {
+    // non-critical
+  }
+
+  const payload = created.map(({ userId, taskId }) => ({ userId, taskId }));
+  if (payload.length === 1) {
+    return { ok: true, userId: payload[0]!.userId, taskId: payload[0]!.taskId, created: payload };
+  }
+  return { ok: true, created: payload };
+}
+
+export async function loadRelatedTaskCopies(
+  taskId: string,
+): Promise<{ ok: true; copies: ClientRelatedTaskCopy[] } | { ok: false; error: string }> {
+  const viewer = await sessionViewer();
+  if (!viewer) return { ok: false, error: "Unauthorized" };
+
+  const access = await getTaskAccess(
+    taskId,
+    viewer.id,
+    viewer.role as Role,
+    viewer.permissions ?? null,
+    viewer.headedDept?.id ?? null,
+  );
+  if (!access?.canView) return { ok: false, error: "No access." };
+
+  const task = await prisma.personalTask.findUnique({
+    where: { id: taskId },
+    select: { assignmentGroupId: true },
+  });
+  if (!task?.assignmentGroupId) return { ok: true, copies: [] };
+
+  const siblings = await prisma.personalTask.findMany({
+    where: {
+      assignmentGroupId: task.assignmentGroupId,
+      id: { not: taskId },
+    },
+    select: {
+      id: true,
+      assignedTo: {
+        select: {
+          id: true,
+          name: true,
+          firstName: true,
+          lastName: true,
+          email: true,
+          image: true,
+        },
+      },
+      stage: {
+        select: {
+          title: true,
+          isFinishedColumn: true,
+        },
+      },
+    },
+    orderBy: [{ assignedTo: { firstName: "asc" } }, { assignedTo: { lastName: "asc" } }],
+  });
+
+  return {
+    ok: true,
+    copies: siblings.map((row) => ({
+      id: row.id,
+      assignedTo: row.assignedTo,
+      stage: row.stage,
+    })),
+  };
 }
 
 export async function updateBoardTaskStage(taskId: string, stageId: string) {
@@ -523,6 +676,7 @@ export async function addBoardTask(
       description: created.description,
       dueDate: created.dueDate ? created.dueDate.toISOString() : null,
       sortOrder: created.sortOrder,
+      assignmentGroupId: created.assignmentGroupId ?? null,
       assignedTo: {
         id: created.assignedTo.id,
         name: created.assignedTo.name,
@@ -659,20 +813,19 @@ export async function reassignBoardTask(taskId: string, nextAssignedToUserId: st
 
 export async function updateBoardTaskDetails(ownerUserId: string, taskId: string, formData: FormData) {
   const viewer = await sessionViewer();
-  if (!viewer) return;
+  if (!viewer) return { ok: false as const, error: "Unauthorized" };
   const access = await getTaskAccess(taskId, viewer.id, viewer.role as Role, viewer.permissions ?? null, viewer.headedDept?.id ?? null);
-  if (!access?.canEdit) return;
+  if (!access?.canEdit) return { ok: false as const, error: "No access." };
   const titleRaw = formData.get("title");
   const title = typeof titleRaw === "string" ? titleRaw.trim().slice(0, 500) : "";
   const descriptionRaw = nu(formData.get("description"), 32000);
 
-  const data: { title?: string; description?: string | null } = {};
-  if (title.length > 0) data.title = title;
+  if (!title.length) return { ok: false as const, error: "Task title is required." };
+
+  const data: { title: string; description?: string | null } = { title };
   if (formData.has("description")) {
     data.description = descriptionRaw.length > 0 ? descriptionRaw : null;
   }
-
-  if (Object.keys(data).length === 0) return;
 
   await prisma.personalTask.updateMany({
     where: { id: taskId },
@@ -680,7 +833,7 @@ export async function updateBoardTaskDetails(ownerUserId: string, taskId: string
   });
   revalidateTasks();
 
-  const nextTitle = (data.title ?? access.task.title).trim();
+  const nextTitle = data.title.trim();
   await notifyTaskParticipants({
     task: { ...access.task, title: nextTitle.length ? nextTitle : access.task.title },
     actorUserId: viewer.id,
@@ -690,6 +843,7 @@ export async function updateBoardTaskDetails(ownerUserId: string, taskId: string
     href: `/my-tasks?userId=${encodeURIComponent(access.task.assignedToUserId)}&task=${encodeURIComponent(access.task.id)}`,
     meta: { taskId: access.task.id, change: "details" },
   });
+  return { ok: true as const };
 }
 
 export async function setTaskDueDate(taskId: string, dueDateYmd: string) {
@@ -1300,6 +1454,7 @@ export async function loadBoardTaskForClient(taskId: string): Promise<
       description: true,
       dueDate: true,
       sortOrder: true,
+      assignmentGroupId: true,
       assignedTo: {
         select: {
           id: true,
@@ -1405,6 +1560,7 @@ export async function loadBoardTaskForClient(taskId: string): Promise<
       description: task.description,
       dueDate: task.dueDate ? task.dueDate.toISOString() : null,
       sortOrder: task.sortOrder,
+      assignmentGroupId: task.assignmentGroupId,
       assignedTo: task.assignedTo,
       assignedBy: task.assignedBy,
       attachments: task.attachments.map((a) => ({

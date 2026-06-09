@@ -25,6 +25,7 @@ export function serializePersonalBoardForClient(board: PersonalBoardPayload): Cl
       description: t.description,
       dueDate: t.dueDate ? t.dueDate.toISOString() : null,
       sortOrder: t.sortOrder,
+      assignmentGroupId: t.assignmentGroupId ?? null,
       assignedTo: {
         id: t.assignedTo.id,
         name: t.assignedTo.name,

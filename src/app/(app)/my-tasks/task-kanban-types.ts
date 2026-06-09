@@ -53,6 +53,12 @@ export type ClientTaskChecklist = {
   items: ClientTaskChecklistItem[];
 };
 
+export type ClientRelatedTaskCopy = {
+  id: string;
+  assignedTo: ClientTaskAssignee;
+  stage: { title: string; isFinishedColumn: boolean };
+};
+
 export type ClientBoardTask = {
   id: string;
   stageId: string;
@@ -60,6 +66,7 @@ export type ClientBoardTask = {
   description: string | null;
   dueDate: string | null;
   sortOrder: number;
+  assignmentGroupId: string | null;
   assignedTo: ClientTaskAssignee;
   assignedBy: ClientTaskAssignee | null;
   attachments: ClientTaskAttachment[];

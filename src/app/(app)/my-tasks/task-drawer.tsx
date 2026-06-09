@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Calendar, CheckSquare, MessageSquareText, Paperclip, Plus, Tag, Trash2, UserPlus, GripVertical, X } from "lucide-react";
+import Link from "next/link";
+import { Calendar, CheckSquare, MessageSquareText, Paperclip, Plus, Tag, Trash2, UserPlus, Users, GripVertical, X } from "lucide-react";
 import { toast } from "sonner";
 import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -10,7 +11,13 @@ import { Input, Label, Select, Textarea } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { displayName } from "@/lib/user-display-name";
 import { formatCalendarDate, utcCalendarDateToInputValue } from "@/lib/calendar-date";
-import type { ClientBoardLabel, ClientBoardStage, ClientBoardTask, ClientTaskAssignee } from "@/app/(app)/my-tasks/task-kanban-types";
+import type {
+  ClientBoardLabel,
+  ClientBoardStage,
+  ClientBoardTask,
+  ClientRelatedTaskCopy,
+  ClientTaskAssignee,
+} from "@/app/(app)/my-tasks/task-kanban-types";
 import {
   addPersonalTaskAttachment,
   addChecklistItem,
@@ -24,6 +31,7 @@ import {
   deletePersonalTaskAttachment,
   deleteTaskComment,
   loadBoardTaskForClient,
+  loadRelatedTaskCopies,
   removeTaskMember,
   reassignBoardTask,
   renameChecklist,
@@ -72,12 +80,13 @@ export function TaskDrawer({
   onClose: () => void;
 }) {
   const router = useRouter();
-  const [, startTransition] = useTransition();
+  const [isPending, startTransition] = useTransition();
   const commentFormRef = useRef<HTMLFormElement | null>(null);
   const [title, setTitle] = useState(task.title);
   const [desc, setDesc] = useState(task.description ?? "");
   const [selectedStageId, setSelectedStageId] = useState(task.stageId);
-  const canEditTask = !readOnlyBoard || task.assignedBy?.id === viewerId || task.assignedTo.id === viewerId;
+  const [uploadingAttachment, setUploadingAttachment] = useState(false);
+  const canEditTask = viewerId === ownerUserId || task.assignedBy?.id === viewerId;
   const canDeleteTask =
     task.assignedBy?.id === viewerId || (task.assignedTo.id === viewerId && (!task.assignedBy || task.assignedBy.id === viewerId));
   const canReassignTask = task.assignedBy?.id === viewerId;
@@ -91,6 +100,7 @@ export function TaskDrawer({
   const [newLabelColor, setNewLabelColor] = useState(LABEL_COLORS[1]?.id ?? "sky");
   const [newChecklistTitle, setNewChecklistTitle] = useState("Checklist");
   const [newItemByChecklistId, setNewItemByChecklistId] = useState<Record<string, string>>({});
+  const [relatedCopies, setRelatedCopies] = useState<ClientRelatedTaskCopy[]>([]);
 
   const selectedLabelIds = useMemo(() => new Set(task.labels.map((l) => l.id)), [task.labels]);
   const memberIds = useMemo(() => new Set(task.members.map((m) => m.id)), [task.members]);
@@ -116,6 +126,21 @@ export function TaskDrawer({
   }, [task.description]);
 
   useEffect(() => {
+    if (!task.assignmentGroupId) {
+      setRelatedCopies([]);
+      return;
+    }
+    let cancelled = false;
+    void loadRelatedTaskCopies(task.id).then((result) => {
+      if (cancelled || !result.ok) return;
+      setRelatedCopies(result.copies);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [task.assignmentGroupId, task.id]);
+
+  useEffect(() => {
     setReassignUserId(task.assignedTo.id);
   }, [task.assignedTo.id]);
 
@@ -123,6 +148,30 @@ export function TaskDrawer({
     const latest = await loadBoardTaskForClient(task.id);
     if (latest.ok) onTaskChanged(latest.task);
     else await refreshTask();
+  }
+
+  const savedTitle = task.title.trim();
+  const savedDesc = task.description ?? "";
+  const detailsDirty = title.trim() !== savedTitle || desc !== savedDesc;
+
+  function saveTaskDetails() {
+    const trimmedTitle = title.trim();
+    if (!trimmedTitle) {
+      toast.error("Task title is required.");
+      return;
+    }
+    startTransition(async () => {
+      const fd = new FormData();
+      fd.append("title", trimmedTitle);
+      fd.append("description", desc);
+      const result = await updateBoardTaskDetails(ownerUserId, task.id, fd);
+      if (!result.ok) {
+        toast.error(result.error || "Could not save");
+        return;
+      }
+      toast.success("Saved");
+      await syncLatestTask();
+    });
   }
 
   return (
@@ -153,9 +202,22 @@ export function TaskDrawer({
               />
             </div>
           </div>
-          <Button variant="ghost" size="sm" aria-label="Close panel" type="button" onClick={onClose}>
-            <X className="size-5" />
-          </Button>
+          <div className="flex shrink-0 items-center gap-1">
+            {canEditTask ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="accent"
+                disabled={!detailsDirty || isPending}
+                onClick={saveTaskDetails}
+              >
+                Save
+              </Button>
+            ) : null}
+            <Button variant="ghost" size="sm" aria-label="Close panel" type="button" onClick={onClose}>
+              <X className="size-5" />
+            </Button>
+          </div>
         </header>
 
         <div className="flex-1 overflow-y-auto px-4 py-3 space-y-5">
@@ -302,6 +364,39 @@ export function TaskDrawer({
               <p className="mt-1 text-[11px] text-ink-500">
                 Only the assigner can change who this task is assigned to.
               </p>
+            </div>
+          ) : null}
+
+          {task.assignmentGroupId && relatedCopies.length > 0 ? (
+            <div id="task-related-copies">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-ink-400 mb-2 inline-flex items-center gap-1.5">
+                <Users className="size-3.5" /> Related copies
+              </h4>
+              <p className="mb-2 text-xs text-ink-500">
+                The same assignment was sent to multiple teammates. Each person tracks their own copy.
+              </p>
+              <div className="space-y-1.5">
+                {relatedCopies.map((copy) => {
+                  const href = `/my-tasks?userId=${encodeURIComponent(copy.assignedTo.id)}&task=${encodeURIComponent(copy.id)}`;
+                  return (
+                    <Link
+                      key={copy.id}
+                      href={href}
+                      className="flex items-center justify-between gap-3 rounded-lg border border-ink-100 bg-ink-50/60 px-3 py-2 text-sm hover:bg-ink-50"
+                    >
+                      <span className="min-w-0 truncate font-medium text-ink-700">{displayName(copy.assignedTo)}</span>
+                      <span
+                        className={cn(
+                          "shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold",
+                          copy.stage.isFinishedColumn ? "bg-emerald-100 text-emerald-700" : "bg-sky-100 text-sky-700",
+                        )}
+                      >
+                        {copy.stage.title}
+                      </span>
+                    </Link>
+                  );
+                })}
+              </div>
             </div>
           ) : null}
 
@@ -694,26 +789,9 @@ export function TaskDrawer({
               className="mt-1 text-sm"
               placeholder={canEditTask ? "Notes, checklist, links…" : undefined}
             />
-            {canEditTask && (
-              <Button
-                type="button"
-                size="sm"
-                variant="accent"
-                className="mt-2"
-                onClick={() =>
-                  startTransition(async () => {
-                    const fd = new FormData();
-                    fd.append("title", title.trim());
-                    fd.append("description", desc);
-                    await updateBoardTaskDetails(ownerUserId, task.id, fd);
-                    toast.success("Saved");
-                    await syncLatestTask();
-                  })
-                }
-              >
-                Save details
-              </Button>
-            )}
+            {canEditTask && detailsDirty ? (
+              <p className="mt-2 text-xs font-medium text-amber-700">Unsaved changes — use Save in the header.</p>
+            ) : null}
           </div>
 
           <div id="task-attachments">
@@ -759,32 +837,41 @@ export function TaskDrawer({
                 </li>
               ))}
             </ul>
-            {canEditTask && (
-              <label className="block text-xs text-ink-500">
-                Upload file (PDF / Word / images / text)
-                <input
-                  ref={attachmentInputRef}
-                  type="file"
-                  className="block mt-1 text-sm max-w-full"
-                  onChange={(e) => {
-                    const input = e.currentTarget;
-                    const file = input.files?.[0];
-                    if (!file) return;
-                    startTransition(async () => {
-                      const fd = new FormData();
-                      fd.set("file", file);
-                      const r = await addPersonalTaskAttachment(ownerUserId, task.id, fd);
-                      input.value = "";
-                      if (!r.ok) toast.error(r.error || "Upload failed");
-                      else {
-                        toast.success("Uploaded");
-                        await syncLatestTask();
-                      }
-                    });
-                  }}
-                />
-              </label>
-            )}
+            {canEditTask ? (
+              <div className="space-y-2">
+                <label className="block text-xs text-ink-500">
+                  Choose a file to upload (PDF / Word / images / text). Uploads immediately.
+                  <input
+                    ref={attachmentInputRef}
+                    type="file"
+                    disabled={uploadingAttachment || isPending}
+                    className="block mt-1 text-sm max-w-full disabled:opacity-60"
+                    onChange={(e) => {
+                      const input = e.currentTarget;
+                      const file = input.files?.[0];
+                      if (!file) return;
+                      startTransition(async () => {
+                        setUploadingAttachment(true);
+                        try {
+                          const fd = new FormData();
+                          fd.set("file", file);
+                          const r = await addPersonalTaskAttachment(ownerUserId, task.id, fd);
+                          input.value = "";
+                          if (!r.ok) toast.error(r.error || "Upload failed");
+                          else {
+                            toast.success("Attachment uploaded");
+                            await syncLatestTask();
+                          }
+                        } finally {
+                          setUploadingAttachment(false);
+                        }
+                      });
+                    }}
+                  />
+                </label>
+                {uploadingAttachment ? <p className="text-xs font-medium text-sky-700">Uploading…</p> : null}
+              </div>
+            ) : null}
           </div>
 
           <div>

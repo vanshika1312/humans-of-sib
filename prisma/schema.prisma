@@ -813,6 +813,8 @@ model PersonalTask {
   description  String?                    @db.Text
   dueDate      DateTime?                  @db.Date
   sortOrder    Int                        @default(0)
+  /// Links independent copies of the same assigned work across teammates' boards.
+  assignmentGroupId String?
 
   attachments PersonalTaskAttachment[]
   comments    PersonalTaskComment[]
@@ -828,6 +830,7 @@ model PersonalTask {
   @@index([assignedByUserId])
   @@index([stageId, sortOrder])
   @@index([dueDate])
+  @@index([assignmentGroupId])
 }
 
 model PersonalTaskMember {

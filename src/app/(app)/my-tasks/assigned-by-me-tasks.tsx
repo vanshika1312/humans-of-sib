@@ -78,7 +78,8 @@ export function AssignedByMeTasks({ initialTasks }: { initialTasks: AssignedByMe
   }
 
   return (
-    <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+    <div className="max-h-[min(60vh,28rem)] overflow-y-auto overflow-x-hidden pr-1">
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
       {tasks.map((task) => {
         const href = `/my-tasks?userId=${encodeURIComponent(task.assignedTo.id)}&task=${encodeURIComponent(task.id)}`;
         const showLoader = isNavigating && pendingTaskId === task.id;
@@ -126,6 +127,7 @@ export function AssignedByMeTasks({ initialTasks }: { initialTasks: AssignedByMe
           </Link>
         );
       })}
+      </div>
     </div>
   );
 }
