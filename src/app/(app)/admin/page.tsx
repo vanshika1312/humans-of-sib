@@ -11,33 +11,59 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatDate } from "@/lib/utils";
 import { displayName } from "@/lib/user-display-name";
-import { Users, Building2, MapPin, IndianRupee, UserPlus } from "lucide-react";
+import { Users, Building2, MapPin, IndianRupee, UserPlus, Clock } from "lucide-react";
 import { AdminNoticeBanner } from "@/components/admin/admin-notice-banner";
 import { firstSearchParam } from "@/lib/search-param";
+import { isOnProbation, stripTime } from "@/lib/leave-policy";
+import {
+  AdminTeamProbationTabs,
+  parseAdminTeamProbationFilter,
+  type AdminTeamProbationFilter,
+} from "./_components/admin-team-probation-tabs";
 
 const ADMIN_ROLES = ["CEO", "ADMIN", "HR"];
 
-export default async function AdminPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ notice?: string | string[]; mailError?: string | string[] }>;
-}) {
+type AdminSearchParams = Promise<{
+  notice?: string | string[];
+  mailError?: string | string[];
+  probation?: string;
+}>;
+
+export default async function AdminPage({ searchParams }: { searchParams: AdminSearchParams }) {
   const sp = await searchParams;
   const notice = firstSearchParam(sp.notice);
   const mailError = firstSearchParam(sp.mailError);
   const mailDetail =
     notice === "invite_failed" && mailError ? mailError : undefined;
+  const probationFilter = parseAdminTeamProbationFilter(sp.probation);
   return (
     <div>
       <AdminNoticeBanner code={notice} detail={mailDetail} />
       <Suspense fallback={<RouteBodyFallback />}>
-        <AdminPageBody />
+        <AdminPageBody probationFilter={probationFilter} />
       </Suspense>
     </div>
   );
 }
 
-async function AdminPageBody() {
+function probationEndsWithinDays(probationEndsAt: Date, ref: Date, days: number): boolean {
+  const end = stripTime(probationEndsAt).getTime();
+  const now = stripTime(ref).getTime();
+  const limit = now + days * 24 * 60 * 60 * 1000;
+  return end >= now && end <= limit;
+}
+
+function matchesProbationFilter(
+  probationEndsAt: Date | null,
+  filter: AdminTeamProbationFilter,
+  ref: Date,
+): boolean {
+  if (filter === "all") return true;
+  const onProbation = isOnProbation(probationEndsAt, ref);
+  return filter === "on" ? onProbation : !onProbation;
+}
+
+async function AdminPageBody({ probationFilter }: { probationFilter: AdminTeamProbationFilter }) {
   const me = await requireAppViewer();
   const canAccess = !!me && (ADMIN_ROLES.includes(me.role) || (me.permissions ?? []).includes("ADMIN_PANEL"));
   if (!canAccess) redirect("/home");
@@ -55,7 +81,15 @@ async function AdminPageBody() {
     prisma.city.findMany({ orderBy: { name: "asc" } }),
   ]);
 
+  const today = new Date();
   const active = users.filter((u) => u.status === "ACTIVE");
+  const onProbationActive = active.filter((u) => isOnProbation(u.probationEndsAt, today));
+  const probationCounts: Record<AdminTeamProbationFilter, number> = {
+    all: users.length,
+    on: users.filter((u) => isOnProbation(u.probationEndsAt, today)).length,
+    confirmed: users.filter((u) => !isOnProbation(u.probationEndsAt, today)).length,
+  };
+  const filteredUsers = users.filter((u) => matchesProbationFilter(u.probationEndsAt, probationFilter, today));
   const isCeoOrAdmin = ["CEO", "ADMIN"].includes(me.role);
   const canWriteTeam = ADMIN_ROLES.includes(me.role) || (me.permissions ?? []).includes("ADMIN_TEAM_WRITE");
 
@@ -77,8 +111,15 @@ async function AdminPageBody() {
       />
 
       {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 mb-6">
         <StatCard icon={<Users className="size-5" />} label="Total team" value={`${active.length}`} tone="sky" />
+        <StatCard
+          icon={<Clock className="size-5" />}
+          label="On probation"
+          value={`${onProbationActive.length}`}
+          tone="orange"
+          href={onProbationActive.length > 0 ? "/admin?probation=on" : undefined}
+        />
         <StatCard icon={<Building2 className="size-5" />} label="Departments" value={`${depts.length}`} tone="orange" />
         <StatCard icon={<MapPin className="size-5" />} label="Cities" value={`${cities.length}`} tone="sun" />
         <StatCard
@@ -119,6 +160,19 @@ async function AdminPageBody() {
         <Card>
           <CardContent className="py-4 flex flex-wrap items-center justify-between gap-3 h-full">
             <div>
+              <div className="font-semibold text-ink-700">Work tracking</div>
+              <p className="text-sm text-ink-500 mt-0.5">
+                Cross-department efficiency, EOD compliance, and PIP thresholds.
+              </p>
+            </div>
+            <Link href="/admin/work">
+              <Button variant="outline">Open dashboard</Button>
+            </Link>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="py-4 flex flex-wrap items-center justify-between gap-3 h-full">
+            <div>
               <div className="font-semibold text-ink-700">Training library</div>
               <p className="text-sm text-ink-500 mt-0.5">
                 Books, external courses, quizzes, and completion points.
@@ -146,11 +200,16 @@ async function AdminPageBody() {
 
       {/* Team table */}
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
+        <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <CardTitle>Team Members</CardTitle>
-            <CardDescription>{active.length} active · {users.length - active.length} others</CardDescription>
+            <CardDescription>
+              {probationFilter === "all"
+                ? `${active.length} active · ${users.length - active.length} others`
+                : `${filteredUsers.length} shown · ${active.length} active total`}
+            </CardDescription>
           </div>
+          <AdminTeamProbationTabs active={probationFilter} counts={probationCounts} />
         </CardHeader>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
@@ -162,6 +221,7 @@ async function AdminPageBody() {
                   <th className="text-left px-5 py-3 text-xs font-semibold text-ink-400 uppercase tracking-wider">City</th>
                   <th className="text-left px-5 py-3 text-xs font-semibold text-ink-400 uppercase tracking-wider">Role</th>
                   <th className="text-left px-5 py-3 text-xs font-semibold text-ink-400 uppercase tracking-wider">Joined</th>
+                  <th className="text-left px-5 py-3 text-xs font-semibold text-ink-400 uppercase tracking-wider">Probation</th>
                   {isCeoOrAdmin && (
                     <th className="text-left px-5 py-3 text-xs font-semibold text-ink-400 uppercase tracking-wider">Salary</th>
                   )}
@@ -170,8 +230,20 @@ async function AdminPageBody() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-ink-100">
-                {users.map((u) => {
+                {filteredUsers.length === 0 ? (
+                  <tr>
+                    <td colSpan={isCeoOrAdmin ? 9 : 8} className="px-5 py-10 text-center text-sm text-ink-400">
+                      No team members match this probation filter.
+                    </td>
+                  </tr>
+                ) : null}
+                {filteredUsers.map((u) => {
                   const ud = displayName(u);
+                  const onProbation = isOnProbation(u.probationEndsAt, today);
+                  const endingSoon =
+                    onProbation && u.probationEndsAt
+                      ? probationEndsWithinDays(u.probationEndsAt, today, 30)
+                      : false;
                   return (
                   <tr key={u.id} className="hover:bg-ink-50/50 transition-colors">
                     <td className="px-5 py-3">
@@ -199,6 +271,25 @@ async function AdminPageBody() {
                       </Badge>
                     </td>
                     <td className="px-5 py-3 text-ink-500 text-xs">{formatDate(u.joinedAt)}</td>
+                    <td className="px-5 py-3">
+                      {onProbation ? (
+                        <div>
+                          <Badge tone="orange">On probation</Badge>
+                          {u.probationEndsAt ? (
+                            <div className="text-xs text-ink-500 mt-1">
+                              Until {formatDate(u.probationEndsAt)}
+                              {endingSoon ? (
+                                <span className="block text-[10px] font-medium text-amber-700 mt-0.5">
+                                  Ends within 30 days
+                                </span>
+                              ) : null}
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : (
+                        <Badge tone="green">Confirmed</Badge>
+                      )}
+                    </td>
                     {isCeoOrAdmin && (
                       <td className="px-5 py-3 text-ink-600 font-medium">
                         {u.compensation
@@ -230,18 +321,41 @@ async function AdminPageBody() {
   );
 }
 
-function StatCard({ icon, label, value, tone }: { icon: React.ReactNode; label: string; value: string; tone: "sky" | "orange" | "sun" | "ink" }) {
+function StatCard({
+  icon,
+  label,
+  value,
+  tone,
+  href,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  tone: "sky" | "orange" | "sun" | "ink";
+  href?: string;
+}) {
   const toneClass = {
     sky: "text-sky-600 bg-sky-50",
     orange: "text-orange-600 bg-orange-50",
     sun: "text-sun-600 bg-sun-50",
     ink: "text-ink-600 bg-ink-100",
   }[tone];
-  return (
-    <div className="p-4 rounded-xl border border-ink-100 bg-white">
+  const inner = (
+    <>
       <div className={`size-8 rounded-md inline-flex items-center justify-center ${toneClass}`}>{icon}</div>
       <div className="mt-2 text-xs text-ink-400">{label}</div>
       <div className="text-xl font-bold text-ink-700">{value}</div>
-    </div>
+    </>
   );
+  if (href) {
+    return (
+      <Link
+        href={href}
+        className="block p-4 rounded-xl border border-ink-100 bg-white hover:border-orange-200 hover:bg-orange-50/30 transition-colors"
+      >
+        {inner}
+      </Link>
+    );
+  }
+  return <div className="p-4 rounded-xl border border-ink-100 bg-white">{inner}</div>;
 }

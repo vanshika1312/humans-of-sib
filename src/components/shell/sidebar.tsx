@@ -47,8 +47,8 @@ function buildNav(liaEnabled?: boolean) {
   ]},
   { group: "Work", items: [
     { href: "/attendance", label: "Attendance", icon: CalendarClock },
+    { href: "/work", label: "OKRs", icon: Target },
     { href: "/pulse", label: "Pulse", icon: HeartPulse },
-    { href: "/okrs", label: "OKRs", icon: Target, comingSoon: true },
     { href: "/one-on-one", label: "1-on-1s", icon: Users, comingSoon: true },
     { href: "/trainings", label: "Trainings", icon: GraduationCap },
     { href: "/incentives", label: "Incentives", icon: Gift },

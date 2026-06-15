@@ -34,7 +34,7 @@ export async function QuickStats({ userId }: Props) {
         tone="orange"
       />
       <StatCard
-        href="/okrs"
+        href="/work/personal"
         icon={<Target className="size-5" />}
         label="Active OKRs"
         value={`${activeOkrs}`}

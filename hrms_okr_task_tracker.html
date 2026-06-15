@@ -1,0 +1,314 @@
+
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: var(--font-sans); font-size: 14px; color: var(--color-text-primary); }
+.app { display: flex; height: 100vh; min-height: 620px; background: var(--color-background-tertiary); }
+.sidebar { width: 200px; min-width: 200px; background: var(--color-background-primary); border-right: 0.5px solid var(--color-border-tertiary); padding: 1rem 0; display: flex; flex-direction: column; gap: 2px; }
+.sidebar-logo { padding: 0 1rem 1rem; border-bottom: 0.5px solid var(--color-border-tertiary); margin-bottom: 0.5rem; }
+.sidebar-logo p { font-size: 13px; color: var(--color-text-secondary); }
+.sidebar-logo strong { font-size: 15px; font-weight: 500; }
+.nav-item { display: flex; align-items: center; gap: 8px; padding: 8px 1rem; font-size: 13px; color: var(--color-text-secondary); cursor: pointer; border-radius: 0; transition: background 0.1s; }
+.nav-item:hover { background: var(--color-background-secondary); color: var(--color-text-primary); }
+.nav-item.active { background: var(--color-background-secondary); color: var(--color-text-primary); font-weight: 500; border-left: 2px solid #1D9E75; }
+.nav-item i { font-size: 16px; }
+.main { flex: 1; overflow-y: auto; padding: 1.5rem; display: flex; flex-direction: column; gap: 1.25rem; }
+.topbar { display: flex; align-items: center; justify-content: space-between; }
+.topbar-left h2 { font-size: 17px; font-weight: 500; }
+.topbar-left p { font-size: 12px; color: var(--color-text-secondary); margin-top: 2px; }
+.topbar-right { display: flex; align-items: center; gap: 8px; }
+.dept-pill { font-size: 12px; padding: 4px 10px; border-radius: var(--border-radius-md); background: #E1F5EE; color: #0F6E56; font-weight: 500; }
+.btn { font-size: 12px; padding: 6px 12px; border-radius: var(--border-radius-md); border: 0.5px solid var(--color-border-secondary); background: var(--color-background-primary); color: var(--color-text-primary); cursor: pointer; display: flex; align-items: center; gap: 5px; }
+.btn:hover { background: var(--color-background-secondary); }
+.btn.primary { background: #1D9E75; color: #fff; border-color: #1D9E75; }
+.btn.primary:hover { background: #0F6E56; }
+.metrics-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.metric-card { background: var(--color-background-secondary); border-radius: var(--border-radius-md); padding: 1rem; }
+.metric-card .label { font-size: 11px; color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 6px; }
+.metric-card .value { font-size: 22px; font-weight: 500; }
+.metric-card .sub { font-size: 11px; color: var(--color-text-secondary); margin-top: 3px; }
+.metric-card .change { font-size: 11px; margin-top: 3px; }
+.change.up { color: #1D9E75; }
+.change.down { color: #D85A30; }
+.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; }
+.card { background: var(--color-background-primary); border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-lg); padding: 1rem 1.25rem; }
+.card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; }
+.card-header h3 { font-size: 14px; font-weight: 500; }
+.okr-block { margin-bottom: 1rem; }
+.okr-objective { font-size: 12px; font-weight: 500; color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
+.kr-row { margin-bottom: 8px; }
+.kr-row .kr-label { font-size: 13px; color: var(--color-text-primary); margin-bottom: 4px; display: flex; justify-content: space-between; align-items: center; }
+.kr-row .kr-label span { font-size: 11px; color: var(--color-text-secondary); }
+.progress-bar { height: 5px; background: var(--color-background-secondary); border-radius: 4px; overflow: hidden; }
+.progress-fill { height: 100%; border-radius: 4px; }
+.fill-teal { background: #1D9E75; }
+.fill-amber { background: #EF9F27; }
+.fill-blue { background: #378ADD; }
+.fill-red { background: #E24B4A; }
+.task-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.task-table th { text-align: left; font-size: 11px; font-weight: 500; color: var(--color-text-secondary); padding: 0 8px 8px; border-bottom: 0.5px solid var(--color-border-tertiary); }
+.task-table td { padding: 8px; border-bottom: 0.5px solid var(--color-border-tertiary); vertical-align: middle; }
+.task-table tr:last-child td { border-bottom: none; }
+.avatar { width: 26px; height: 26px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 500; }
+.av-teal { background: #E1F5EE; color: #0F6E56; }
+.av-blue { background: #E6F1FB; color: #185FA5; }
+.av-amber { background: #FAEEDA; color: #854F0B; }
+.av-pink { background: #FBEAF0; color: #993556; }
+.av-purple { background: #EEEDFE; color: #534AB7; }
+.badge { font-size: 10px; padding: 2px 7px; border-radius: var(--border-radius-md); font-weight: 500; }
+.badge-p1 { background: #FCEBEB; color: #A32D2D; }
+.badge-p2 { background: #FAEEDA; color: #854F0B; }
+.badge-p3 { background: #E1F5EE; color: #0F6E56; }
+.badge-done { background: #E1F5EE; color: #0F6E56; }
+.badge-partial { background: #FAEEDA; color: #854F0B; }
+.badge-pending { background: var(--color-background-secondary); color: var(--color-text-secondary); }
+.badge-wip { background: #E6F1FB; color: #185FA5; }
+.badge-missing { background: #FCEBEB; color: #A32D2D; }
+.task-type { font-size: 11px; background: var(--color-background-secondary); padding: 2px 6px; border-radius: var(--border-radius-md); color: var(--color-text-secondary); }
+.section-tabs { display: flex; gap: 4px; }
+.tab { font-size: 12px; padding: 4px 10px; border-radius: var(--border-radius-md); cursor: pointer; color: var(--color-text-secondary); border: none; background: none; }
+.tab.active { background: var(--color-background-secondary); color: var(--color-text-primary); font-weight: 500; }
+.eod-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; border-bottom: 0.5px solid var(--color-border-tertiary); font-size: 13px; }
+.eod-row:last-child { border-bottom: none; }
+.eod-name { display: flex; align-items: center; gap: 8px; }
+.eod-bar-wrap { flex: 1; margin: 0 12px; }
+.eod-pct { font-size: 12px; font-weight: 500; min-width: 30px; text-align: right; }
+.flag-row { display: flex; align-items: flex-start; gap: 8px; padding: 8px 0; border-bottom: 0.5px solid var(--color-border-tertiary); font-size: 12px; }
+.flag-row:last-child { border-bottom: none; }
+.flag-icon { font-size: 14px; margin-top: 1px; }
+.flag-text { color: var(--color-text-secondary); line-height: 1.5; }
+.flag-text strong { color: var(--color-text-primary); font-weight: 500; }
+.full-card { background: var(--color-background-primary); border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-lg); padding: 1rem 1.25rem; }
+.assign-form { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.assign-form label { font-size: 11px; color: var(--color-text-secondary); display: block; margin-bottom: 4px; }
+.assign-form select, .assign-form input { width: 100%; font-size: 13px; }
+.assign-form .full { grid-column: 1 / -1; }
+</style>
+
+<div class="app">
+  <div class="sidebar">
+    <div class="sidebar-logo">
+      <strong>Skillinabox</strong>
+      <p>HRMS · Performance</p>
+    </div>
+    <div class="nav-item"><i class="ti ti-layout-dashboard" aria-hidden="true"></i> Overview</div>
+    <div class="nav-item active"><i class="ti ti-target" aria-hidden="true"></i> OKRs & Tasks</div>
+    <div class="nav-item"><i class="ti ti-check" aria-hidden="true"></i> EOD Reports</div>
+    <div class="nav-item"><i class="ti ti-chart-bar" aria-hidden="true"></i> Efficiency</div>
+    <div class="nav-item"><i class="ti ti-users" aria-hidden="true"></i> Team</div>
+    <div class="nav-item"><i class="ti ti-file-text" aria-hidden="true"></i> Appraisals</div>
+    <div style="margin-top: auto; padding: 1rem;">
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <div class="avatar av-teal" style="width:30px;height:30px;font-size:11px;">VK</div>
+        <div>
+          <p style="font-size:12px;font-weight:500;">Vanshika</p>
+          <p style="font-size:11px;color:var(--color-text-secondary);">HR Admin</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="main">
+    <div class="topbar">
+      <div class="topbar-left">
+        <h2>OKRs & Daily Tasks</h2>
+        <p>Friday, 13 June 2025 &nbsp;·&nbsp; Week 24</p>
+      </div>
+      <div class="topbar-right">
+        <span class="dept-pill"><i class="ti ti-video" aria-hidden="true"></i> Video Editing</span>
+        <select style="font-size:12px; padding:5px 8px; border-radius:var(--border-radius-md); border:0.5px solid var(--color-border-secondary); background:var(--color-background-primary); color:var(--color-text-primary);">
+          <option>June 2025</option>
+          <option>May 2025</option>
+        </select>
+        <button class="btn primary" onclick="sendPrompt('Show me the task assignment form for Video Editing department')"><i class="ti ti-plus" aria-hidden="true"></i> Assign tasks ↗</button>
+      </div>
+    </div>
+
+    <div class="metrics-row">
+      <div class="metric-card">
+        <div class="label">Today's tasks</div>
+        <div class="value">14</div>
+        <div class="sub">Across 5 editors</div>
+      </div>
+      <div class="metric-card">
+        <div class="label">Completed today</div>
+        <div class="value">9</div>
+        <div class="change up"><i class="ti ti-arrow-up" aria-hidden="true"></i> 64% done</div>
+      </div>
+      <div class="metric-card">
+        <div class="label">EOD submitted</div>
+        <div class="value">3 / 5</div>
+        <div class="change down"><i class="ti ti-alert-circle" aria-hidden="true"></i> 2 pending</div>
+      </div>
+      <div class="metric-card">
+        <div class="label">Monthly efficiency</div>
+        <div class="value">73%</div>
+        <div class="change up"><i class="ti ti-arrow-up" aria-hidden="true"></i> +6% vs last month</div>
+      </div>
+    </div>
+
+    <div class="two-col">
+      <div class="card">
+        <div class="card-header">
+          <h3>Monthly OKRs — Video Editing</h3>
+          <span style="font-size:11px;color:var(--color-text-secondary);">Q2 · June</span>
+        </div>
+        <div class="okr-block">
+          <div class="okr-objective"><i class="ti ti-player-play" style="font-size:13px;" aria-hidden="true"></i> Deliver content on schedule</div>
+          <div class="kr-row">
+            <div class="kr-label">Reels completed <span>18 / 24</span></div>
+            <div class="progress-bar"><div class="progress-fill fill-teal" style="width:75%"></div></div>
+          </div>
+          <div class="kr-row">
+            <div class="kr-label">Ad edits delivered <span>11 / 16</span></div>
+            <div class="progress-bar"><div class="progress-fill fill-teal" style="width:69%"></div></div>
+          </div>
+        </div>
+        <div class="okr-block">
+          <div class="okr-objective"><i class="ti ti-books" style="font-size:13px;" aria-hidden="true"></i> LMS content production</div>
+          <div class="kr-row">
+            <div class="kr-label">LMS modules edited <span>5 / 12</span></div>
+            <div class="progress-bar"><div class="progress-fill fill-amber" style="width:42%"></div></div>
+          </div>
+          <div class="kr-row">
+            <div class="kr-label">YouTube vlogs <span>3 / 6</span></div>
+            <div class="progress-bar"><div class="progress-fill fill-blue" style="width:50%"></div></div>
+          </div>
+        </div>
+        <div class="okr-block">
+          <div class="okr-objective"><i class="ti ti-star" style="font-size:13px;" aria-hidden="true"></i> Quality & revision rate</div>
+          <div class="kr-row">
+            <div class="kr-label">Revisions &lt; 2 per asset <span>72%</span></div>
+            <div class="progress-bar"><div class="progress-fill fill-teal" style="width:72%"></div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <h3>Today's task board</h3>
+          <div class="section-tabs">
+            <button class="tab active">All</button>
+            <button class="tab">In progress</button>
+            <button class="tab">Done</button>
+          </div>
+        </div>
+        <table class="task-table">
+          <thead>
+            <tr>
+              <th>Editor</th>
+              <th>Task</th>
+              <th>Type</th>
+              <th>Target</th>
+              <th>Priority</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><div style="display:flex;align-items:center;gap:6px;"><div class="avatar av-teal">AK</div><span>Arjun</span></div></td>
+              <td style="color:var(--color-text-primary);">Product launch reel</td>
+              <td><span class="task-type">Reel</span></td>
+              <td>2</td>
+              <td><span class="badge badge-p1">P1</span></td>
+              <td><span class="badge badge-done">Done</span></td>
+            </tr>
+            <tr>
+              <td><div style="display:flex;align-items:center;gap:6px;"><div class="avatar av-blue">RS</div><span>Riya</span></div></td>
+              <td style="color:var(--color-text-primary);">June sale ad cut</td>
+              <td><span class="task-type">Ad</span></td>
+              <td>3</td>
+              <td><span class="badge badge-p1">P1</span></td>
+              <td><span class="badge badge-wip">In progress</span></td>
+            </tr>
+            <tr>
+              <td><div style="display:flex;align-items:center;gap:6px;"><div class="avatar av-amber">MT</div><span>Meera</span></div></td>
+              <td style="color:var(--color-text-primary);">Digital mktg module 4</td>
+              <td><span class="task-type">LMS</span></td>
+              <td>1</td>
+              <td><span class="badge badge-p2">P2</span></td>
+              <td><span class="badge badge-done">Done</span></td>
+            </tr>
+            <tr>
+              <td><div style="display:flex;align-items:center;gap:6px;"><div class="avatar av-pink">PD</div><span>Priya</span></div></td>
+              <td style="color:var(--color-text-primary);">Founder vlog — May recap</td>
+              <td><span class="task-type">Vlog</span></td>
+              <td>1</td>
+              <td><span class="badge badge-p2">P2</span></td>
+              <td><span class="badge badge-partial">Partial</span></td>
+            </tr>
+            <tr>
+              <td><div style="display:flex;align-items:center;gap:6px;"><div class="avatar av-purple">SK</div><span>Sanjay</span></div></td>
+              <td style="color:var(--color-text-primary);">Instagram reels batch</td>
+              <td><span class="task-type">Reel</span></td>
+              <td>4</td>
+              <td><span class="badge badge-p3">P3</span></td>
+              <td><span class="badge badge-pending">Not started</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="two-col">
+      <div class="card">
+        <div class="card-header">
+          <h3>EOD submissions — today</h3>
+          <span style="font-size:11px;color:var(--color-text-secondary);">Deadline 6:30 PM</span>
+        </div>
+        <div class="eod-row">
+          <div class="eod-name"><div class="avatar av-teal">AK</div> Arjun</div>
+          <div class="eod-bar-wrap"><div class="progress-bar"><div class="progress-fill fill-teal" style="width:100%"></div></div></div>
+          <span class="eod-pct" style="color:#1D9E75;">100%</span>
+          <span class="badge badge-done" style="margin-left:8px;">Submitted</span>
+        </div>
+        <div class="eod-row">
+          <div class="eod-name"><div class="avatar av-blue">RS</div> Riya</div>
+          <div class="eod-bar-wrap"><div class="progress-bar"><div class="progress-fill fill-amber" style="width:67%"></div></div></div>
+          <span class="eod-pct" style="color:#BA7517;">67%</span>
+          <span class="badge badge-partial" style="margin-left:8px;">Submitted</span>
+        </div>
+        <div class="eod-row">
+          <div class="eod-name"><div class="avatar av-amber">MT</div> Meera</div>
+          <div class="eod-bar-wrap"><div class="progress-bar"><div class="progress-fill fill-teal" style="width:100%"></div></div></div>
+          <span class="eod-pct" style="color:#1D9E75;">100%</span>
+          <span class="badge badge-done" style="margin-left:8px;">Submitted</span>
+        </div>
+        <div class="eod-row">
+          <div class="eod-name"><div class="avatar av-pink">PD</div> Priya</div>
+          <div class="eod-bar-wrap"><div class="progress-bar"><div class="progress-fill fill-red" style="width:0%"></div></div></div>
+          <span class="eod-pct" style="color:#A32D2D;">—</span>
+          <span class="badge badge-missing" style="margin-left:8px;">Missing</span>
+        </div>
+        <div class="eod-row">
+          <div class="eod-name"><div class="avatar av-purple">SK</div> Sanjay</div>
+          <div class="eod-bar-wrap"><div class="progress-bar"><div class="progress-fill fill-red" style="width:0%"></div></div></div>
+          <span class="eod-pct" style="color:#A32D2D;">—</span>
+          <span class="badge badge-missing" style="margin-left:8px;">Missing</span>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <h3>Flags & alerts</h3>
+          <span style="font-size:11px;background:#FCEBEB;color:#A32D2D;padding:2px 8px;border-radius:var(--border-radius-md);">3 active</span>
+        </div>
+        <div class="flag-row">
+          <i class="ti ti-clock flag-icon" style="color:#E24B4A;" aria-hidden="true"></i>
+          <div class="flag-text"><strong>EOD missing</strong> — Priya & Sanjay have not submitted today's EOD. Deadline passed 30 min ago.</div>
+        </div>
+        <div class="flag-row">
+          <i class="ti ti-trending-down flag-icon" style="color:#EF9F27;" aria-hidden="true"></i>
+          <div class="flag-text"><strong>LMS behind target</strong> — Only 42% of LMS modules done. 7 modules needed in remaining 17 days to hit KR.</div>
+        </div>
+        <div class="flag-row">
+          <i class="ti ti-alert-circle flag-icon" style="color:#EF9F27;" aria-hidden="true"></i>
+          <div class="flag-text"><strong>Sanjay — low efficiency</strong> — 3rd week below 55% efficiency. Review recommended before next appraisal cycle.</div>
+        </div>
+        <div style="margin-top:1rem;padding-top:1rem;border-top:0.5px solid var(--color-border-tertiary);">
+          <button class="btn" style="width:100%;justify-content:center;" onclick="sendPrompt('Show me Sanjay\'s efficiency trend for the last 4 weeks in Video Editing')">View Sanjay's efficiency trend ↗</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>

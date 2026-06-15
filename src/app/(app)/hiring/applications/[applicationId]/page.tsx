@@ -45,6 +45,7 @@ import { isBulkImportStoredResumeUrl } from "@/lib/hiring-resume-upload";
 import type { HiringTemplateMergeContext } from "@/lib/hiring-template-merge";
 import { googleCalendarConfigured } from "@/lib/google-calendar";
 import { displayName } from "@/lib/user-display-name";
+import { backfillLegacyHiringReviewsForApplication } from "@/lib/hiring-legacy-review-backfill";
 
 type Props = {
   params: Promise<{ applicationId: string }>;
@@ -100,6 +101,8 @@ export default async function HiringApplicationDetailPage(props: Props) {
   const canSendHiringEmail = Boolean(viewer && HR_GATE.includes(viewer.role));
   const canScheduleInterview = canSendHiringEmail;
   const calendarConfigured = googleCalendarConfigured();
+
+  await backfillLegacyHiringReviewsForApplication(applicationId);
 
   const app = await prisma.hiringApplication.findUnique({
     where: { id: applicationId },

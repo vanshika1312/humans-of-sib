@@ -45,6 +45,7 @@ export async function createOkr(formData: FormData) {
   });
 
   revalidatePath("/okrs");
+  revalidatePath("/work/personal");
   revalidatePath("/home");
 }
 
@@ -66,4 +67,5 @@ export async function updateOkrProgress(id: string, formData: FormData) {
   });
 
   revalidatePath("/okrs");
+  revalidatePath("/work/personal");
 }
