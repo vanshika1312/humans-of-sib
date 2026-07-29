@@ -1,27 +1,26 @@
-import Image from "next/image";
 import Link from "next/link";
 import { Card } from "@/components/ui/card";
+import { Avatar } from "@/components/ui/avatar";
+import { getCeoInboxRecipient } from "@/lib/ceo-feedback";
 
-export function DirectToCEO() {
+export async function DirectToCEO() {
+  const ceo = await getCeoInboxRecipient();
+  const displayName = ceo?.name?.trim() || "CEO";
+  const subtitle = ceo?.role === "CEO" ? "CEO" : "Leadership";
+
   return (
     <Card className="overflow-hidden">
       <div className="p-5 md:p-6 bg-gradient-to-r from-orange-50 to-sun-50">
         <div className="flex items-start gap-4">
           <div className="relative shrink-0">
-            <div className="size-14 rounded-full overflow-hidden ring-2 ring-white shadow-md">
-              <Image
-                src="/ritvik.jpeg"
-                alt="Ritvik"
-                width={56}
-                height={56}
-                className="object-cover object-top size-full"
-              />
-            </div>
+            <Avatar src={ceo?.image} name={displayName} size="lg" className="shadow-md" />
             <span className="absolute -bottom-1 -right-1 text-base">📣</span>
           </div>
 
           <div className="min-w-0 flex-1">
-            <div className="text-xs font-medium text-orange-500 mb-0.5">Ritvik · CPO</div>
+            <div className="text-xs font-medium text-orange-500 mb-0.5">
+              {displayName} · {subtitle}
+            </div>
             <div className="font-semibold text-ink-700 leading-tight">Got something on your mind?</div>
             <p className="text-sm text-ink-500 mt-1">
               Send an idea, concern, or kudos straight to the CEO — anonymously if you want.

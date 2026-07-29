@@ -16,7 +16,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Download } from "lucide-react";
 import { AttendanceCsvImport } from "./_components/AttendanceCsvImport";
-import { AttendanceCsvDelete } from "./_components/AttendanceCsvDelete";
 import { ReportMonthNav } from "@/components/report-month-nav";
 
 const MONTHS = [
@@ -89,11 +88,10 @@ async function AdminAttendanceReportBody({ year, month }: { year: number; month:
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Import test attendance (CSV)</CardTitle>
+          <CardTitle className="text-base">Import attendance (CSV)</CardTitle>
         </CardHeader>
         <CardContent>
           <AttendanceCsvImport templateHref="/admin/attendance-report/import-template" />
-          <AttendanceCsvDelete deleteTemplateHref="/admin/attendance-report/delete-template" />
         </CardContent>
       </Card>
 

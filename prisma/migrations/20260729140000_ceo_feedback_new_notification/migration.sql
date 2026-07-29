@@ -1,0 +1,1 @@
+ALTER TYPE "NotificationKind" ADD VALUE 'CEO_FEEDBACK_NEW';

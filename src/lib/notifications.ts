@@ -49,7 +49,7 @@ export async function countUnreadMessageNotifications(userId: string) {
     where: {
       userId: id,
       readAt: null,
-      kind: { in: ["TASK_COMMENT", "CEO_FEEDBACK_REPLY"] },
+      kind: { in: ["TASK_COMMENT", "CEO_FEEDBACK_REPLY", "CEO_FEEDBACK_NEW"] },
     },
   });
 }

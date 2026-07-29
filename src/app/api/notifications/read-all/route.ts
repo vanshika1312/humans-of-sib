@@ -24,7 +24,11 @@ export async function PATCH() {
   const [unreadCount, unreadMessageCount] = await Promise.all([
     prisma.notification.count({ where: { userId: me.id, readAt: null } }),
     prisma.notification.count({
-      where: { userId: me.id, readAt: null, kind: { in: ["TASK_COMMENT", "CEO_FEEDBACK_REPLY"] } },
+      where: {
+        userId: me.id,
+        readAt: null,
+        kind: { in: ["TASK_COMMENT", "CEO_FEEDBACK_REPLY", "CEO_FEEDBACK_NEW"] },
+      },
     }),
   ]);
 

@@ -23,7 +23,11 @@ export async function GET(req: NextRequest) {
   const [unreadCount, unreadMessageCount, notifications] = await Promise.all([
     prisma.notification.count({ where: { userId: me.id, readAt: null } }),
     prisma.notification.count({
-      where: { userId: me.id, readAt: null, kind: { in: ["TASK_COMMENT", "CEO_FEEDBACK_REPLY"] } },
+      where: {
+        userId: me.id,
+        readAt: null,
+        kind: { in: ["TASK_COMMENT", "CEO_FEEDBACK_REPLY", "CEO_FEEDBACK_NEW"] },
+      },
     }),
     prisma.notification.findMany({
       where: { userId: me.id, ...(unreadOnly ? { readAt: null } : {}) },
@@ -80,7 +84,11 @@ export async function POST(req: NextRequest) {
   const [unreadCount, unreadMessageCount] = await Promise.all([
     prisma.notification.count({ where: { userId: me.id, readAt: null } }),
     prisma.notification.count({
-      where: { userId: me.id, readAt: null, kind: { in: ["TASK_COMMENT", "CEO_FEEDBACK_REPLY"] } },
+      where: {
+        userId: me.id,
+        readAt: null,
+        kind: { in: ["TASK_COMMENT", "CEO_FEEDBACK_REPLY", "CEO_FEEDBACK_NEW"] },
+      },
     }),
   ]);
   return NextResponse.json({ ok: true, unreadCount, unreadMessageCount });

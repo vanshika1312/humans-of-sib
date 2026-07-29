@@ -2,6 +2,7 @@
 
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { getCeoInboxRecipientId } from "@/lib/ceo-feedback";
 import { createNotification } from "@/lib/notifications";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
@@ -37,8 +38,9 @@ export async function submitCeoFeedback(formData: FormData) {
     redirect("/feedback/ceo/new?error=" + encodeURIComponent(hint));
   }
 
+  let createdId: string;
   try {
-    await prisma.cEOFeedback.create({
+    const created = await prisma.cEOFeedback.create({
       data: {
         subject: parsed.data.subject,
         message: parsed.data.message,
@@ -46,9 +48,28 @@ export async function submitCeoFeedback(formData: FormData) {
         anonymous: parsed.data.anonymous,
         userId: parsed.data.anonymous ? null : user.id,
       },
+      select: { id: true },
     });
+    createdId = created.id;
   } catch {
     redirect("/feedback/ceo/new?error=" + encodeURIComponent("Could not send your message. Try again in a moment."));
+  }
+
+  const ceoId = await getCeoInboxRecipientId();
+  if (ceoId && ceoId !== user.id) {
+    try {
+      await createNotification({
+        userId: ceoId,
+        kind: "CEO_FEEDBACK_NEW",
+        title: "New Direct to CEO message",
+        body: parsed.data.subject,
+        href: "/feedback/ceo/inbox",
+        actorUserId: parsed.data.anonymous ? null : user.id,
+        meta: { ceoFeedbackId: createdId },
+      });
+    } catch {
+      // non-critical
+    }
   }
 
   revalidatePath("/feedback/ceo");

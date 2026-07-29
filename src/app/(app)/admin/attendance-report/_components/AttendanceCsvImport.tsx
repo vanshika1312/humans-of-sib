@@ -17,63 +17,11 @@ export function AttendanceCsvImport({ templateHref }: Props) {
 
   return (
     <div className="space-y-4">
-      <div className="p-4 rounded-lg bg-ink-50 border border-ink-100 text-sm text-ink-600 space-y-2">
-        <p className="font-medium text-ink-700">Test import (payroll report)</p>
-        <p className="text-ink-500">
-          One row per calendar day. Times are{" "}
-          <strong className="font-medium text-ink-600">Asia/Kolkata</strong> on that date. Rows upsert by employee + date
-          (existing punches for that day are replaced — including correcting a bad CSV import). Use this to validate late /
-          half-day / deduction counts for last month or any range. To <strong className="font-medium text-ink-600">delete</strong>{" "}
-          days entirely, use the remove-CSV section below.
-        </p>
-        <ol className="list-decimal list-inside space-y-1 text-ink-500">
-          <li>
-            <a href={templateHref} download className="text-sky-600 underline underline-offset-2 hover:text-sky-700">
-              Download CSV template
-            </a>
-          </li>
-          <li>
-            Fill rows (e.g. Vanshika&apos;s April)—then open the report for that month and compare with your manual
-            expectations.
-          </li>
-        </ol>
-        <div className="pt-1 space-y-1.5">
-          <p className="text-xs font-semibold text-ink-600">Columns</p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-1 text-xs text-ink-500">
-            <div>
-              <code className="bg-ink-100 px-1 rounded text-ink-700">email</code> — login email (optional if you set
-              default below)
-            </div>
-            <div>
-              <code className="bg-ink-100 px-1 rounded text-ink-700">date</code>{" "}
-              <span className="text-red-500">*</span> — DD-MM-YYYY (e.g. 15-04-2026)
-            </div>
-            <div>
-              <code className="bg-ink-100 px-1 rounded text-ink-700">check_in_ist</code>{" "}
-              <span className="text-red-500">*</span> — HH:MM (24h)
-            </div>
-            <div>
-              <code className="bg-ink-100 px-1 rounded text-ink-700">check_out_ist</code> — HH:MM (optional)
-            </div>
-            <div>
-              <code className="bg-ink-100 px-1 rounded text-ink-700">mode</code> — OFFICE or WFH (
-              <span className="text-ink-400">default OFFICE</span>)
-            </div>
-            <div>
-              <code className="bg-ink-100 px-1 rounded text-ink-700">source</code> — MANUAL / BIOMETRIC / REGULARISED (
-              <span className="text-ink-400">default MANUAL</span>)
-            </div>
-            <div className="sm:col-span-2">
-              <code className="bg-ink-100 px-1 rounded text-ink-700">note</code> — optional (
-              <span className="text-ink-400">&quot;csv-import&quot; is appended</span>)
-            </div>
-          </div>
-          <p className="text-[11px] text-ink-400 pt-1">
-            Aliases: <code className="bg-ink-100 px-1 rounded">check_in</code>,{" "}
-            <code className="bg-ink-100 px-1 rounded">check_out</code> also work. Legacy{" "}
-            <code className="bg-ink-100 px-1 rounded">YYYY-MM-DD</code> dates are still accepted.
-          </p>
-        </div>
+      <div className="p-4 rounded-lg bg-ink-50 border border-ink-100 text-sm text-ink-600 flex items-center justify-between gap-3 flex-wrap">
+        <p className="font-medium text-ink-700">Import attendance (CSV)</p>
+        <a href={templateHref} download className="text-sky-600 underline underline-offset-2 hover:text-sky-700">
+          Download CSV template
+        </a>
       </div>
 
       <form action={dispatch} className="space-y-3">
