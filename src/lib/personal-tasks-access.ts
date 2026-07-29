@@ -1,8 +1,8 @@
 import type { EmployeeStatus, Role } from "@/generated/prisma";
 import { hasPermission } from "@/lib/permissions";
+import { canViewEmployeeTeamTasks } from "@/lib/work-tracking/access";
 
 const HR_EXEC_ROLES: Role[] = ["HR", "CEO", "ADMIN"];
-const TASKS_GLOBAL_ROLES: Role[] = ["CEO", "ADMIN"];
 
 export type PeopleProfileAccess = {
   level: "limited" | "extended" | "full";
@@ -70,14 +70,17 @@ export function canViewPersonalTasks(args: {
   hasExplicitGrant?: boolean;
 }): boolean {
   if (args.viewerUserId === args.ownerUserId) return true;
-  if (TASKS_GLOBAL_ROLES.includes(args.viewerRole)) return true;
+  if (HR_EXEC_ROLES.includes(args.viewerRole)) return true;
   if (hasPermission({ permissions: args.viewerPermissions ?? [] }, "TASKS_VIEW_ALL")) return true;
   if (args.hasExplicitGrant) return true;
-  if (args.viewerRole === "MANAGER" && args.ownerManagerId === args.viewerUserId) return true;
   if (
-    args.viewerRole === "DEPT_HEAD" &&
-    args.viewerHeadedDepartmentId &&
-    args.ownerDepartmentId === args.viewerHeadedDepartmentId
+    canViewEmployeeTeamTasks({
+      viewerRole: args.viewerRole,
+      viewerUserId: args.viewerUserId,
+      viewerHeadedDepartmentId: args.viewerHeadedDepartmentId,
+      employeeManagerId: args.ownerManagerId,
+      employeeDepartmentId: args.ownerDepartmentId,
+    })
   ) {
     return true;
   }

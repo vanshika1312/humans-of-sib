@@ -3,7 +3,7 @@
 import { formatDate } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
-import type { JourneyMilestone } from "../_data/mockEmployeeData";
+import type { JourneyMilestone } from "../_data/journey-types";
 import { MILESTONE_META } from "./journey-theme";
 
 type Props = {

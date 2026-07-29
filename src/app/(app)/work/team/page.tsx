@@ -1,16 +1,14 @@
-import Link from "next/link";
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { requireAppViewer } from "@/lib/app-viewer";
 import { RouteBodyFallback } from "@/components/app-route-body-fallback";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input, Label, Select } from "@/components/ui/input";
+import { Input, Label } from "@/components/ui/input";
 import { firstSearchParam } from "@/lib/search-param";
 import { parseWorkDateParam, formatWorkDate, todayDateOnly } from "@/lib/work-tracking/dates";
-import { canViewTeamWork, canAssignDailyTasks } from "@/lib/work-tracking/access";
+import { canViewTeamWork, canAssignDailyTasks, getTeamMemberVisibilityScope, teamMemberPrismaFilter } from "@/lib/work-tracking/access";
 import {
   loadTeamDailySnapshot,
   loadCarryForwardSuggestions,
@@ -23,15 +21,14 @@ import {
   formatOkrPeriodLabel,
   isCurrentPeriodObjective,
 } from "@/lib/work-tracking/okr-progress";
-import { assignDailyTask, carryForwardDailyTask } from "../actions";
 import { DeptOkrsPanel } from "../_components/dept-okrs-panel";
-import { QuantityUnitFields } from "../_components/quantity-unit-fields";
-import { TeamTaskBoard } from "../_components/team-task-board";
+import { TeamAssignSection } from "../_components/team-assign-section";
+import { TeamMembersSection } from "../_components/team-members-section";
 
 export default function WorkTeamPage({
   searchParams,
 }: {
-  searchParams: Promise<{ date?: string; assignee?: string }>;
+  searchParams: Promise<{ date?: string; assignee?: string; dept?: string }>;
 }) {
   return (
     <Suspense fallback={<RouteBodyFallback />}>
@@ -43,7 +40,7 @@ export default function WorkTeamPage({
 async function WorkTeamPageBody({
   searchParams,
 }: {
-  searchParams: Promise<{ date?: string; assignee?: string }>;
+  searchParams: Promise<{ date?: string; assignee?: string; dept?: string }>;
 }) {
   const me = await requireAppViewer();
   if (!me) return null;
@@ -63,18 +60,16 @@ async function WorkTeamPageBody({
   const workDate = parseWorkDateParam(firstSearchParam(sp.date) ?? formatWorkDate(todayDateOnly()));
   const dateParam = formatWorkDate(workDate);
   const selectedAssignee = firstSearchParam(sp.assignee);
+  const selectedDept = firstSearchParam(sp.dept);
 
-  let memberFilter: { departmentId?: string; managerId?: string } = {};
-  const isGlobalViewer = ["CEO", "ADMIN", "HR"].includes(me.role);
-  if (isGlobalViewer) {
-    memberFilter = {};
-  } else if (me.role === "DEPT_HEAD" && me.headedDept?.id) {
-    memberFilter = { departmentId: me.headedDept.id };
-  } else if (me.role === "MANAGER") {
-    memberFilter = { managerId: me.id };
-  }
+  const visibilityScope = getTeamMemberVisibilityScope({
+    viewerRole: me.role,
+    viewerUserId: me.id,
+    viewerHeadedDepartmentId: me.headedDept?.id ?? null,
+  });
+  const memberFilter = teamMemberPrismaFilter(visibilityScope);
 
-  const members = await prisma.user.findMany({
+  const allMembers = await prisma.user.findMany({
     where: { status: "ACTIVE", ...memberFilter },
     select: {
       id: true,
@@ -88,11 +83,26 @@ async function WorkTeamPageBody({
     orderBy: [{ firstName: "asc" }, { lastName: "asc" }],
   });
 
-  const memberIds = members.map((m) => m.id);
-  const deptIds = [...new Set(members.map((m) => m.departmentId).filter(Boolean))] as string[];
+  const departments = [
+    ...new Map(
+      allMembers
+        .filter((m) => m.department)
+        .map((m) => [m.department!.id, { id: m.department!.id, name: m.department!.name }]),
+    ).values(),
+  ].sort((a, b) => a.name.localeCompare(b.name));
 
-  for (const dept of members) {
-    if (dept.department) await ensureDeptTaskTypes(dept.department.id, dept.department.slug);
+  const showDeptFilter = departments.length > 1;
+  const showDeptColumn = departments.length > 1;
+
+  const filteredMembers = selectedDept
+    ? allMembers.filter((m) => m.departmentId === selectedDept)
+    : allMembers;
+
+  const memberIds = filteredMembers.map((m) => m.id);
+  const allDeptIds = [...new Set(allMembers.map((m) => m.departmentId).filter(Boolean))] as string[];
+
+  for (const member of allMembers) {
+    if (member.department) await ensureDeptTaskTypes(member.department.id, member.department.slug);
   }
 
   const { year, month, quarter } = currentOkrPeriod();
@@ -102,17 +112,17 @@ async function WorkTeamPageBody({
     loadTeamTaskBoard({ memberIds, workDate }),
     loadTeamDailyMetrics({ memberIds, workDate }),
     prisma.deptTaskType.findMany({
-      where: { departmentId: { in: deptIds }, isActive: true },
+      where: { departmentId: { in: allDeptIds }, isActive: true },
       orderBy: [{ departmentId: "asc" }, { sortOrder: "asc" }],
       include: { department: { select: { name: true } } },
     }),
     prisma.deptOkrKeyResult.findMany({
-      where: { objective: { departmentId: { in: deptIds }, status: { not: "ARCHIVED" } } },
+      where: { objective: { departmentId: { in: allDeptIds }, status: { not: "ARCHIVED" } } },
       include: { objective: { select: { title: true, departmentId: true } }, taskType: { select: { name: true } } },
       orderBy: { title: "asc" },
     }),
     prisma.deptOkrObjective.findMany({
-      where: { departmentId: { in: deptIds }, year, status: { not: "ARCHIVED" } },
+      where: { departmentId: { in: allDeptIds }, year, status: { not: "ARCHIVED" } },
       include: {
         keyResults: { include: { taskType: { select: { name: true } } } },
       },
@@ -123,27 +133,30 @@ async function WorkTeamPageBody({
   const currentObjectives = okrObjectives.filter((obj) => isCurrentPeriodObjective(obj));
   const periodLabel = formatOkrPeriodLabel("MONTH", year, quarter, month);
 
-  const assignee = selectedAssignee ? members.find((m) => m.id === selectedAssignee) : members[0];
+  const assignee = selectedAssignee
+    ? allMembers.find((m) => m.id === selectedAssignee)
+    : allMembers[0];
 
   const carrySuggestions = assignee
     ? await loadCarryForwardSuggestions({ assigneeId: assignee.id, workDate })
     : [];
 
-  const canAssign =
+  const canAssign = Boolean(
     assignee &&
-    canAssignDailyTasks({
-      viewerRole: me.role,
-      viewerPermissions: me.permissions,
-      viewerUserId: me.id,
-      viewerHeadedDepartmentId: me.headedDept?.id ?? null,
-      assigneeManagerId: assignee.managerId,
-      assigneeDepartmentId: assignee.departmentId,
-    });
+      canAssignDailyTasks({
+        viewerRole: me.role,
+        viewerPermissions: me.permissions,
+        viewerUserId: me.id,
+        viewerHeadedDepartmentId: me.headedDept?.id ?? null,
+        assigneeManagerId: assignee.managerId,
+        assigneeDepartmentId: assignee.departmentId,
+      }),
+  );
 
   const assigneeTaskTypes = taskTypes.filter((t) => t.departmentId === assignee?.departmentId);
   const assigneeKrs = keyResults.filter((kr) => kr.objective.departmentId === assignee?.departmentId);
 
-  const memberById = new Map(members.map((m) => [m.id, m]));
+  const memberById = new Map(allMembers.map((m) => [m.id, m]));
   const taskBoardRows = taskBoard.map((row) => {
     const member = memberById.get(row.userId);
     const canManage =
@@ -186,11 +199,14 @@ async function WorkTeamPageBody({
       <div className="flex flex-wrap items-end gap-3">
         <form method="get" className="flex items-end gap-2">
           {selectedAssignee && <input type="hidden" name="assignee" value={selectedAssignee} />}
+          {selectedDept && <input type="hidden" name="dept" value={selectedDept} />}
           <div>
             <Label htmlFor="date">Date</Label>
             <Input id="date" name="date" type="date" defaultValue={dateParam} className="w-auto" />
           </div>
-          <Button type="submit" variant="outline" size="sm">Go</Button>
+          <Button type="submit" variant="outline" size="sm">
+            Go
+          </Button>
         </form>
       </div>
 
@@ -222,157 +238,30 @@ async function WorkTeamPageBody({
         />
       )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Task board — {dateParam}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <TeamTaskBoard rows={taskBoardRows} taskTypes={boardTaskTypes} keyResults={boardKeyResults} />
-        </CardContent>
-      </Card>
+      <TeamAssignSection
+        dateParam={dateParam}
+        deptParam={selectedDept}
+        members={allMembers}
+        assignee={assignee}
+        canAssign={canAssign}
+        carrySuggestions={carrySuggestions}
+        assigneeTaskTypes={assigneeTaskTypes}
+        assigneeKrs={assigneeKrs}
+        taskBoardRows={taskBoardRows}
+        boardTaskTypes={boardTaskTypes}
+        boardKeyResults={boardKeyResults}
+      />
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Team status — {dateParam}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-ink-500 border-b border-ink-100">
-                  <th className="pb-2 pr-4">Member</th>
-                  <th className="pb-2 pr-4">Tasks</th>
-                  <th className="pb-2 pr-4">Delivered / Assigned</th>
-                  <th className="pb-2 pr-4">Efficiency</th>
-                  <th className="pb-2">EOD</th>
-                </tr>
-              </thead>
-              <tbody>
-                {snapshot.map((row) => (
-                  <tr key={row.userId} className="border-b border-ink-50">
-                    <td className="py-2 pr-4 font-medium text-ink-700">
-                      <Link href={`/work/team?date=${dateParam}&assignee=${row.userId}`} className="hover:text-sky-600">
-                        {row.name}
-                      </Link>
-                    </td>
-                    <td className="py-2 pr-4">{row.assignedCount}</td>
-                    <td className="py-2 pr-4">
-                      {row.deliveredQuantity} / {row.assignedQuantity}
-                    </td>
-                    <td className="py-2 pr-4">{row.efficiencyPct}%</td>
-                    <td className="py-2">
-                      <EodBadge status={row.eodStatus} />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
-
-      {assignee && carrySuggestions.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">
-              Carry-forward suggestions for {assignee.firstName || assignee.name}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {carrySuggestions.map((s) => (
-              <div
-                key={s.sourceTaskId}
-                className="flex flex-wrap items-center justify-between gap-3 text-sm border-b border-ink-50 pb-3 last:border-0 last:pb-0"
-              >
-                <div className="text-ink-600">
-                  <strong>{s.taskName}</strong> — {s.remainingQuantity} {s.quantityUnit} remaining
-                  <span className="text-ink-400">
-                    {" "}
-                    (was {s.actualQuantity}/{s.originalTarget} on {s.sourceDate})
-                  </span>
-                </div>
-                {canAssign && (
-                  <form action={carryForwardDailyTask}>
-                    <input type="hidden" name="sourceTaskId" value={s.sourceTaskId} />
-                    <input type="hidden" name="workDate" value={dateParam} />
-                    <Button type="submit" size="sm" variant="outline">
-                      Add to today
-                    </Button>
-                  </form>
-                )}
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      )}
-
-      {assignee && canAssign && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Assign task to {assignee.firstName || assignee.name}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <form action={assignDailyTask} className="grid sm:grid-cols-2 gap-4">
-              <input type="hidden" name="assigneeId" value={assignee.id} />
-              <input type="hidden" name="workDate" value={dateParam} />
-              <div className="sm:col-span-2">
-                <Label htmlFor="projectName">Task name</Label>
-                <Input id="projectName" name="projectName" required placeholder="e.g. Client interviews" />
-              </div>
-              <div>
-                <Label htmlFor="targetQuantity">Target quantity</Label>
-                <Input id="targetQuantity" name="targetQuantity" type="number" min={0.01} step="0.01" defaultValue={1} required />
-              </div>
-              <QuantityUnitFields />
-              <div>
-                <Label htmlFor="taskTypeId">Task type (optional)</Label>
-                <Select id="taskTypeId" name="taskTypeId">
-                  <option value="">— General —</option>
-                  {assigneeTaskTypes.map((tt) => (
-                    <option key={tt.id} value={tt.id}>{tt.name}</option>
-                  ))}
-                </Select>
-              </div>
-              <div>
-                <Label htmlFor="priority">Priority</Label>
-                <Select id="priority" name="priority" defaultValue="P2">
-                  <option value="P1">P1 — Urgent</option>
-                  <option value="P2">P2 — Normal</option>
-                  <option value="P3">P3 — Low</option>
-                </Select>
-              </div>
-              <div>
-                <Label htmlFor="dueByTime">Due by (time)</Label>
-                <Input id="dueByTime" name="dueByTime" type="time" />
-              </div>
-              <div className="sm:col-span-2">
-                <Label htmlFor="keyResultId">Linked key result (optional)</Label>
-                <Select id="keyResultId" name="keyResultId">
-                  <option value="">— None —</option>
-                  {assigneeKrs.map((kr) => (
-                    <option key={kr.id} value={kr.id}>
-                      {kr.title} ({kr.taskType?.name ?? "any"})
-                    </option>
-                  ))}
-                </Select>
-              </div>
-              <div className="sm:col-span-2">
-                <Button type="submit">Assign task</Button>
-              </div>
-            </form>
-          </CardContent>
-        </Card>
-      )}
-
-      <div className="flex flex-wrap gap-2">
-        {members.map((m) => (
-          <Link key={m.id} href={`/work/team?date=${dateParam}&assignee=${m.id}`}>
-            <Badge tone={m.id === assignee?.id ? "sky" : "ink"}>
-              {m.firstName || m.name}
-            </Badge>
-          </Link>
-        ))}
-      </div>
+      <TeamMembersSection
+        viewerId={me.id}
+        dateParam={dateParam}
+        deptParam={selectedDept}
+        assigneeParam={selectedAssignee}
+        departments={departments}
+        showDeptFilter={showDeptFilter}
+        showDeptColumn={showDeptColumn}
+        snapshot={snapshot}
+      />
     </div>
   );
 }
@@ -387,14 +276,4 @@ function MetricCard({ label, value, sub }: { label: string; value: string; sub: 
       </CardContent>
     </Card>
   );
-}
-
-function EodBadge({ status }: { status: string }) {
-  const tone: Record<string, "green" | "orange" | "red" | "ink"> = {
-    SUBMITTED: "green",
-    DRAFT: "orange",
-    MISSING: "red",
-    NONE: "ink",
-  };
-  return <Badge tone={tone[status] ?? "ink"}>{status}</Badge>;
 }

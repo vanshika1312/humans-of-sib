@@ -8,7 +8,7 @@ import {
   Star,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { MockEmployeeJourney } from "../_data/mockEmployeeData";
+import type { EmployeeJourney } from "../_data/journey-types";
 
 const STAT_ICONS = [GraduationCap, Award, Trophy, TrendingUp, Star] as const;
 
@@ -21,7 +21,7 @@ const TONE_CLASSES = [
 ] as const;
 
 type Props = {
-  stats: MockEmployeeJourney["stats"];
+  stats: EmployeeJourney["stats"];
 };
 
 export function StatsRibbon({ stats }: Props) {

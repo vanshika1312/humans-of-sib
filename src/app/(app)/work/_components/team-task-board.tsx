@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import type { TeamTaskBoardRow } from "@/lib/work-tracking/snapshots";
 import { deleteDailyTask } from "../actions";
 import { EditDailyTaskDialog } from "./edit-daily-task-dialog";
+import { DailyTaskDrawerLoader } from "./daily-task-drawer";
 
 const EOD_TONE: Record<string, "green" | "orange" | "red" | "ink"> = {
   COMPLETED: "green",
@@ -71,6 +72,7 @@ export function TeamTaskBoard({
   keyResults: KrOption[];
 }) {
   const [filter, setFilter] = useState<Filter>("all");
+  const [openTaskId, setOpenTaskId] = useState<string | null>(null);
   const filtered = rows.filter((r) => matchesFilter(r.eodStatus, filter));
   const hasManageable = rows.some((r) => r.canManage);
 
@@ -120,7 +122,15 @@ export function TeamTaskBoard({
               {filtered.map((row) => (
                 <tr key={row.id} className="border-b border-ink-50">
                   <td className="py-2 pr-3 font-medium text-ink-700">{row.memberName}</td>
-                  <td className="py-2 pr-3">{row.taskName}</td>
+                  <td className="py-2 pr-3">
+                    <button
+                      type="button"
+                      onClick={() => setOpenTaskId(row.id)}
+                      className="text-left text-sky-700 hover:underline"
+                    >
+                      {row.taskName}
+                    </button>
+                  </td>
                   <td className="py-2 pr-3">{row.targetQuantity}</td>
                   <td className="py-2 pr-3">{row.actualQuantity ?? "—"}</td>
                   <td className="py-2 pr-3 text-ink-500">{row.quantityUnit}</td>
@@ -153,6 +163,10 @@ export function TeamTaskBoard({
             </tbody>
           </table>
         </div>
+      )}
+
+      {openTaskId && (
+        <DailyTaskDrawerLoader taskId={openTaskId} onClose={() => setOpenTaskId(null)} />
       )}
     </div>
   );

@@ -3,7 +3,7 @@
 import { Trophy } from "lucide-react";
 import { formatDate } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import type { Award } from "../_data/mockEmployeeData";
+import type { Award } from "../_data/journey-types";
 
 type Props = {
   awards: Award[];
@@ -22,6 +22,11 @@ export function AwardsWall({ awards }: Props) {
         </CardDescription>
       </CardHeader>
       <CardContent className="pt-0">
+        {awards.length === 0 ? (
+          <p className="py-8 text-center text-sm text-ink-400">
+            Wins and shoutouts you receive will be celebrated here.
+          </p>
+        ) : (
         <div className="-mx-1 flex gap-3 overflow-x-auto px-1 pb-1 snap-x snap-mandatory">
           {awards.map((award) => (
             <article
@@ -43,6 +48,7 @@ export function AwardsWall({ awards }: Props) {
             </article>
           ))}
         </div>
+        )}
       </CardContent>
     </Card>
   );

@@ -71,7 +71,9 @@ export async function loadTeamDailySnapshot(args: {
 
     let eodStatus: EmployeeDailySnapshot["eodStatus"] = "NONE";
     if (userTasks.length > 0) {
-      if (sub?.status === "SUBMITTED") eodStatus = "SUBMITTED";
+      const hasUnreported = userTasks.some((t) => t.eodStatus === null);
+      if (sub?.status === "SUBMITTED" && !hasUnreported) eodStatus = "SUBMITTED";
+      else if (sub?.status === "SUBMITTED" && hasUnreported) eodStatus = "DRAFT";
       else if (sub?.status === "DRAFT") eodStatus = "DRAFT";
       else if (pastDeadline) eodStatus = "MISSING";
       else eodStatus = "DRAFT";

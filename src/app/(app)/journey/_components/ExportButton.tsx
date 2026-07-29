@@ -4,11 +4,11 @@ import { useCallback, useState } from "react";
 import { Download, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatDate } from "@/lib/utils";
-import type { MockEmployeeJourney } from "../_data/mockEmployeeData";
+import type { EmployeeJourney } from "../_data/journey-types";
 import { formatTenure, MILESTONE_META } from "./journey-theme";
 
 type Props = {
-  data: MockEmployeeJourney;
+  data: EmployeeJourney;
 };
 
 export function ExportButton({ data }: Props) {

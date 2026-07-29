@@ -12,11 +12,11 @@ import {
 } from "recharts";
 import { formatDate } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import type { MockEmployeeJourney } from "../_data/mockEmployeeData";
+import type { EmployeeJourney } from "../_data/journey-types";
 
 type Props = {
-  growthCurve: MockEmployeeJourney["growthCurve"];
-  seniorityLabels: MockEmployeeJourney["seniorityLabels"];
+  growthCurve: EmployeeJourney["growthCurve"];
+  seniorityLabels: EmployeeJourney["seniorityLabels"];
 };
 
 function GrowthTooltip({
@@ -46,6 +46,22 @@ export function GrowthGraph({ growthCurve, seniorityLabels }: Props) {
       })),
     [growthCurve],
   );
+
+  if (growthCurve.length < 2) {
+    return (
+      <Card aria-label="Career growth over time">
+        <CardHeader>
+          <CardTitle>Growth trajectory</CardTitle>
+          <CardDescription>Designation seniority over your tenure</CardDescription>
+        </CardHeader>
+        <CardContent className="pt-0">
+          <p className="py-10 text-center text-sm text-ink-400">
+            Your growth chart will appear here as promotions and role changes are recorded.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
 
   const maxLevel = Math.max(...growthCurve.map((p) => p.seniorityLevel), 4);
 

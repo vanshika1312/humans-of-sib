@@ -4,11 +4,11 @@ import { MapPin, Building2 } from "lucide-react";
 import { Avatar } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
-import type { MockEmployeeJourney } from "../_data/mockEmployeeData";
+import type { EmployeeJourney } from "../_data/journey-types";
 import { formatTenure } from "./journey-theme";
 
 type Props = {
-  employee: MockEmployeeJourney["employee"];
+  employee: EmployeeJourney["employee"];
 };
 
 export function JourneyHeader({ employee }: Props) {

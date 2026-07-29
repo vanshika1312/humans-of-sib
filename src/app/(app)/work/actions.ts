@@ -3,15 +3,18 @@
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { z } from "zod";
 import { createNotification } from "@/lib/notifications";
-import { canAssignDailyTasks, canManageDeptOkrs } from "@/lib/work-tracking/access";
+import { canAssignDailyTasks, canManageDeptOkrs, canEditDailyWorkTaskDetails, canViewDailyWorkTask } from "@/lib/work-tracking/access";
 import { ensureDeptTaskTypes } from "@/lib/work-tracking/default-task-types";
 import { calcQuantityEfficiency, suggestEodStatus } from "@/lib/work-tracking/efficiency";
 import { QUANTITY_UNIT_PRESETS } from "@/lib/work-tracking/config";
 import { refreshKeyResultProgress } from "@/lib/work-tracking/okr-progress";
-import { todayDateOnly, parseWorkDateParam } from "@/lib/work-tracking/dates";
+import { todayDateOnly, parseWorkDateParam, formatWorkDate } from "@/lib/work-tracking/dates";
 import { slugifyDepartmentName } from "@/lib/workspace-departments";
+import { persistTaskAttachmentFile } from "@/lib/task-attachment-upload";
+import { formatWorkDate } from "@/lib/work-tracking/dates";
 
 async function requireUser() {
   const session = await auth();
@@ -246,6 +249,7 @@ export async function submitEod(formData: FormData) {
   revalidatePath("/work/okrs");
   revalidatePath("/work/team");
   revalidatePath("/admin/work");
+  redirect(`/work?date=${formatWorkDate(workDate)}&tab=eod`);
 }
 
 const deptOkrSchema = z.object({
@@ -590,5 +594,204 @@ export async function createDeptTaskType(formData: FormData) {
 
   revalidatePath("/work/okrs");
   revalidatePath("/work/team");
+}
+
+export type ClientDailyWorkTask = {
+  id: string;
+  workDate: string;
+  projectName: string;
+  targetQuantity: number;
+  quantityUnit: string;
+  priority: string;
+  dueByTime: string | null;
+  eodStatus: string | null;
+  actualQuantity: number | null;
+  assigneeNotes: string | null;
+  taskType: { name: string };
+  keyResult: { title: string } | null;
+  assignedBy: {
+    id: string;
+    name: string | null;
+    firstName: string | null;
+    lastName: string | null;
+  };
+  assigneeId: string;
+  attachments: {
+    id: string;
+    fileName: string;
+    url: string;
+    mimeType: string | null;
+    sizeBytes: number | null;
+    createdAt: string;
+  }[];
+  canEdit: boolean;
+};
+
+async function loadDailyTaskWithAccess(taskId: string, user: Awaited<ReturnType<typeof requireUser>>) {
+  const task = await prisma.dailyWorkTask.findUnique({
+    where: { id: taskId },
+    include: {
+      taskType: { select: { name: true } },
+      keyResult: { select: { title: true } },
+      assignedBy: { select: { id: true, name: true, firstName: true, lastName: true } },
+      assignee: { select: { id: true, managerId: true, departmentId: true } },
+      attachments: {
+        orderBy: { createdAt: "desc" },
+        select: {
+          id: true,
+          fileName: true,
+          url: true,
+          mimeType: true,
+          sizeBytes: true,
+          createdAt: true,
+        },
+      },
+    },
+  });
+  if (!task?.assignee.departmentId) return null;
+
+  const canView = canViewDailyWorkTask({
+    viewerRole: user.role,
+    viewerPermissions: user.permissions,
+    viewerUserId: user.id,
+    viewerHeadedDepartmentId: user.headedDept?.id ?? null,
+    assigneeId: task.assigneeId,
+    assigneeManagerId: task.assignee.managerId,
+    assigneeDepartmentId: task.assignee.departmentId,
+  });
+  if (!canView) return null;
+
+  return task;
+}
+
+function toClientDailyWorkTask(
+  task: NonNullable<Awaited<ReturnType<typeof loadDailyTaskWithAccess>>>,
+  viewerUserId: string,
+): ClientDailyWorkTask {
+  return {
+    id: task.id,
+    workDate: formatWorkDate(task.workDate),
+    projectName: task.projectName,
+    targetQuantity: Number(task.targetQuantity),
+    quantityUnit: task.quantityUnit,
+    priority: task.priority,
+    dueByTime: task.dueByTime,
+    eodStatus: task.eodStatus,
+    actualQuantity: task.actualQuantity != null ? Number(task.actualQuantity) : null,
+    assigneeNotes: task.assigneeNotes,
+    taskType: task.taskType,
+    keyResult: task.keyResult,
+    assignedBy: task.assignedBy,
+    assigneeId: task.assigneeId,
+    attachments: task.attachments.map((a) => ({
+      id: a.id,
+      fileName: a.fileName,
+      url: a.url,
+      mimeType: a.mimeType,
+      sizeBytes: a.sizeBytes,
+      createdAt: a.createdAt.toISOString(),
+    })),
+    canEdit: canEditDailyWorkTaskDetails({ viewerUserId, assigneeId: task.assigneeId }),
+  };
+}
+
+export async function loadDailyWorkTaskForClient(
+  taskId: string,
+): Promise<{ ok: true; task: ClientDailyWorkTask } | { ok: false; error: string }> {
+  const user = await requireUser();
+  const task = await loadDailyTaskWithAccess(taskId, user);
+  if (!task) return { ok: false, error: "Task not found." };
+  return { ok: true, task: toClientDailyWorkTask(task, user.id) };
+}
+
+const updateNotesSchema = z.object({
+  taskId: z.string().min(1),
+  notes: z.string().max(10000),
+});
+
+export async function updateDailyWorkTaskNotes(
+  taskId: string,
+  notes: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const user = await requireUser();
+  const parsed = updateNotesSchema.parse({ taskId, notes });
+
+  const task = await loadDailyTaskWithAccess(parsed.taskId, user);
+  if (!task) return { ok: false, error: "Task not found." };
+  if (!canEditDailyWorkTaskDetails({ viewerUserId: user.id, assigneeId: task.assigneeId })) {
+    return { ok: false, error: "Forbidden" };
+  }
+
+  await prisma.dailyWorkTask.update({
+    where: { id: task.id },
+    data: { assigneeNotes: parsed.notes.trim() || null },
+  });
+
+  revalidatePath("/work");
+  revalidatePath("/work/team");
+  return { ok: true };
+}
+
+export async function addDailyWorkTaskAttachment(
+  taskId: string,
+  formData: FormData,
+): Promise<{ ok: boolean; error?: string }> {
+  const user = await requireUser();
+  const task = await loadDailyTaskWithAccess(taskId, user);
+  if (!task) return { ok: false, error: "Task not found." };
+  if (!canEditDailyWorkTaskDetails({ viewerUserId: user.id, assigneeId: task.assigneeId })) {
+    return { ok: false, error: "Forbidden" };
+  }
+
+  const file = formData.get("file");
+  const stored = await persistTaskAttachmentFile(file);
+  if (!stored.ok) {
+    const msg =
+      stored.code === "TOO_LARGE"
+        ? "File too large (max 15 MB)."
+        : stored.code === "STORAGE"
+          ? "Could not upload (check storage env vars)."
+          : "Unsupported type (PDF, Word, images, TXT, MD).";
+    return { ok: false, error: msg };
+  }
+
+  await prisma.dailyWorkTaskAttachment.create({
+    data: {
+      taskId: task.id,
+      url: stored.url.slice(0, 2048),
+      fileName: stored.fileName,
+      mimeType: stored.mimeType,
+      sizeBytes: stored.size,
+      uploadedById: user.id,
+    },
+  });
+
+  revalidatePath("/work");
+  revalidatePath("/work/team");
+  return { ok: true };
+}
+
+export async function deleteDailyWorkTaskAttachment(
+  attachmentId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const user = await requireUser();
+
+  const attachment = await prisma.dailyWorkTaskAttachment.findUnique({
+    where: { id: attachmentId },
+    select: { id: true, taskId: true },
+  });
+  if (!attachment) return { ok: false, error: "Attachment not found." };
+
+  const task = await loadDailyTaskWithAccess(attachment.taskId, user);
+  if (!task) return { ok: false, error: "Task not found." };
+  if (!canEditDailyWorkTaskDetails({ viewerUserId: user.id, assigneeId: task.assigneeId })) {
+    return { ok: false, error: "Forbidden" };
+  }
+
+  await prisma.dailyWorkTaskAttachment.delete({ where: { id: attachmentId } });
+
+  revalidatePath("/work");
+  revalidatePath("/work/team");
+  return { ok: true };
 }
 

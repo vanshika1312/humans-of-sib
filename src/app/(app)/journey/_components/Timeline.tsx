@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { JourneyMilestone } from "../_data/mockEmployeeData";
+import type { JourneyMilestone } from "../_data/journey-types";
 import { groupMilestonesByYear } from "./journey-theme";
 import { TimelineCard } from "./TimelineCard";
 
@@ -43,6 +43,11 @@ export function Timeline({ milestones }: Props) {
         Milestones that shaped your journey at SIB
       </p>
 
+      {years.length === 0 ? (
+        <p className="rounded-xl border border-dashed border-ink-200 bg-ink-50/50 px-4 py-12 text-center text-sm text-ink-400">
+          Milestones from HR, L&D, and your wins will show up here over time.
+        </p>
+      ) : (
       <div className="relative w-full">
         {/* Center spine (desktop) */}
         <div
@@ -122,6 +127,7 @@ export function Timeline({ milestones }: Props) {
           })}
         </div>
       </div>
+      )}
     </section>
   );
 }

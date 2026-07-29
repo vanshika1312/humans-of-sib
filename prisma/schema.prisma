@@ -226,6 +226,7 @@ model User {
   deptOkrObjectivesCreated        DeptOkrObjective[]    @relation("DeptOkrCreatedBy")
   dailyWorkTasksAssigned          DailyWorkTask[]       @relation("DailyWorkTaskAssignee")
   dailyWorkTasksAssignedBy        DailyWorkTask[]       @relation("DailyWorkTaskAssigner")
+  dailyWorkTaskAttachmentsUploaded DailyWorkTaskAttachment[] @relation("DailyWorkTaskAttachmentUploader")
   dailyEodSubmissions             DailyEodSubmission[]
 
   createdAt     DateTime @default(now())
@@ -1962,6 +1963,7 @@ model DailyWorkTask {
   eodStatus        DailyTaskEodStatus?
   actualQuantity   Decimal?            @db.Decimal(12, 2)
   blockerReason    String?             @db.Text
+  assigneeNotes    String?             @db.Text
   carryForward     Boolean             @default(false)
   carriedFromTaskId String?
 
@@ -1973,6 +1975,7 @@ model DailyWorkTask {
   carriedFromTask DailyWorkTask?    @relation("DailyWorkTaskCarryForward", fields: [carriedFromTaskId], references: [id], onDelete: SetNull)
   carriedTasks    DailyWorkTask[]   @relation("DailyWorkTaskCarryForward")
   eodEntry        DailyEodTaskEntry?
+  attachments     DailyWorkTaskAttachment[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1981,6 +1984,23 @@ model DailyWorkTask {
   @@index([departmentId, workDate])
   @@index([keyResultId])
   @@index([carriedFromTaskId])
+}
+
+model DailyWorkTaskAttachment {
+  id           String        @id @default(cuid())
+  taskId       String
+  task         DailyWorkTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  fileName     String        @db.VarChar(280)
+  url          String        @db.VarChar(2048)
+  mimeType     String?       @db.VarChar(120)
+  sizeBytes    Int?
+  uploadedById String?
+  uploadedBy   User?         @relation("DailyWorkTaskAttachmentUploader", fields: [uploadedById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([taskId])
+  @@index([uploadedById])
 }
 
 model DailyEodSubmission {

@@ -12,6 +12,10 @@ import { getOrCreatePersonalTaskBoard } from "@/lib/personal-task-board-setup";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { hasPermission } from "@/lib/permissions";
+import {
+  canViewTeamWork,
+  getTeamMemberVisibilityScope,
+} from "@/lib/work-tracking/access";
 import { AddBoardColumnDialog } from "./add-board-column-dialog";
 import { AssignTaskDialog, type AssignableTaskMember } from "./assign-task-dialog";
 import type { ClientBoard, ClientTaskAssignee } from "./task-kanban-types";
@@ -95,19 +99,33 @@ async function MyTasksPageBody({ searchParams }: { searchParams: SearchParams })
     })),
   ];
 
+  const visibilityScope = getTeamMemberVisibilityScope({
+    viewerRole: viewer.role,
+    viewerUserId: viewer.id,
+    viewerHeadedDepartmentId: viewer.headedDept?.id ?? null,
+  });
   const canBrowseTeamMembers =
-    viewer.role === "ADMIN" ||
-    viewer.role === "MANAGER" ||
-    viewer.role === "DEPT_HEAD" ||
-    hasPermission({ permissions: viewer.permissions ?? [] }, "TASKS_VIEW_ALL");
+    canViewTeamWork({
+      viewerRole: viewer.role,
+      viewerPermissions: viewer.permissions,
+      viewerUserId: viewer.id,
+      viewerHeadedDepartmentId: viewer.headedDept?.id ?? null,
+    });
 
   const teamLinks = (() => {
     if (!canBrowseTeamMembers) return [];
-    const headedDeptId = viewer.role === "DEPT_HEAD" ? viewer.headedDept?.id ?? null : null;
     const source = (() => {
-      if (viewer.role === "MANAGER") return allActiveMembers.filter((u) => u.managerId === viewer.id);
-      if (viewer.role === "DEPT_HEAD" && headedDeptId) return allActiveMembers.filter((u) => u.departmentId === headedDeptId);
-      return allActiveMembers;
+      if (hasPermission({ permissions: viewer.permissions ?? [] }, "TASKS_VIEW_ALL")) {
+        return allActiveMembers;
+      }
+      if (visibilityScope.kind === "all") return allActiveMembers;
+      if (visibilityScope.kind === "direct_reports") {
+        return allActiveMembers.filter((u) => u.managerId === visibilityScope.managerId);
+      }
+      if (visibilityScope.kind === "department") {
+        return allActiveMembers.filter((u) => u.departmentId === visibilityScope.departmentId);
+      }
+      return [];
     })();
 
     const byId = new Map<string, TeamMemberForTasks>();

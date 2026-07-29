@@ -1,4 +1,4 @@
-import type { MilestoneType } from "../_data/mockEmployeeData";
+import type { MilestoneType } from "../_data/journey-types";
 
 export const MILESTONE_META: Record<
   MilestoneType,

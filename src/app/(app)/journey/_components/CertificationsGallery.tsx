@@ -5,7 +5,7 @@ import { FileBadge } from "lucide-react";
 import { formatDate } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import type { Certification } from "../_data/mockEmployeeData";
+import type { Certification } from "../_data/journey-types";
 
 type Props = {
   certifications: Certification[];
@@ -64,6 +64,11 @@ export function CertificationsGallery({ certifications }: Props) {
         Credentials you have earned along the way
       </p>
 
+      {certifications.length === 0 ? (
+        <p className="rounded-xl border border-dashed border-ink-200 bg-ink-50/50 px-4 py-10 text-center text-sm text-ink-400">
+          Training certificates you earn in SIB will appear here.
+        </p>
+      ) : (
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {certifications.map((cert) => (
           <Card key={cert.id}>
@@ -92,6 +97,7 @@ export function CertificationsGallery({ certifications }: Props) {
           </Card>
         ))}
       </div>
+      )}
 
       {active && (
         <CertificateModal cert={active} onClose={() => setActive(null)} />

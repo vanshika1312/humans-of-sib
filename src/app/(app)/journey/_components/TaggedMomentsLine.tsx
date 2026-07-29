@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { Camera } from "lucide-react";
 import { cn, formatDate } from "@/lib/utils";
-import type { TaggedFeedPhoto } from "../_data/mockEmployeeData";
+import type { TaggedFeedPhoto } from "../_data/journey-types";
 
 type Props = {
   photos: TaggedFeedPhoto[];
@@ -128,7 +128,7 @@ export function TaggedMomentsLine({ photos }: Props) {
           </div>
 
           <p className="mt-3 px-3 text-center text-[11px] text-ink-400 sm:px-0">
-            Tap a photo to open the company feed · Preview with mock data
+            Tap a photo to open the company feed
           </p>
         </div>
       )}

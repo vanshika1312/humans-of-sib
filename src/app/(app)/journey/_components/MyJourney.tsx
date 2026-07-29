@@ -1,6 +1,6 @@
 "use client";
 
-import { mockEmployeeJourney } from "../_data/mockEmployeeData";
+import type { EmployeeJourney } from "../_data/journey-types";
 import { PageHeader } from "@/components/ui/page-header";
 import { JourneyHeader } from "./JourneyHeader";
 import { StatsRibbon } from "./StatsRibbon";
@@ -11,9 +11,11 @@ import { AwardsWall } from "./AwardsWall";
 import { ExportButton } from "./ExportButton";
 import { TaggedMomentsLine } from "./TaggedMomentsLine";
 
-export function MyJourney() {
-  const data = mockEmployeeJourney;
+type Props = {
+  data: EmployeeJourney;
+};
 
+export function MyJourney({ data }: Props) {
   return (
     <div className="w-full space-y-6 pb-8">
       <PageHeader
