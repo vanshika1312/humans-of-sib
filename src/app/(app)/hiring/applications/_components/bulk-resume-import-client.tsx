@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input, Label } from "@/components/ui/input";
-import type { ParsedResumeFields } from "@/lib/hiring-resume-llm";
+import type { ParsedResumeFields } from "@/lib/hiring-resume-fields";
 import { formatDateTimeUtc } from "@/lib/utils";
 import {
   commitBulkResumeImport,

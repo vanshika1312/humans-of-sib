@@ -16,10 +16,10 @@ function json(body: unknown, status = 200) {
 
 /**
  * Parses a single uploaded résumé (PDF/DOCX) for the candidate intake forms: extracts plain text,
- * resolves profile fields (LLM with a rule-based fallback), and — when `jobId` is provided — an
- * ATS-style skill match preview against that job's required skills. Nothing is persisted here;
- * the caller (server action) re-does the scoring at save time against whichever job actually gets
- * attached.
+ * resolves profile fields via local heuristics (HiringPlatform-style; no LLM), and — when `jobId`
+ * is provided — an ATS-style skill match preview against that job's required skills. Nothing is
+ * persisted here; the caller (server action) re-does the scoring at save time against whichever
+ * job actually gets attached.
  */
 export async function POST(request: Request) {
   const viewer = await requireAppViewer();

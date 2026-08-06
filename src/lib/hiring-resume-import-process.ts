@@ -1,8 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { persistHiringResumeBuffer } from "@/lib/hiring-resume-upload";
 import { extractResumeTextFromBuffer } from "@/lib/hiring-resume-text";
-import { resolveResumeFields } from "@/lib/hiring-resume-fields";
-import type { ParsedResumeFields } from "@/lib/hiring-resume-llm";
+import { resolveResumeFields, type ParsedResumeFields } from "@/lib/hiring-resume-fields";
 
 export type StoredResumePayload = {
   parsed: ParsedResumeFields;
@@ -160,6 +159,6 @@ export async function stageResumeImportItemFromBuffer(opts: {
     persistMs,
     parseMs,
     extractedChars: extractedText?.length ?? 0,
-    fieldSource: parseModel ? "llm" : "rule_based",
+    fieldSource: "rule_based",
   });
 }

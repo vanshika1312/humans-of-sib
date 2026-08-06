@@ -1,4 +1,16 @@
-import { parseResumeFieldsWithLlm, sanitizeParsedResumeFields, type ParsedResumeFields } from "@/lib/hiring-resume-llm";
+/**
+ * Rule-based résumé field extraction (HiringPlatform-style): regex + heuristics only.
+ * No external AI/API — free, deterministic, and aligned with SkillInABox HiringPlatform.
+ */
+
+export type ParsedResumeFields = {
+  fullName: string | null;
+  email: string | null;
+  phone: string | null;
+  candidateLocation: string | null;
+  /** Kept for stored payload compatibility; always empty under rule-based parsing. */
+  fieldConfidence: Record<string, number | undefined>;
+};
 
 const EMAIL_REGEX = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/;
 // Indian mobile numbers, with or without country code, and with or without a
@@ -56,9 +68,27 @@ const KNOWN_LOCATIONS = [
 const NAME_LINE_BLOCKLIST =
   /(resume|curriculum vitae|\bcv\b|address|objective|summary|profile|about\s*me|linkedin|github|portfolio|email|phone|mobile|contact|skills?|experience|education|projects?|certifications?|references?|declaration)/i;
 
+export function sanitizeParsedResumeFields(raw: ParsedResumeFields): ParsedResumeFields {
+  const trimOrNull = (s: string | null | undefined, max: number) => {
+    if (s === null || s === undefined) return null;
+    const v = String(s).trim();
+    if (!v) return null;
+    return v.slice(0, max);
+  };
+  const email = trimOrNull(raw.email, 320)?.toLowerCase() ?? null;
+  return {
+    fullName: trimOrNull(raw.fullName, 200),
+    email,
+    phone: trimOrNull(raw.phone, 64),
+    candidateLocation: trimOrNull(raw.candidateLocation, 200),
+    fieldConfidence: raw.fieldConfidence ?? {},
+  };
+}
+
 function extractLocationRuleBased(text: string): string | undefined {
   const labeled = text.match(LOCATION_LABEL_REGEX)?.[1]?.trim();
   if (labeled) {
+    // Keep it to a single line/segment (labels can bleed into the next field).
     return labeled.split(/[\n]/)[0].replace(/[,.\s]+$/, "").trim();
   }
   for (const city of KNOWN_LOCATIONS) {
@@ -92,6 +122,11 @@ function toTitleCase(line: string): string {
     .replace(/(^|\s)([a-z])/g, (_match, sep: string, ch: string) => sep + ch.toUpperCase());
 }
 
+/**
+ * Rule-based name guess: a candidate's name is almost always the first
+ * short, name-shaped line at the very top of the résumé, before any
+ * contact details or section headings appear.
+ */
 function extractNameRuleBased(text: string): string | undefined {
   const lines = text
     .split(/\n/)
@@ -107,8 +142,8 @@ function extractNameRuleBased(text: string): string | undefined {
 }
 
 /**
- * Regex + heuristic résumé field extraction — no external AI/API calls. Used as the always-available
- * fallback when LLM parsing isn't configured, fails, or leaves a field blank.
+ * Regex + heuristic résumé field extraction — no external AI/API calls.
+ * Same approach as HiringPlatform `parseResumeText` (contact fields).
  */
 export function extractResumeFieldsRuleBased(text: string): ParsedResumeFields {
   const fullName = extractNameRuleBased(text) ?? null;
@@ -127,48 +162,19 @@ export function extractResumeFieldsRuleBased(text: string): ParsedResumeFields {
 
 export type ResolvedResumeFields = {
   parsed: ParsedResumeFields;
-  /** "llm" when the AI parser contributed at least one field, "rule_based" when only regex heuristics ran. */
-  source: "llm" | "rule_based";
-  model: string | null;
+  source: "rule_based";
+  model: null;
   warnings: string[];
 };
 
-function isBlank(v: string | null | undefined): boolean {
-  return v === null || v === undefined || v.trim().length === 0;
-}
-
 /**
- * Resolves résumé profile fields for a given plain-text résumé: tries the configured LLM parser
- * first (best accuracy), then fills any still-blank field from fast regex/keyword heuristics so the
- * form is never left completely empty just because an API key is missing or a request failed.
+ * Resolves résumé profile fields from plain text via local heuristics only.
  */
 export async function resolveResumeFields(text: string): Promise<ResolvedResumeFields> {
-  const ruleBased = extractResumeFieldsRuleBased(text);
-  const llmOutcome = await parseResumeFieldsWithLlm(text);
-
-  if (!llmOutcome.ok) {
-    return {
-      parsed: ruleBased,
-      source: "rule_based",
-      model: null,
-      warnings: [llmOutcome.error],
-    };
-  }
-
-  const merged: ParsedResumeFields = {
-    fullName: isBlank(llmOutcome.parsed.fullName) ? ruleBased.fullName : llmOutcome.parsed.fullName,
-    email: isBlank(llmOutcome.parsed.email) ? ruleBased.email : llmOutcome.parsed.email,
-    phone: isBlank(llmOutcome.parsed.phone) ? ruleBased.phone : llmOutcome.parsed.phone,
-    candidateLocation: isBlank(llmOutcome.parsed.candidateLocation)
-      ? ruleBased.candidateLocation
-      : llmOutcome.parsed.candidateLocation,
-    fieldConfidence: llmOutcome.parsed.fieldConfidence,
-  };
-
   return {
-    parsed: merged,
-    source: "llm",
-    model: llmOutcome.model,
+    parsed: extractResumeFieldsRuleBased(text),
+    source: "rule_based",
+    model: null,
     warnings: [],
   };
 }

@@ -13,7 +13,6 @@ type ParseResponse = {
   email?: string | null;
   phone?: string | null;
   candidateLocation?: string | null;
-  fieldSource?: "llm" | "rule_based";
   atsPreview?: AtsPreview;
 };
 
@@ -98,11 +97,7 @@ export function ResumeAutofillPanel({
       setFieldValue(fieldIds.candidateLocation, data.candidateLocation);
       setAts(data.atsPreview ?? null);
       setStatus("done");
-      setMessage(
-        data.fieldSource === "llm"
-          ? "Parsed with AI — double-check the fields above."
-          : "Parsed with keyword matching — double-check the fields above.",
-      );
+      setMessage("Parsed with keyword matching — double-check the fields above.");
     } catch {
       setStatus("error");
       setMessage("Something went wrong while parsing. Fill fields in manually.");
