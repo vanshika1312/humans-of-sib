@@ -16,7 +16,6 @@ import type { HiringJobWorkArrangement } from "@/generated/prisma";
 import { departmentIdFromForm } from "@/lib/department-resolve";
 import { normalizeExternalApplyUrl } from "@/lib/hiring-external-apply-url";
 import { persistHiringResumeFile } from "@/lib/hiring-resume-upload";
-import { extractResumeTextFromBuffer } from "@/lib/hiring-resume-text";
 import { computeResumeSkillMatch } from "@/lib/hiring-resume-match";
 import { defaultAppliedPipelineStageIdInTxn } from "@/lib/hiring-pipeline";
 import {
@@ -30,6 +29,7 @@ import { displayName } from "@/lib/user-display-name";
 /** Best-effort text extraction for a freshly-uploaded résumé file — never blocks saving on failure. */
 async function extractResumeTextIfPossible(file: File): Promise<string | null> {
   try {
+    const { extractResumeTextFromBuffer } = await import("@/lib/hiring-resume-text");
     const buffer = Buffer.from(await file.arrayBuffer());
     const result = await extractResumeTextFromBuffer(buffer, file.name);
     return result.ok ? result.text : null;

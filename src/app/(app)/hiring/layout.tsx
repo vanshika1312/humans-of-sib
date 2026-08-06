@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { requireAppViewer } from "@/lib/app-viewer";
 import { HiringSubnav } from "./_components/hiring-subnav";
@@ -10,7 +11,9 @@ export default async function HiringLayout({ children }: { children: React.React
 
   return (
     <div className="space-y-6 pb-10">
-      <HiringSubnav />
+      <Suspense fallback={<div className="h-11" aria-hidden />}>
+        <HiringSubnav />
+      </Suspense>
       {children}
     </div>
   );

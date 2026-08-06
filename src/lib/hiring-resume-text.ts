@@ -1,6 +1,3 @@
-import { PDFParse } from "pdf-parse";
-import mammoth from "mammoth";
-
 export type ResumeTextResult =
   | { ok: true; text: string }
   | { ok: false; error: string };
@@ -11,6 +8,10 @@ function normalizeFilename(fileName: string): string {
 
 /**
  * Extract plain text from PDF or DOCX buffers (Node/server only).
+ *
+ * pdf-parse / mammoth are loaded lazily so routes that only import this module
+ * (e.g. Hiring overview via shared server actions) do not pull native PDF parsers
+ * into every serverless function graph.
  */
 export async function extractResumeTextFromBuffer(
   buffer: Buffer,
@@ -19,6 +20,7 @@ export async function extractResumeTextFromBuffer(
   const lower = normalizeFilename(fileName);
   try {
     if (lower.endsWith(".pdf")) {
+      const { PDFParse } = await import("pdf-parse");
       const parser = new PDFParse({ data: new Uint8Array(buffer) });
       const result = await parser.getText();
       const text = (result.text || "").trim();
@@ -32,7 +34,8 @@ export async function extractResumeTextFromBuffer(
     }
 
     if (lower.endsWith(".docx")) {
-      const { value } = await mammoth.extractRawText({ buffer });
+      const mammoth = await import("mammoth");
+      const { value } = await mammoth.default.extractRawText({ buffer });
       const text = (value || "").trim();
       if (!text.length) {
         return { ok: false, error: "Could not read text from Word file." };
