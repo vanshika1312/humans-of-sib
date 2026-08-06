@@ -34,6 +34,20 @@ export function assertHrUpdateRole(actorRole: Role, prev: Role, next: Role) {
   }
 }
 
+/** Employee IDs are free-form once HR can edit them, but keep them tidy and unique. */
+export function normalizeEmployeeCode(raw: unknown): string | null {
+  const s = String(raw ?? "").trim().toUpperCase();
+  return s.length > 0 ? s : null;
+}
+
+export async function assertEmployeeCodeAvailable(code: string, excludeUserId: string): Promise<void> {
+  const clash = await prisma.user.findFirst({
+    where: { employeeCode: code, id: { not: excludeUserId } },
+    select: { id: true },
+  });
+  if (clash) throw new AdminMutationError("employee_code_taken");
+}
+
 export async function remainingAdminPeers(excludeUserId: string): Promise<number> {
   return prisma.user.count({
     where: { role: "ADMIN", id: { not: excludeUserId } },
@@ -76,4 +90,6 @@ export const ADMIN_MUTATION_MESSAGES: Record<string, string> = {
   member_deleted: "Member record was permanently removed.",
   member_delete_failed:
     "Could not delete this member (database still references them). Try again or adjust related data.",
+  employee_code_taken: "That Employee ID is already assigned to someone else — choose a different one.",
+  employee_code_required: "Employee ID can’t be blank.",
 };

@@ -110,6 +110,7 @@ export default async function ApplicationsPage(props: Props) {
     id: app.id,
     appliedAtIso: app.appliedAt.toISOString(),
     applicationSource: app.applicationSource,
+    resumeMatchScore: app.resumeMatchScore,
     candidate: {
       fullName: app.candidate.fullName,
       email: app.candidate.email,

@@ -22,8 +22,10 @@ import {
   clearHiringApplicationRoundFeedback,
   deleteHiringApplicationAttachment,
   moveHiringApplicationToJob,
+  rescoreHiringApplicationResume,
   upsertHiringApplicationRoundFeedback,
 } from "../../actions";
+import { parseSkillsJson } from "@/lib/hiring-resume-match";
 import { DeleteApplicationForm } from "../../_components/delete-application-form";
 import { ApplicationStageControl } from "../../_components/application-stage-control";
 import { HiringApplicationSectionNav } from "./application-section-nav";
@@ -61,6 +63,7 @@ type Props = {
     reviewDeleted?: string | string[];
     reviewAssigned?: string | string[];
     jobMoved?: string | string[];
+    resumeRescored?: string | string[];
     emailSent?: string | string[];
     emailError?: string | string[];
     interviewScheduled?: string | string[];
@@ -86,6 +89,7 @@ export default async function HiringApplicationDetailPage(props: Props) {
   const reviewDeleted = firstSearchParam(sp.reviewDeleted) === "1";
   const reviewAssigned = firstSearchParam(sp.reviewAssigned) === "1";
   const jobMoved = firstSearchParam(sp.jobMoved) === "1";
+  const resumeRescored = firstSearchParam(sp.resumeRescored) === "1";
   const emailSent = firstSearchParam(sp.emailSent) === "1";
   const emailError = firstSearchParam(sp.emailError);
   const interviewScheduled = firstSearchParam(sp.interviewScheduled) === "1";
@@ -247,6 +251,9 @@ export default async function HiringApplicationDetailPage(props: Props) {
   const profileResumeHref = app.candidate.resumeUrl?.trim();
 
   const moveJobAction = moveHiringApplicationToJob.bind(null, applicationId);
+  const rescoreAction = rescoreHiringApplicationResume.bind(null, applicationId);
+  const matchedSkills = parseSkillsJson(app.resumeMatchedSkillsJson);
+  const missingSkills = parseSkillsJson(app.resumeMissingSkillsJson);
 
   const legacyReviews = app.reviews.filter((r) => r.round === null);
   const reviewsByRound = new Map(
@@ -293,6 +300,11 @@ export default async function HiringApplicationDetailPage(props: Props) {
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <Badge tone="green">{app.pipelineStage.label}</Badge>
+              {typeof app.resumeMatchScore === "number" ? (
+                <Badge tone={app.resumeMatchScore >= 75 ? "green" : app.resumeMatchScore >= 50 ? "orange" : "ink"}>
+                  ATS {app.resumeMatchScore}%
+                </Badge>
+              ) : null}
               <Badge tone="ink">Applications</Badge>
             </div>
           </div>
@@ -384,6 +396,11 @@ export default async function HiringApplicationDetailPage(props: Props) {
         {jobMoved && (
           <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
             Submission moved to another posting — funnel reset to the applied stage for that opening.
+          </div>
+        )}
+        {resumeRescored && (
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+            ATS score refreshed against this job&rsquo;s current required skills.
           </div>
         )}
         {reviewSaved && (
@@ -518,6 +535,105 @@ export default async function HiringApplicationDetailPage(props: Props) {
                       </div>
                     )}
                   </div>
+                </CardContent>
+              </Card>
+            </section>
+
+            <section id="section-ats" className="scroll-mt-24">
+              <Card>
+                <CardHeader className="border-b border-ink-100 bg-ink-50/60">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <CardTitle>ATS résumé match</CardTitle>
+                      <CardDescription>
+                        Share of this posting&rsquo;s required skills found in the candidate&rsquo;s résumé text.
+                      </CardDescription>
+                    </div>
+                    {typeof app.resumeMatchScore === "number" ? (
+                      <span
+                        className={cn(
+                          "text-2xl font-bold tabular-nums",
+                          app.resumeMatchScore >= 75
+                            ? "text-emerald-700"
+                            : app.resumeMatchScore >= 50
+                              ? "text-amber-700"
+                              : "text-ink-500",
+                        )}
+                      >
+                        {app.resumeMatchScore}%
+                      </span>
+                    ) : null}
+                  </div>
+                </CardHeader>
+                <CardContent className="pt-5 space-y-4">
+                  {!app.candidate.resumeExtractedText ? (
+                    <p className="text-sm text-ink-500">
+                      No parsed résumé text on file yet. Upload a PDF or DOCX on the{" "}
+                      <Link
+                        href={`/hiring/timeline/${app.candidateId}`}
+                        className="font-semibold text-sky-700 hover:underline"
+                      >
+                        candidate profile
+                      </Link>{" "}
+                      to score this application.
+                    </p>
+                  ) : skills.length === 0 ? (
+                    <p className="text-sm text-ink-500">
+                      This posting has no skills listed yet — add required skills on the job to enable ATS matching.
+                    </p>
+                  ) : (
+                    <>
+                      {matchedSkills.length > 0 && (
+                        <div>
+                          <p className="text-[11px] font-semibold uppercase tracking-wider text-emerald-800">
+                            Matched ({matchedSkills.length})
+                          </p>
+                          <div className="mt-2 flex flex-wrap gap-1.5">
+                            {matchedSkills.map((s) => (
+                              <span
+                                key={s}
+                                className="inline-flex rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-800"
+                              >
+                                {s}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {missingSkills.length > 0 && (
+                        <div>
+                          <p className="text-[11px] font-semibold uppercase tracking-wider text-ink-400">
+                            Missing ({missingSkills.length})
+                          </p>
+                          <div className="mt-2 flex flex-wrap gap-1.5">
+                            {missingSkills.map((s) => (
+                              <span
+                                key={s}
+                                className="inline-flex rounded-full bg-white px-2.5 py-0.5 text-xs font-medium text-ink-500 ring-1 ring-ink-200"
+                              >
+                                {s}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {app.resumeScoredAt ? (
+                        <p className="text-xs text-ink-400">Last scored {formatDate(app.resumeScoredAt)}</p>
+                      ) : null}
+                    </>
+                  )}
+                  <form action={rescoreAction} className="flex flex-wrap items-center gap-3">
+                    <input type="hidden" name="returnPath" value={`${overviewHref}#section-ats`} />
+                    <Button type="submit" variant="outline" size="sm" disabled={!app.candidate.resumeExtractedText}>
+                      Rescore résumé
+                    </Button>
+                    <Link
+                      href={`/hiring/timeline/${app.candidateId}`}
+                      className="text-xs font-semibold text-sky-700 hover:underline"
+                    >
+                      Update résumé →
+                    </Link>
+                  </form>
                 </CardContent>
               </Card>
             </section>

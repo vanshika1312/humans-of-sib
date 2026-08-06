@@ -298,7 +298,7 @@ Rules:
     ],
   });
 
-  let response: Response;
+  let response: Response | null = null;
   try {
     for (let waitRound = 0; waitRound <= LLM_HTTP_429_RETRY_WAITS; waitRound++) {
       response = await fetch(chatUrlResult.url, {
@@ -342,6 +342,10 @@ Rules:
       : "Could not reach résumé parsing service.";
     const error = safe ? `${baseMsg} (${safe})` : baseMsg;
     return { ok: false, error, parsed: stubParsed };
+  }
+
+  if (!response) {
+    return { ok: false, error: "Could not reach résumé parsing service.", parsed: stubParsed };
   }
 
   if (!response.ok) {

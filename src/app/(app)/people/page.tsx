@@ -1,11 +1,13 @@
 import Link from "next/link";
-import type { Role } from "@/generated/prisma";
+import type { Prisma, Role } from "@/generated/prisma";
 import { Suspense } from "react";
 import { prisma } from "@/lib/prisma";
 import { requireAppViewer } from "@/lib/app-viewer";
 import { RouteBodyFallback } from "@/components/app-route-body-fallback";
 import { PageHeader } from "@/components/ui/page-header";
 import { Avatar } from "@/components/ui/avatar";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import {
   getPeopleProfileAccess,
   roleLabel,
@@ -13,22 +15,40 @@ import {
 } from "@/lib/people-profile-access";
 import { formatDate, calendarDaysSincePastDate } from "@/lib/utils";
 import { displayName } from "@/lib/user-display-name";
+import { firstSearchParam } from "@/lib/search-param";
+import { userDirectoryTextSearchWhere } from "@/lib/user-directory-search";
 
-export default function PeoplePage() {
+export default function PeoplePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ q?: string | string[] }>;
+}) {
   return (
     <Suspense fallback={<RouteBodyFallback />}>
-      <PeoplePageBody />
+      <PeoplePageBody searchParams={searchParams} />
     </Suspense>
   );
 }
 
-async function PeoplePageBody() {
+async function PeoplePageBody({
+  searchParams,
+}: {
+  searchParams: Promise<{ q?: string | string[] }>;
+}) {
   const viewer = await requireAppViewer();
   if (!viewer) return null;
 
+  const sp = await searchParams;
+  const q = (firstSearchParam(sp.q) ?? "").trim();
+
+  const where: Prisma.UserWhereInput = {
+    status: "ACTIVE",
+    ...(q ? userDirectoryTextSearchWhere(q) : {}),
+  };
+
   const [members, departments] = await Promise.all([
     prisma.user.findMany({
-      where: { status: "ACTIVE" },
+      where,
       select: {
         id: true,
         name: true,
@@ -69,8 +89,43 @@ async function PeoplePageBody() {
       <PageHeader
         title="The Team"
         emoji="👥"
-        subtitle={`${members.length} people building Skillinabox`}
+        subtitle={
+          q
+            ? `${members.length} result${members.length === 1 ? "" : "s"} for "${q}"`
+            : `${members.length} people building Skillinabox`
+        }
       />
+
+      <form method="GET" className="flex flex-wrap gap-2 items-end mb-6">
+        <div className="min-w-[220px] flex-1 max-w-sm">
+          <label htmlFor="people-q" className="sr-only">
+            Search people
+          </label>
+          <Input
+            id="people-q"
+            name="q"
+            defaultValue={q}
+            placeholder="Search name, phone, or email…"
+            className="h-9"
+          />
+        </div>
+        <Button type="submit" variant="outline" size="sm" className="h-9 shrink-0">
+          Search
+        </Button>
+        {q && (
+          <Link href="/people">
+            <Button type="button" variant="ghost" size="sm" className="h-9 shrink-0">
+              Clear
+            </Button>
+          </Link>
+        )}
+      </form>
+
+      {members.length === 0 && (
+        <div className="rounded-xl border border-dashed border-ink-200 bg-white px-4 py-10 text-center text-sm text-ink-500">
+          No one matches &quot;{q}&quot;. Try a different name, phone number, or email.
+        </div>
+      )}
 
       <div className="space-y-8">
         {byDept.map((dept) => (

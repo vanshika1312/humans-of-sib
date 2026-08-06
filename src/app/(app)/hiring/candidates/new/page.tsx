@@ -8,6 +8,7 @@ import { createCandidate } from "../../actions";
 import { firstSearchParam } from "@/lib/search-param";
 import { HIRING_ACTIVITY_KIND_LABEL } from "@/lib/hiring-activity-kind-copy";
 import { HiringActivityPayloadBlock } from "@/components/hiring/hiring-activity-payload";
+import { ResumeAutofillPanel } from "@/components/hiring/resume-autofill-panel";
 import type { HiringActivityKind } from "@/generated/prisma";
 import { formatDate } from "@/lib/utils";
 import { hiringOpenJobsWhere } from "@/lib/hiring-job-active";
@@ -193,16 +194,18 @@ export default async function AddCandidatePage(props: Props) {
             </div>
             <div className="sm:col-span-2">
               <Label htmlFor="resumeFile">Résumé file (PDF, Word)</Label>
-              <Input
-                id="resumeFile"
-                name="resumeFile"
-                type="file"
-                accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                className="mt-1.5 h-auto py-2 cursor-pointer"
+              <ResumeAutofillPanel
+                inputId="resumeFile"
+                inputName="resumeFile"
+                fieldIds={{
+                  fullName: "fullName",
+                  email: "email",
+                  phone: "phone",
+                  candidateLocation: "candidateLocation",
+                }}
+                jobSelectId="targetJobId"
+                helperText="If you attach a file, it replaces the pasted link for storage — we'll also read it and fill in the fields above automatically."
               />
-              <p className="text-xs text-ink-400 mt-1 leading-relaxed">
-                If you attach a file, it replaces the pasted link for storage.
-              </p>
             </div>
             <div className="sm:col-span-2">
               <Label htmlFor="notes">Notes</Label>

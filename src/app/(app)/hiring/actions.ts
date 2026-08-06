@@ -16,6 +16,8 @@ import type { HiringJobWorkArrangement } from "@/generated/prisma";
 import { departmentIdFromForm } from "@/lib/department-resolve";
 import { normalizeExternalApplyUrl } from "@/lib/hiring-external-apply-url";
 import { persistHiringResumeFile } from "@/lib/hiring-resume-upload";
+import { extractResumeTextFromBuffer } from "@/lib/hiring-resume-text";
+import { computeResumeSkillMatch } from "@/lib/hiring-resume-match";
 import { defaultAppliedPipelineStageIdInTxn } from "@/lib/hiring-pipeline";
 import {
   hiringJobAcceptingApplications,
@@ -25,34 +27,56 @@ import type { HiringInterviewRound } from "@/generated/prisma";
 import { isHiringInterviewRound, roundLabel } from "@/lib/hiring-interview-rounds";
 import { displayName } from "@/lib/user-display-name";
 
-async function mergeResumeForIntake(formData: FormData): Promise<{ resumeUrl: string | null; error: string | null }> {
+/** Best-effort text extraction for a freshly-uploaded résumé file — never blocks saving on failure. */
+async function extractResumeTextIfPossible(file: File): Promise<string | null> {
+  try {
+    const buffer = Buffer.from(await file.arrayBuffer());
+    const result = await extractResumeTextFromBuffer(buffer, file.name);
+    return result.ok ? result.text : null;
+  } catch {
+    return null;
+  }
+}
+
+async function mergeResumeForIntake(
+  formData: FormData,
+): Promise<{ resumeUrl: string | null; resumeText: string | null; error: string | null }> {
   const drive = nu(String(formData.get("resumeDriveUrl")));
   const file = formData.get("resumeFile");
   if (file instanceof File && file.size > 0) {
     const uploaded = await persistHiringResumeFile(file);
-    if (uploaded === "TOO_LARGE") return { resumeUrl: null, error: "Résumé file is too large (max 12 MB)." };
+    if (uploaded === "TOO_LARGE")
+      return { resumeUrl: null, resumeText: null, error: "Résumé file is too large (max 12 MB)." };
     if (uploaded === "UNSUPPORTED_TYPE")
-      return { resumeUrl: null, error: "Résumé must be a PDF, DOC, or DOCX file." };
-    return { resumeUrl: uploaded, error: null };
+      return { resumeUrl: null, resumeText: null, error: "Résumé must be a PDF, DOC, or DOCX file." };
+    const resumeText = await extractResumeTextIfPossible(file);
+    return { resumeUrl: uploaded, resumeText, error: null };
   }
-  return { resumeUrl: drive, error: null };
+  return { resumeUrl: drive, resumeText: null, error: null };
 }
 
 async function mergeResumeForCandidateUpdate(
   formData: FormData,
   fallback: string | null,
-): Promise<{ resumeUrl: string | null; error: string | null }> {
+): Promise<{ resumeUrl: string | null; resumeText: string | null; resumeReplaced: boolean; error: string | null }> {
   const file = formData.get("resumeFile");
   if (file instanceof File && file.size > 0) {
     const uploaded = await persistHiringResumeFile(file);
-    if (uploaded === "TOO_LARGE") return { resumeUrl: null, error: "Résumé file is too large (max 12 MB)." };
+    if (uploaded === "TOO_LARGE")
+      return { resumeUrl: null, resumeText: null, resumeReplaced: false, error: "Résumé file is too large (max 12 MB)." };
     if (uploaded === "UNSUPPORTED_TYPE")
-      return { resumeUrl: null, error: "Résumé must be a PDF, DOC, or DOCX file." };
-    return { resumeUrl: uploaded, error: null };
+      return {
+        resumeUrl: null,
+        resumeText: null,
+        resumeReplaced: false,
+        error: "Résumé must be a PDF, DOC, or DOCX file.",
+      };
+    const resumeText = await extractResumeTextIfPossible(file);
+    return { resumeUrl: uploaded, resumeText, resumeReplaced: true, error: null };
   }
   const drive = nu(String(formData.get("resumeDriveUrl")));
-  if (drive) return { resumeUrl: drive, error: null };
-  return { resumeUrl: fallback, error: null };
+  if (drive) return { resumeUrl: drive, resumeText: null, resumeReplaced: false, error: null };
+  return { resumeUrl: fallback, resumeText: null, resumeReplaced: false, error: null };
 }
 
 type HiringTxnClient = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
@@ -64,26 +88,38 @@ async function hiringAttachApplication(
     candidateId: string;
     applicationSource: string | null;
     actorUserId: string;
+    /** Résumé plain text to score against the job's required skills, if available. */
+    resumeText?: string | null;
   },
 ) {
   const [job, cand] = await Promise.all([
     tx.hiringJob.findFirst({
       where: hiringJobAcceptingApplications(args.jobId),
-      select: { title: true, status: true },
+      select: { title: true, status: true, skillsRequired: true },
     }),
     tx.hiringCandidate.findUnique({
       where: { id: args.candidateId },
-      select: { fullName: true, email: true },
+      select: { fullName: true, email: true, resumeExtractedText: true },
     }),
   ]);
   if (!job) throw new Error("JOB_NOT_OPEN");
   const pipelineStageId = await defaultAppliedPipelineStageIdInTxn(tx);
+  const resumeTextForScoring = args.resumeText ?? cand?.resumeExtractedText ?? null;
+  const match = computeResumeSkillMatch(resumeTextForScoring, job.skillsRequired);
   const app = await tx.hiringApplication.create({
     data: {
       jobId: args.jobId,
       candidateId: args.candidateId,
       applicationSource: args.applicationSource,
       pipelineStageId,
+      ...(resumeTextForScoring
+        ? {
+            resumeMatchScore: match.score,
+            resumeMatchedSkillsJson: JSON.stringify(match.matched),
+            resumeMissingSkillsJson: JSON.stringify(match.missing),
+            resumeScoredAt: new Date(),
+          }
+        : {}),
     },
   });
   await tx.hiringActivity.create({
@@ -93,6 +129,7 @@ async function hiringAttachApplication(
       payloadJson: JSON.stringify({
         jobId: args.jobId,
         applicationSource: args.applicationSource,
+        resumeMatchScore: resumeTextForScoring ? match.score : null,
       }),
       candidateId: args.candidateId,
       applicationId: app.id,
@@ -510,7 +547,7 @@ export async function createCandidate(formData: FormData) {
     targetJobId = openJob.id;
   }
 
-  const { resumeUrl, error: resumeErr } = await mergeResumeForIntake(formData);
+  const { resumeUrl, resumeText, error: resumeErr } = await mergeResumeForIntake(formData);
   if (resumeErr) {
     redirect("/hiring/candidates/new?error=" + encodeURIComponent(resumeErr));
   }
@@ -540,6 +577,19 @@ export async function createCandidate(formData: FormData) {
         actorUserId: me.id,
       },
     });
+    // If a new résumé file was uploaded on the repeat intake, refresh the cached text
+    // (and URL) so ATS scoring can use it even when we don't overwrite the primary profile.
+    if (resumeUrl || resumeText) {
+      await prisma.hiringCandidate.update({
+        where: { id: existing.id },
+        data: {
+          ...(resumeUrl ? { resumeUrl } : {}),
+          ...(resumeText
+            ? { resumeExtractedText: resumeText, resumeParsedAt: new Date() }
+            : {}),
+        },
+      });
+    }
     invalidateHiring();
     revalidatePath(`/hiring/timeline/${existing.id}`);
 
@@ -551,6 +601,7 @@ export async function createCandidate(formData: FormData) {
             candidateId: existing.id,
             applicationSource: source,
             actorUserId: me.id,
+            resumeText,
           });
         });
         invalidateHiring(targetJobId);
@@ -583,6 +634,8 @@ export async function createCandidate(formData: FormData) {
           candidateLocation,
           source,
           resumeUrl,
+          resumeExtractedText: resumeText,
+          resumeParsedAt: resumeText ? new Date() : null,
           notes,
           createdById: me.id,
         },
@@ -605,6 +658,7 @@ export async function createCandidate(formData: FormData) {
           candidateId: created.id,
           applicationSource: source,
           actorUserId: me.id,
+          resumeText,
         });
       }
     });
@@ -629,38 +683,24 @@ export async function createApplication(jobId: string, formData: FormData) {
   const applicationSource = nu(String(formData.get("applicationSource")));
   try {
     await prisma.$transaction(async (tx) => {
-      const [job, cand] = await Promise.all([
-        tx.hiringJob.findFirst({
-          where: hiringJobAcceptingApplications(jobId),
-          select: { title: true },
-        }),
-        tx.hiringCandidate.findUnique({
-          where: { id: candidateId },
-          select: { fullName: true, email: true },
-        }),
-      ]);
-      if (!job || !cand) {
-        throw new Error("CREATE_APPLICATION_BLOCKED");
-      }
-      const pipelineStageId = await defaultAppliedPipelineStageIdInTxn(tx);
-      const app = await tx.hiringApplication.create({
-        data: {
+      const cand = await tx.hiringCandidate.findUnique({
+        where: { id: candidateId },
+        select: { id: true },
+      });
+      if (!cand) throw new Error("CREATE_APPLICATION_BLOCKED");
+      try {
+        await hiringAttachApplication(tx, {
           jobId,
           candidateId,
           applicationSource,
-          pipelineStageId,
-        },
-      });
-      await tx.hiringActivity.create({
-        data: {
-          kind: "APPLICATION_CREATED",
-          summary: `${cand?.fullName ?? "Candidate"} (${cand?.email ?? "—"}) → ${job?.title ?? "Opening"}`,
-          payloadJson: JSON.stringify({ jobId, applicationSource }),
-          candidateId,
-          applicationId: app.id,
           actorUserId: me.id,
-        },
-      });
+        });
+      } catch (inner) {
+        if (inner instanceof Error && inner.message === "JOB_NOT_OPEN") {
+          throw new Error("CREATE_APPLICATION_BLOCKED");
+        }
+        throw inner;
+      }
     });
     invalidateHiring(jobId);
     revalidatePath(`/hiring/timeline/${candidateId}`);
@@ -1779,7 +1819,7 @@ export async function moveHiringApplicationToJob(applicationId: string, formData
       ...hiringJobActiveClause,
       NOT: { status: "DRAFT" },
     },
-    select: { id: true, title: true },
+    select: { id: true, title: true, skillsRequired: true },
   });
   if (!targetJob) {
     redirect(
@@ -1810,6 +1850,12 @@ export async function moveHiringApplicationToJob(applicationId: string, formData
 
   const previousJobId = app.jobId;
 
+  const candidateForScoring = await prisma.hiringCandidate.findUnique({
+    where: { id: app.candidateId },
+    select: { resumeExtractedText: true },
+  });
+  const match = computeResumeSkillMatch(candidateForScoring?.resumeExtractedText, targetJob.skillsRequired);
+
   await prisma.$transaction(async (tx) => {
     const newStageId = await defaultAppliedPipelineStageIdInTxn(tx);
     await tx.hiringApplication.update({
@@ -1818,6 +1864,19 @@ export async function moveHiringApplicationToJob(applicationId: string, formData
         jobId: targetJobId,
         pipelineStageId: newStageId,
         updatedAt: new Date(),
+        ...(candidateForScoring?.resumeExtractedText
+          ? {
+              resumeMatchScore: match.score,
+              resumeMatchedSkillsJson: JSON.stringify(match.matched),
+              resumeMissingSkillsJson: JSON.stringify(match.missing),
+              resumeScoredAt: new Date(),
+            }
+          : {
+              resumeMatchScore: null,
+              resumeMatchedSkillsJson: null,
+              resumeMissingSkillsJson: null,
+              resumeScoredAt: null,
+            }),
       },
     });
     await tx.hiringActivity.create({
@@ -1842,6 +1901,46 @@ export async function moveHiringApplicationToJob(applicationId: string, formData
   invalidateHiring(targetJobId, applicationId);
   revalidatePath(`/hiring/applications/${applicationId}`);
   redirect(mergeHiringReturnQuery(returnPath, { jobMoved: "1" }));
+}
+
+/** Manually refresh a single application's ATS score — useful after the job's required skills change. */
+export async function rescoreHiringApplicationResume(applicationId: string, formData: FormData) {
+  await requireHiringUser();
+  const returnPath = safeHiringReturnPath(formData.get("returnPath"));
+
+  const app = await prisma.hiringApplication.findUnique({
+    where: { id: applicationId },
+    select: {
+      id: true,
+      jobId: true,
+      job: { select: { skillsRequired: true } },
+      candidate: { select: { resumeExtractedText: true } },
+    },
+  });
+  if (!app) {
+    redirect(mergeHiringReturnQuery(returnPath, { error: "Application not found." }));
+  }
+  if (!app.candidate.resumeExtractedText) {
+    redirect(
+      mergeHiringReturnQuery(returnPath, {
+        error: "No parsed résumé text on file for this candidate yet — upload a PDF/DOCX résumé first.",
+      }),
+    );
+  }
+
+  const match = computeResumeSkillMatch(app.candidate.resumeExtractedText, app.job.skillsRequired);
+  await prisma.hiringApplication.update({
+    where: { id: applicationId },
+    data: {
+      resumeMatchScore: match.score,
+      resumeMatchedSkillsJson: JSON.stringify(match.matched),
+      resumeMissingSkillsJson: JSON.stringify(match.missing),
+      resumeScoredAt: new Date(),
+    },
+  });
+
+  invalidateHiring(app.jobId, applicationId);
+  redirect(mergeHiringReturnQuery(returnPath, { resumeRescored: "1" }));
 }
 
 const BULK_APPLICATION_LIMIT = 400;
@@ -2033,7 +2132,7 @@ export async function bulkMoveHiringApplicationsToJob(formData: FormData) {
       ...hiringJobActiveClause,
       NOT: { status: "DRAFT" },
     },
-    select: { id: true, title: true },
+    select: { id: true, title: true, skillsRequired: true },
   });
   if (!targetJob) {
     redirect(
@@ -2052,6 +2151,7 @@ export async function bulkMoveHiringApplicationsToJob(formData: FormData) {
       pipelineStageId: true,
       job: { select: { title: true } },
       pipelineStage: { select: { label: true, key: true } },
+      candidate: { select: { resumeExtractedText: true } },
     },
   });
 
@@ -2075,6 +2175,7 @@ export async function bulkMoveHiringApplicationsToJob(formData: FormData) {
 
     const previousJobId = app.jobId;
     const oldJobTitle = app.job.title;
+    const match = computeResumeSkillMatch(app.candidate.resumeExtractedText, targetJob.skillsRequired);
 
     await prisma.$transaction(async (tx) => {
       const newStageId = await defaultAppliedPipelineStageIdInTxn(tx);
@@ -2084,6 +2185,19 @@ export async function bulkMoveHiringApplicationsToJob(formData: FormData) {
           jobId: targetJobId,
           pipelineStageId: newStageId,
           updatedAt: new Date(),
+          ...(app.candidate.resumeExtractedText
+            ? {
+                resumeMatchScore: match.score,
+                resumeMatchedSkillsJson: JSON.stringify(match.matched),
+                resumeMissingSkillsJson: JSON.stringify(match.missing),
+                resumeScoredAt: new Date(),
+              }
+            : {
+                resumeMatchScore: null,
+                resumeMatchedSkillsJson: null,
+                resumeMissingSkillsJson: null,
+                resumeScoredAt: null,
+              }),
         },
       });
       await tx.hiringActivity.create({
@@ -2188,10 +2302,12 @@ export async function updateHiringCandidate(candidateId: string, formData: FormD
     );
   }
 
-  const { resumeUrl: mergedResumeUrl, error: resumeErr } = await mergeResumeForCandidateUpdate(
-    formData,
-    before.resumeUrl,
-  );
+  const {
+    resumeUrl: mergedResumeUrl,
+    resumeText: newResumeText,
+    resumeReplaced,
+    error: resumeErr,
+  } = await mergeResumeForCandidateUpdate(formData, before.resumeUrl);
   if (resumeErr) {
     redirect(`/hiring/timeline/${candidateId}?error=` + encodeURIComponent(resumeErr));
   }
@@ -2204,6 +2320,9 @@ export async function updateHiringCandidate(candidateId: string, formData: FormD
     source: nu(String(formData.get("source"))),
     resumeUrl: mergedResumeUrl,
     notes: nu(String(formData.get("notes"))),
+    ...(resumeReplaced
+      ? { resumeExtractedText: newResumeText, resumeParsedAt: newResumeText ? new Date() : null }
+      : {}),
   };
 
   await prisma.$transaction(async (tx) => {
@@ -2231,10 +2350,32 @@ export async function updateHiringCandidate(candidateId: string, formData: FormD
         actorUserId: me.id,
       },
     });
+
+    // Résumé was replaced with a readable file: refresh the ATS score on every one of this
+    // candidate's applications against their job's required skills.
+    if (resumeReplaced && newResumeText) {
+      const apps = await tx.hiringApplication.findMany({
+        where: { candidateId },
+        select: { id: true, job: { select: { skillsRequired: true } } },
+      });
+      for (const application of apps) {
+        const match = computeResumeSkillMatch(newResumeText, application.job.skillsRequired);
+        await tx.hiringApplication.update({
+          where: { id: application.id },
+          data: {
+            resumeMatchScore: match.score,
+            resumeMatchedSkillsJson: JSON.stringify(match.matched),
+            resumeMissingSkillsJson: JSON.stringify(match.missing),
+            resumeScoredAt: new Date(),
+          },
+        });
+      }
+    }
   });
 
   invalidateHiring();
   revalidatePath(`/hiring/timeline/${candidateId}`);
+  revalidatePath("/hiring/applications");
   redirect(`/hiring/timeline/${candidateId}?saved=1`);
 }
 

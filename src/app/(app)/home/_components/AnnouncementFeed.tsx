@@ -20,6 +20,7 @@ import { AnnouncementComposer } from "./AnnouncementComposer";
 import { HomeFeedPostActions } from "./HomeFeedPostActions";
 import { HomeFeedReactions } from "./HomeFeedReactions";
 import { HomeFeedPostMedia } from "./HomeFeedPostMedia";
+import { ExpandableFeedText } from "./ExpandableFeedText";
 
 type Props = {
   viewer: { id: string; name: string | null; image: string | null; role: string };
@@ -407,9 +408,7 @@ function FeedRow({
           <span className="text-xs text-ink-400 ml-auto">{relativeTime(item.createdAt)}</span>
         </div>
         {item.body && (
-          <p className="text-sm text-ink-500 mt-1 whitespace-pre-wrap line-clamp-3">
-            {renderTextWithMentions(item.body)}
-          </p>
+          <ExpandableFeedText>{renderTextWithMentions(item.body)}</ExpandableFeedText>
         )}
 
         {isAwardWin && rewardLabel ? (

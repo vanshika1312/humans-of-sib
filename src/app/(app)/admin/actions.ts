@@ -6,10 +6,12 @@ import type { EmployeeStatus, Gender, Role } from "@/generated/prisma";
 import { redirect } from "next/navigation";
 import {
   AdminMutationError,
+  assertEmployeeCodeAvailable,
   assertHrCreateRole,
   assertHrUpdateRole,
   assertNotRemovingLastWorkspaceAdmin,
   isWorkspacePowerUser,
+  normalizeEmployeeCode,
   parseEmployeeStatus,
   parseRole,
   remainingAdminPeers,
@@ -235,6 +237,18 @@ export async function updateMember(userId: string, fd: FormData) {
     throw e;
   }
 
+  let employeeCode: string | null;
+  try {
+    employeeCode = normalizeEmployeeCode(fd.get("employeeCode"));
+    if (!employeeCode) throw new AdminMutationError("employee_code_required");
+    await assertEmployeeCodeAvailable(employeeCode, userId);
+  } catch (e) {
+    if (e instanceof AdminMutationError) {
+      redirect(`/admin/team/${userId}?notice=${encodeURIComponent(e.code)}`);
+    }
+    throw e;
+  }
+
   const firstName = (fd.get("firstName") as string)?.trim() ?? "";
   const lastName = (fd.get("lastName") as string)?.trim() ?? "";
   const combinedName = [firstName, lastName].filter(Boolean).join(" ").trim();
@@ -279,6 +293,7 @@ export async function updateMember(userId: string, fd: FormData) {
       lastName: lastName || null,
       ...(combinedName ? { name: combinedName } : {}),
       title: title?.trim() || null,
+      employeeCode,
       role,
       status,
       permissions,

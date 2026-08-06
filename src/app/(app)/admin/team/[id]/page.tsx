@@ -141,12 +141,17 @@ async function EditMemberPageBody({ id }: { id: string }) {
               <p className="text-xs text-ink-400 mt-1">Sign-in identifier — change only via support / DB if needed.</p>
             </div>
 
-            {member.employeeCode && (
-              <div>
-                <Label>Employee ID</Label>
-                <Input value={member.employeeCode} readOnly className="bg-ink-50 text-ink-500 cursor-not-allowed" />
-              </div>
-            )}
+            <div>
+              <Label htmlFor="employeeCode">Employee ID</Label>
+              <Input
+                id="employeeCode"
+                name="employeeCode"
+                defaultValue={member.employeeCode || ""}
+                placeholder="SIB-00001"
+                required
+              />
+              <p className="text-xs text-ink-400 mt-1">Must stay unique across the team.</p>
+            </div>
 
             <div>
               <Label htmlFor="title">Job title</Label>

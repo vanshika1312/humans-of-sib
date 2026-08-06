@@ -9,12 +9,14 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Avatar } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { formatDate } from "@/lib/utils";
 import { displayName } from "@/lib/user-display-name";
 import { Users, Building2, MapPin, IndianRupee, UserPlus, Clock } from "lucide-react";
 import { AdminNoticeBanner } from "@/components/admin/admin-notice-banner";
 import { firstSearchParam } from "@/lib/search-param";
 import { isOnProbation, stripTime } from "@/lib/leave-policy";
+import { userDirectoryMatches } from "@/lib/user-directory-search";
 import {
   AdminTeamProbationTabs,
   parseAdminTeamProbationFilter,
@@ -27,6 +29,7 @@ type AdminSearchParams = Promise<{
   notice?: string | string[];
   mailError?: string | string[];
   probation?: string;
+  q?: string | string[];
 }>;
 
 export default async function AdminPage({ searchParams }: { searchParams: AdminSearchParams }) {
@@ -36,11 +39,12 @@ export default async function AdminPage({ searchParams }: { searchParams: AdminS
   const mailDetail =
     notice === "invite_failed" && mailError ? mailError : undefined;
   const probationFilter = parseAdminTeamProbationFilter(sp.probation);
+  const q = (firstSearchParam(sp.q) ?? "").trim();
   return (
     <div>
       <AdminNoticeBanner code={notice} detail={mailDetail} />
       <Suspense fallback={<RouteBodyFallback />}>
-        <AdminPageBody probationFilter={probationFilter} />
+        <AdminPageBody probationFilter={probationFilter} q={q} />
       </Suspense>
     </div>
   );
@@ -63,7 +67,13 @@ function matchesProbationFilter(
   return filter === "on" ? onProbation : !onProbation;
 }
 
-async function AdminPageBody({ probationFilter }: { probationFilter: AdminTeamProbationFilter }) {
+async function AdminPageBody({
+  probationFilter,
+  q,
+}: {
+  probationFilter: AdminTeamProbationFilter;
+  q: string;
+}) {
   const me = await requireAppViewer();
   const canAccess = !!me && (ADMIN_ROLES.includes(me.role) || (me.permissions ?? []).includes("ADMIN_PANEL"));
   if (!canAccess) redirect("/home");
@@ -84,12 +94,15 @@ async function AdminPageBody({ probationFilter }: { probationFilter: AdminTeamPr
   const today = new Date();
   const active = users.filter((u) => u.status === "ACTIVE");
   const onProbationActive = active.filter((u) => isOnProbation(u.probationEndsAt, today));
+  const searchMatchedUsers = users.filter((u) => userDirectoryMatches(u, q));
   const probationCounts: Record<AdminTeamProbationFilter, number> = {
-    all: users.length,
-    on: users.filter((u) => isOnProbation(u.probationEndsAt, today)).length,
-    confirmed: users.filter((u) => !isOnProbation(u.probationEndsAt, today)).length,
+    all: searchMatchedUsers.length,
+    on: searchMatchedUsers.filter((u) => isOnProbation(u.probationEndsAt, today)).length,
+    confirmed: searchMatchedUsers.filter((u) => !isOnProbation(u.probationEndsAt, today)).length,
   };
-  const filteredUsers = users.filter((u) => matchesProbationFilter(u.probationEndsAt, probationFilter, today));
+  const filteredUsers = searchMatchedUsers.filter((u) =>
+    matchesProbationFilter(u.probationEndsAt, probationFilter, today),
+  );
   const isCeoOrAdmin = ["CEO", "ADMIN"].includes(me.role);
   const canWriteTeam = ADMIN_ROLES.includes(me.role) || (me.permissions ?? []).includes("ADMIN_TEAM_WRITE");
 
@@ -204,14 +217,41 @@ async function AdminPageBody({ probationFilter }: { probationFilter: AdminTeamPr
           <div>
             <CardTitle>Team Members</CardTitle>
             <CardDescription>
-              {probationFilter === "all"
-                ? `${active.length} active · ${users.length - active.length} others`
-                : `${filteredUsers.length} shown · ${active.length} active total`}
+              {q
+                ? `${filteredUsers.length} match${filteredUsers.length === 1 ? "" : "es"} for "${q}"`
+                : probationFilter === "all"
+                  ? `${active.length} active · ${users.length - active.length} others`
+                  : `${filteredUsers.length} shown · ${active.length} active total`}
             </CardDescription>
           </div>
-          <AdminTeamProbationTabs active={probationFilter} counts={probationCounts} />
+          <AdminTeamProbationTabs active={probationFilter} counts={probationCounts} q={q} />
         </CardHeader>
         <CardContent className="p-0">
+          <form method="GET" className="flex flex-wrap gap-2 items-end px-5 py-3 border-b border-ink-100 bg-ink-50/40">
+            {probationFilter !== "all" && <input type="hidden" name="probation" value={probationFilter} />}
+            <div className="min-w-[220px] flex-1 max-w-sm">
+              <label htmlFor="admin-team-q" className="sr-only">
+                Search team members
+              </label>
+              <Input
+                id="admin-team-q"
+                name="q"
+                defaultValue={q}
+                placeholder="Search name, phone, or email…"
+                className="h-9"
+              />
+            </div>
+            <Button type="submit" variant="outline" size="sm" className="h-9 shrink-0">
+              Search
+            </Button>
+            {q && (
+              <Link href={probationFilter !== "all" ? `/admin?probation=${probationFilter}` : "/admin"}>
+                <Button type="button" variant="ghost" size="sm" className="h-9 shrink-0">
+                  Clear
+                </Button>
+              </Link>
+            )}
+          </form>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -233,7 +273,9 @@ async function AdminPageBody({ probationFilter }: { probationFilter: AdminTeamPr
                 {filteredUsers.length === 0 ? (
                   <tr>
                     <td colSpan={isCeoOrAdmin ? 9 : 8} className="px-5 py-10 text-center text-sm text-ink-400">
-                      No team members match this probation filter.
+                      {q
+                        ? `No team members match "${q}".`
+                        : "No team members match this probation filter."}
                     </td>
                   </tr>
                 ) : null}

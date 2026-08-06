@@ -12,6 +12,7 @@ import {
   formatHiringJobLocation,
   splitCandidateFullName,
 } from "@/lib/hiring-application-display";
+import type { HiringJobWorkArrangement } from "@/generated/prisma";
 import { ApplicationStageControl, type PipelineStageOption } from "./application-stage-control";
 import {
   bulkDeleteHiringApplications,
@@ -23,6 +24,7 @@ export type SerializableApplicationRow = {
   id: string;
   appliedAtIso: string;
   applicationSource: string | null;
+  resumeMatchScore: number | null;
   candidate: {
     fullName: string;
     email: string;
@@ -34,10 +36,16 @@ export type SerializableApplicationRow = {
     id: string;
     title: string;
     location: string | null;
-    workArrangement: string;
+    workArrangement: string | null;
   };
   pipelineStageId: string;
 };
+
+function atsScoreClass(score: number): string {
+  if (score >= 75) return "text-emerald-700";
+  if (score >= 50) return "text-orange-700";
+  return "text-ink-500";
+}
 
 function BulkSubmit({
   children,
@@ -217,7 +225,7 @@ export function ApplicationsTableWithBulk({
       ) : null}
 
       <div className="overflow-x-auto relative">
-        <table className="w-full text-sm min-w-[1120px]">
+        <table className="w-full text-sm min-w-[1180px]">
           <thead className="sticky top-0 z-[1] bg-ink-50/95 backdrop-blur-sm border-b border-ink-100">
             <tr className="text-left text-[10px] font-semibold uppercase tracking-wider text-ink-400">
               <th className="px-3 py-3 w-10">
@@ -241,6 +249,7 @@ export function ApplicationsTableWithBulk({
               <th className="px-4 py-3 min-w-[180px]">Email</th>
               <th className="px-4 py-3 whitespace-nowrap">Phone</th>
               <th className="px-4 py-3 min-w-[140px]">Role applied for</th>
+              <th className="px-4 py-3 whitespace-nowrap">ATS</th>
               <th className="px-4 py-3 min-w-[120px]">Job location</th>
               <th className="px-4 py-3 min-w-[120px]">Candidate location</th>
               <th className="px-4 py-3 min-w-[120px]">Source / job portal</th>
@@ -251,7 +260,7 @@ export function ApplicationsTableWithBulk({
           <tbody className="divide-y divide-ink-100">
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={12} className="px-4 py-6">
+                <td colSpan={13} className="px-4 py-6">
                   {filtersActive ? (
                     <div className="rounded-xl border border-dashed border-ink-200 bg-ink-50/40 px-6 py-12 text-center text-sm text-ink-500">
                       No applications match these filters —{" "}
@@ -287,7 +296,10 @@ export function ApplicationsTableWithBulk({
               rows.map((app) => {
                 const { firstName, lastName } = splitCandidateFullName(app.candidate.fullName);
                 const portal = applicationSourceLabel(app.applicationSource, app.candidate.source);
-                const jobLoc = formatHiringJobLocation(app.job);
+                const jobLoc = formatHiringJobLocation({
+                  workArrangement: app.job.workArrangement as HiringJobWorkArrangement | null,
+                  location: app.job.location,
+                });
                 const detailHref = `/hiring/applications/${app.id}?from=${fromParam}`;
                 return (
                   <tr key={app.id} className="align-top hover:bg-ink-50/40 transition-colors">
@@ -322,6 +334,15 @@ export function ApplicationsTableWithBulk({
                       >
                         {app.job.title}
                       </Link>
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap tabular-nums">
+                      {typeof app.resumeMatchScore === "number" ? (
+                        <span className={`font-semibold ${atsScoreClass(app.resumeMatchScore)}`}>
+                          {app.resumeMatchScore}%
+                        </span>
+                      ) : (
+                        <span className="text-ink-300">—</span>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-ink-600">{jobLoc}</td>
                     <td className="px-4 py-3 text-ink-600">{app.candidate.candidateLocation ?? "—"}</td>

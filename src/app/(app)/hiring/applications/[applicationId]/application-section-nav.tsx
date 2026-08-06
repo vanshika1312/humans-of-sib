@@ -8,6 +8,7 @@ const STORAGE_KEY = "hosib-application-section-nav-expanded";
 
 const LINKS = [
   { href: "#section-summary", label: "Summary" },
+  { href: "#section-ats", label: "ATS match" },
   { href: "#section-details", label: "Application details" },
   { href: "#section-move-delete", label: "Move / delete" },
   { href: "#section-attachments", label: "Attachments" },

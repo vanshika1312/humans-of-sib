@@ -8,6 +8,12 @@ import {
   employeeSelfProfileToDb,
   parseEmployeeSelfProfileForm,
 } from "@/lib/employee-self-profile";
+import {
+  AdminMutationError,
+  ADMIN_MUTATION_MESSAGES,
+  assertEmployeeCodeAvailable,
+  normalizeEmployeeCode,
+} from "@/lib/admin-mutations";
 
 export async function updateProfile(formData: FormData) {
   const session = await auth();
@@ -24,12 +30,28 @@ export async function updateProfile(formData: FormData) {
   const bio = String(formData.get("bio") || "").slice(0, 500) || null;
   const title = String(formData.get("title") || "").slice(0, 100) || null;
 
+  const normalizedEmployeeCode = normalizeEmployeeCode(formData.get("employeeCode"));
+  if (!normalizedEmployeeCode) {
+    redirect(`/me?error=${encodeURIComponent(ADMIN_MUTATION_MESSAGES.employee_code_required)}`);
+  }
+  if (normalizedEmployeeCode !== user.employeeCode) {
+    try {
+      await assertEmployeeCodeAvailable(normalizedEmployeeCode, user.id);
+    } catch (e) {
+      if (e instanceof AdminMutationError) {
+        redirect(`/me?error=${encodeURIComponent(ADMIN_MUTATION_MESSAGES[e.code] ?? e.code)}`);
+      }
+      throw e;
+    }
+  }
+
   await prisma.user.update({
     where: { id: user.id },
     data: {
       ...employeeSelfProfileToDb(parsed.data),
       bio,
       title,
+      employeeCode: normalizedEmployeeCode,
     },
   });
 

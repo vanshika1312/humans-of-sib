@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input, Label, Textarea } from "@/components/ui/input";
 import { formatDate } from "@/lib/utils";
 import { HiringActivityPayloadBlock } from "@/components/hiring/hiring-activity-payload";
+import { ResumeAutofillPanel } from "@/components/hiring/resume-autofill-panel";
 import { HIRING_ACTIVITY_KIND_LABEL } from "@/lib/hiring-activity-kind-copy";
 import { updateHiringCandidate } from "../../actions";
 import { firstSearchParam } from "@/lib/search-param";
@@ -131,16 +132,18 @@ export default async function CandidateTimelinePage(props: Props) {
             </div>
             <div className="sm:col-span-2">
               <Label htmlFor="resumeFile">Replace résumé file (PDF, Word)</Label>
-              <Input
-                id="resumeFile"
-                name="resumeFile"
-                type="file"
-                accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                className="mt-1.5 h-auto py-2 cursor-pointer"
+              <ResumeAutofillPanel
+                inputId="resumeFile"
+                inputName="resumeFile"
+                fieldIds={{
+                  fullName: "fullName",
+                  email: "email",
+                  phone: "phone",
+                  candidateLocation: "candidateLocation",
+                }}
+                fillMode="overwrite"
+                helperText="Upload overrides the pasted link once saved — we'll also re-read it and refresh the fields above, plus this candidate's ATS scores on every open application."
               />
-              <p className="text-xs text-ink-400 mt-1 leading-relaxed">
-                Upload overrides the pasted link once saved — leave blank to keep the stored link/text.
-              </p>
             </div>
             <div className="sm:col-span-2">
               <Label htmlFor="notes">Notes</Label>

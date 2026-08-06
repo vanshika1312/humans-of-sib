@@ -12,6 +12,7 @@ import {
 } from "@/lib/hiring-resume-import-process";
 import { isBulkImportStoredResumeUrl } from "@/lib/hiring-resume-upload";
 import { hiringJobAcceptingApplications } from "@/lib/hiring-job-active";
+import { computeResumeSkillMatch } from "@/lib/hiring-resume-match";
 
 type HiringTxnClient = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
 
@@ -41,26 +42,37 @@ async function hiringAttachApplication(
     candidateId: string;
     applicationSource: string | null;
     actorUserId: string;
+    resumeText?: string | null;
   },
 ) {
   const [job, cand] = await Promise.all([
     tx.hiringJob.findFirst({
       where: hiringJobAcceptingApplications(args.jobId),
-      select: { title: true, status: true },
+      select: { title: true, status: true, skillsRequired: true },
     }),
     tx.hiringCandidate.findUnique({
       where: { id: args.candidateId },
-      select: { fullName: true, email: true },
+      select: { fullName: true, email: true, resumeExtractedText: true },
     }),
   ]);
   if (!job) throw new Error("JOB_NOT_OPEN");
   const pipelineStageId = await defaultAppliedPipelineStageIdInTxn(tx);
+  const resumeTextForScoring = args.resumeText ?? cand?.resumeExtractedText ?? null;
+  const match = computeResumeSkillMatch(resumeTextForScoring, job.skillsRequired);
   const app = await tx.hiringApplication.create({
     data: {
       jobId: args.jobId,
       candidateId: args.candidateId,
       applicationSource: args.applicationSource,
       pipelineStageId,
+      ...(resumeTextForScoring
+        ? {
+            resumeMatchScore: match.score,
+            resumeMatchedSkillsJson: JSON.stringify(match.matched),
+            resumeMissingSkillsJson: JSON.stringify(match.missing),
+            resumeScoredAt: new Date(),
+          }
+        : {}),
     },
   });
   await tx.hiringActivity.create({
@@ -70,6 +82,7 @@ async function hiringAttachApplication(
       payloadJson: JSON.stringify({
         jobId: args.jobId,
         applicationSource: args.applicationSource,
+        resumeMatchScore: resumeTextForScoring ? match.score : null,
       }),
       candidateId: args.candidateId,
       applicationId: app.id,
@@ -280,11 +293,26 @@ export async function commitBulkResumeImport(
 
       if (existing) {
         await prisma.$transaction(async (tx) => {
+          if (item.extractedText || item.resumeUrl) {
+            await tx.hiringCandidate.update({
+              where: { id: existing.id },
+              data: {
+                ...(item.resumeUrl ? { resumeUrl: item.resumeUrl } : {}),
+                ...(item.extractedText
+                  ? {
+                      resumeExtractedText: item.extractedText,
+                      resumeParsedAt: new Date(),
+                    }
+                  : {}),
+              },
+            });
+          }
           await hiringAttachApplication(tx, {
             jobId,
             candidateId: existing.id,
             applicationSource,
             actorUserId: me.id,
+            resumeText: item.extractedText,
           });
         });
 
@@ -316,6 +344,8 @@ export async function commitBulkResumeImport(
             candidateLocation,
             source: applicationSource,
             resumeUrl: item.resumeUrl,
+            resumeExtractedText: item.extractedText,
+            resumeParsedAt: item.extractedText ? new Date() : null,
             notes: null,
             createdById: me.id,
           },
@@ -336,6 +366,7 @@ export async function commitBulkResumeImport(
           candidateId: created.id,
           applicationSource,
           actorUserId: me.id,
+          resumeText: item.extractedText,
         });
       });
 

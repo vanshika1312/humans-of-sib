@@ -154,6 +154,21 @@ async function MePageBody({ searchParams }: Props) {
               </div>
             </div>
 
+            <div>
+              <Label htmlFor="employeeCode">Employee ID</Label>
+              <Input
+                id="employeeCode"
+                name="employeeCode"
+                defaultValue={me.employeeCode || ""}
+                placeholder="SIB-00001"
+                required
+                className="max-w-xs"
+              />
+              <p className="text-xs text-ink-400 mt-1">
+                Enter or fix your assigned employee ID. Must stay unique across the team.
+              </p>
+            </div>
+
             <EmployeeSelfProfileFields
               cities={cities}
               officialEmail={me.email}

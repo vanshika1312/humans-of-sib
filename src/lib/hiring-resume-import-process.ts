@@ -1,5 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { persistHiringResumeBuffer } from "@/lib/hiring-resume-upload";
+import { extractResumeTextFromBuffer } from "@/lib/hiring-resume-text";
+import { resolveResumeFields } from "@/lib/hiring-resume-fields";
 import type { ParsedResumeFields } from "@/lib/hiring-resume-llm";
 
 export type StoredResumePayload = {
@@ -7,7 +9,7 @@ export type StoredResumePayload = {
   warnings?: string[];
 };
 
-/** Disk + DB staging (fast). Rows are ready for manual field entry immediately. */
+/** Disk + DB staging. Parse runs after persist so rows arrive with autofilled fields. */
 export const RESUME_IMPORT_STAGING_CONCURRENCY = 8;
 
 const EMPTY_PARSED: ParsedResumeFields = {
@@ -69,7 +71,8 @@ export async function resumeImportMarkPendingAsManualReady(batchId: string): Pro
 }
 
 /**
- * Persist file and insert a staging row (`PARSED` with empty fields, or `FAILED` for bad type/size).
+ * Persist file, extract text, resolve profile fields, and insert a staging row
+ * (`PARSED` with autofilled fields, or `FAILED` for bad type/size).
  */
 export async function stageResumeImportItemFromBuffer(opts: {
   batchId: string;
@@ -111,6 +114,31 @@ export async function stageResumeImportItemFromBuffer(opts: {
     return;
   }
 
+  const parseT0 = performance.now();
+  const extracted = await extractResumeTextFromBuffer(opts.buffer, opts.originalFileName);
+  let extractedText: string | null = null;
+  let parsedPayloadJson = STUB_PAYLOAD;
+  let parseModel: string | null = null;
+  let warnings: string[] = [];
+
+  if (extracted.ok) {
+    extractedText = extracted.text;
+    const resolved = await resolveResumeFields(extracted.text);
+    parsedPayloadJson = JSON.stringify({
+      parsed: resolved.parsed,
+      warnings: resolved.warnings,
+    } satisfies StoredResumePayload);
+    parseModel = resolved.model;
+    warnings = resolved.warnings;
+  } else {
+    warnings = [extracted.error];
+    parsedPayloadJson = JSON.stringify({
+      parsed: EMPTY_PARSED,
+      warnings,
+    } satisfies StoredResumePayload);
+  }
+
+  const parseMs = Math.round(performance.now() - parseT0);
   const parsedAt = new Date();
   await prisma.hiringResumeImportItem.create({
     data: {
@@ -118,10 +146,10 @@ export async function stageResumeImportItemFromBuffer(opts: {
       fileName: displayName,
       resumeUrl: uploaded,
       status: "PARSED",
-      error: null,
-      parsedPayloadJson: STUB_PAYLOAD,
-      extractedText: null,
-      parseModel: null,
+      error: extracted.ok ? null : extracted.error.slice(0, 500),
+      parsedPayloadJson,
+      extractedText,
+      parseModel,
       parsedAt,
     },
   });
@@ -130,5 +158,8 @@ export async function stageResumeImportItemFromBuffer(opts: {
     batchId: opts.batchId,
     fileName: displayName,
     persistMs,
+    parseMs,
+    extractedChars: extractedText?.length ?? 0,
+    fieldSource: parseModel ? "llm" : "rule_based",
   });
 }

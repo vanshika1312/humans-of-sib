@@ -17,10 +17,20 @@ export function parseAdminTeamProbationFilter(raw?: string): AdminTeamProbationF
 export function AdminTeamProbationTabs({
   active,
   counts,
+  q,
 }: {
   active: AdminTeamProbationFilter;
   counts: Record<AdminTeamProbationFilter, number>;
+  q?: string;
 }) {
+  const tabHref = (tabId: AdminTeamProbationFilter) => {
+    const params = new URLSearchParams();
+    if (tabId !== "all") params.set("probation", tabId);
+    if (q) params.set("q", q);
+    const tail = params.toString();
+    return tail ? `/admin?${tail}` : "/admin";
+  };
+
   return (
     <nav
       className="flex flex-wrap gap-1 p-1 rounded-xl border border-ink-200 bg-ink-50/50"
@@ -29,7 +39,7 @@ export function AdminTeamProbationTabs({
       {TABS.map((tab) => (
         <Link
           key={tab.id}
-          href={tab.id === "all" ? "/admin" : `/admin?probation=${tab.id}`}
+          href={tabHref(tab.id)}
           className={cn(
             "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors",
             active === tab.id

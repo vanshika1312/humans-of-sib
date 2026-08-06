@@ -508,6 +508,10 @@ model HiringCandidate {
   candidateLocation String?         @db.VarChar(200)
   source      String?               @db.VarChar(120)
   resumeUrl   String?               @db.VarChar(2000)
+  /// Plain text extracted from the résumé file (PDF/DOCX), cached so ATS scoring and
+  /// re-parsing don't need to re-download/re-read the file. Refreshed whenever the résumé is replaced.
+  resumeExtractedText String?       @db.Text
+  resumeParsedAt DateTime?
   notes       String?               @db.Text
   createdById String?
   createdBy   User?                 @relation("HiringCandidateCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
@@ -530,6 +534,13 @@ model HiringApplication {
   pipelineStage   HiringPipelineStage @relation(fields: [pipelineStageId], references: [id], onDelete: Restrict)
   /// Job board / channel for this submission (falls back to candidate.source in UI when empty).
   applicationSource String?          @db.VarChar(120)
+  /// ATS score 0-100: share of the job's required skills found in the candidate's résumé text.
+  resumeMatchScore        Int?
+  /// JSON string array of job-required skills found in the résumé.
+  resumeMatchedSkillsJson String?    @db.Text
+  /// JSON string array of job-required skills not found in the résumé.
+  resumeMissingSkillsJson String?    @db.Text
+  resumeScoredAt          DateTime?
   notes       String?                  @db.Text
   appliedAt   DateTime                 @default(now())
   updatedAt   DateTime                 @updatedAt
