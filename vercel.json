@@ -14,7 +14,7 @@
     },
     {
       "path": "/api/cron/sync-interview-artifacts",
-      "schedule": "10 * * * *"
+      "schedule": "10 4 * * *"
     }
   ]
 }
