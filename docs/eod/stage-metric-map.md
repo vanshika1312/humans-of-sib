@@ -18,7 +18,7 @@ Implemented in [`src/lib/eod/stage-metric-map.ts`](../../src/lib/eod/stage-metri
 | `HiringPipelineStage.key` | EOD bucket |
 |---------------------------|------------|
 | `APPLIED`, `NEW` | `applied` |
-| `SCREENING`, `PHONE_SCREEN`, `HR_SCREEN` | `screening` |
+| `SCREENING`, `PHONE_SCREEN`, `HR_SCREEN`, `PSYCHOMETRIC` | `screening` |
 | `ROUND_1`, `R1`, `INTERVIEW_1` | `round1` |
 | `ROUND_2`, `R2`, `INTERVIEW_2` | `round2` |
 | `FINAL`, `BAR_RAISER` | `final` |

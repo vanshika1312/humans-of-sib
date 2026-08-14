@@ -3,6 +3,7 @@ import { google } from "googleapis";
 import { getGoogleWorkspaceJwt } from "@/lib/google-workspace-auth";
 
 const DRIVE_FILE_SCOPE = "https://www.googleapis.com/auth/drive.file";
+const DRIVE_READONLY_SCOPE = "https://www.googleapis.com/auth/drive.readonly";
 
 export type CalendarDriveAttachment = {
   fileUrl: string;
@@ -45,4 +46,21 @@ export async function uploadFileForCalendarAttachment(
     title: created.data.name ?? fileName,
     mimeType: created.data.mimeType ?? mimeType,
   };
+}
+
+function getDriveReadonlyClient() {
+  const auth = getGoogleWorkspaceJwt([DRIVE_READONLY_SCOPE]);
+  return google.drive({ version: "v3", auth });
+}
+
+/** Export a Google Doc (e.g. Meet transcript) as plain text. */
+export async function exportGoogleDocPlainText(documentId: string): Promise<string | null> {
+  const drive = getDriveReadonlyClient();
+  const res = await drive.files.export(
+    { fileId: documentId, mimeType: "text/plain" },
+    { responseType: "text" },
+  );
+  const data = res.data;
+  if (typeof data === "string" && data.trim()) return data.trim();
+  return null;
 }

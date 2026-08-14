@@ -11,6 +11,10 @@
     {
       "path": "/api/cron/weekly-performance",
       "schedule": "30 3 * * 1"
+    },
+    {
+      "path": "/api/cron/sync-interview-artifacts",
+      "schedule": "10 * * * *"
     }
   ]
 }

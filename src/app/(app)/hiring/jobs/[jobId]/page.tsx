@@ -9,7 +9,8 @@ import { Input, Label, Select, Textarea } from "@/components/ui/input";
 import { DepartmentNameField } from "@/components/workspace/department-name-field";
 import { ApplicationStageControl } from "../../_components/application-stage-control";
 import { formatDate } from "@/lib/utils";
-import { updateJobPosting, closeJobPosting, restoreClosedJobPosting } from "../../actions";
+import { updateJobPosting, closeJobPosting, reopenJobPosting, restoreClosedJobPosting } from "../../actions";
+import { CareersLiveJobForm } from "../../_components/careers-live-job-form";
 import { SoftRemoveClosedJobForm } from "../../_components/soft-remove-closed-job-form";
 import { displayName } from "@/lib/user-display-name";
 import { firstSearchParam } from "@/lib/search-param";
@@ -18,9 +19,14 @@ import type { HiringJobStatus } from "@/generated/prisma";
 import { WORK_ARRANGEMENT_LABEL, WORK_ARRANGEMENT_OPTIONS } from "@/lib/hiring-job-copy";
 import { formatCalendarDate, utcCalendarDateToInputValue } from "@/lib/calendar-date";
 import { applicationSourceLabel } from "@/lib/hiring-application-display";
+import { isSelfSignupSource } from "@/lib/hiring-candidate-portal";
 import { loadPipelineStagesOrdered } from "@/lib/hiring-pipeline";
 import { loadJobProfileTemplatesForPicker } from "@/lib/hiring-load-job-templates";
 import { JobProfileTemplatePicker } from "@/components/hiring/job-profile-template-picker";
+import { JobDescriptionBody } from "@/components/hiring/job-description-body";
+import { JobDescriptionEditor } from "@/components/hiring/job-description-editor";
+import { JobScreeningQuestionsEditor } from "@/components/hiring/job-screening-questions-editor";
+import { HIRING_JOB_QUESTION_TYPE_LABEL, toEditorQuestions } from "@/lib/hiring-job-questions";
 
 type Props = {
   params: Promise<{ jobId: string }>;
@@ -29,6 +35,9 @@ type Props = {
     saved?: string | string[];
     applied?: string | string[];
     closed?: string | string[];
+    listed?: string | string[];
+    unlisted?: string | string[];
+    reopened?: string | string[];
     edit?: string | string[];
   }>;
 };
@@ -40,6 +49,9 @@ export default async function HiringJobDetailPage(props: Props) {
   const saved = firstSearchParam(searchParams.saved) === "1";
   const applied = firstSearchParam(searchParams.applied) === "1";
   const flashClosed = firstSearchParam(searchParams.closed) === "1";
+  const flashListed = firstSearchParam(searchParams.listed) === "1";
+  const flashUnlisted = firstSearchParam(searchParams.unlisted) === "1";
+  const flashReopened = firstSearchParam(searchParams.reopened) === "1";
   const showEditForm = firstSearchParam(searchParams.edit) === "1";
 
   const [job, pipelineStagesOrdered, jobProfileTemplates] = await Promise.all([
@@ -48,6 +60,7 @@ export default async function HiringJobDetailPage(props: Props) {
       include: {
         department: true,
         deletedBy: { select: { firstName: true, lastName: true, name: true, email: true } },
+        applicationQuestions: { orderBy: { sortOrder: "asc" } },
         applications: {
           orderBy: { appliedAt: "desc" },
           include: {
@@ -102,14 +115,29 @@ export default async function HiringJobDetailPage(props: Props) {
                   <Button asChild variant="outline" size="md">
                     <Link href={`/hiring/jobs/${jobId}?edit=1`}>Edit posting</Link>
                   </Button>
-                  {job.status !== "CLOSED" ? (
+                  {job.status === "OPEN" || job.status === "CLOSED" ? (
+                    <CareersLiveJobForm
+                      jobId={jobId}
+                      listedOnCareers={job.listedOnCareers}
+                      returnTo="detail"
+                      size="md"
+                    />
+                  ) : null}
+                  {job.status === "CLOSED" ? (
+                    <form action={reopenJobPosting.bind(null, jobId)}>
+                      <input type="hidden" name="returnTo" value="detail" />
+                      <Button type="submit" variant="outline" size="md">
+                        Reopen
+                      </Button>
+                    </form>
+                  ) : (
                     <form action={closeJobPosting.bind(null, jobId)}>
                       <input type="hidden" name="returnTo" value="detail" />
                       <Button type="submit" variant="outline" size="md">
                         Close job
                       </Button>
                     </form>
-                  ) : null}
+                  )}
                 </>
               ) : (
                 <form action={restoreClosedJobPosting.bind(null, jobId)}>
@@ -125,6 +153,11 @@ export default async function HiringJobDetailPage(props: Props) {
 
       <div className="flex flex-wrap items-center gap-2">
         <StatusBadge status={job.status} />
+        {job.status === "OPEN" && job.listedOnCareers ? (
+          <Badge tone="green">Live on careers</Badge>
+        ) : job.status === "OPEN" ? (
+          <Badge tone="ink">Hidden from careers</Badge>
+        ) : null}
         {job.department && (
           <Badge tone="sky">
             {job.department.emoji} {job.department.name}
@@ -137,8 +170,9 @@ export default async function HiringJobDetailPage(props: Props) {
           <p className="font-semibold">Removed from listings</p>
           <p className="text-amber-900/90 mt-1 leading-relaxed">
             Removed {formatDate(job.deletedAt)}
-            {job.deletedBy ? ` · by ${displayName(job.deletedBy)}` : ""}. Careers and job lists hide this posting until you
-            restore it (button above or Hiring → Job openings → Removed postings).
+            {job.deletedBy ? ` · by ${displayName(job.deletedBy)}` : ""}. Hiring lists and careers hide this posting until
+            you restore it (button above or Hiring → Job openings → Removed postings). Restore reopens it in hiring; it
+            stays off careers until you click Go live on careers.
           </p>
         </div>
       ) : null}
@@ -146,6 +180,21 @@ export default async function HiringJobDetailPage(props: Props) {
       {flashClosed && (
         <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
           Job marked as closed. You can still review applicants below.
+        </div>
+      )}
+      {flashListed && (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+          Role is now live on /careers/jobs.
+        </div>
+      )}
+      {flashUnlisted && (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+          Role is hidden from the careers page. It stays open in hiring.
+        </div>
+      )}
+      {flashReopened && (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+          Posting reopened in hiring. It stays off careers until you Go live.
         </div>
       )}
       {saved && (
@@ -179,6 +228,16 @@ export default async function HiringJobDetailPage(props: Props) {
           <SummaryRow label="Experience required" value={job.experienceRequired || "—"} />
           <SummaryRow label="Salary range" value={job.salaryRange || "—"} />
           <SummaryRow label="Openings" value={String(job.openings)} />
+          <SummaryRow
+            label="Careers page"
+            value={
+              job.status === "OPEN" && job.listedOnCareers
+                ? "Live"
+                : job.status === "OPEN"
+                  ? "Hidden — click Go live on careers to list this role"
+                  : "Not listed (role is not open)"
+            }
+          />
           <SummaryRow
             label="Application deadline"
             value={job.applicationDeadline ? formatCalendarDate(job.applicationDeadline) : "—"}
@@ -221,12 +280,38 @@ export default async function HiringJobDetailPage(props: Props) {
             <div className="text-[11px] font-semibold uppercase tracking-wider text-ink-400">Skills required</div>
             <p className="text-ink-700 mt-1 whitespace-pre-wrap">{job.skillsRequired || "—"}</p>
           </div>
+          <div className="sm:col-span-2">
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-ink-400">
+              Application questions ({job.applicationQuestions.length})
+            </div>
+            {job.applicationQuestions.length === 0 ? (
+              <p className="text-sm text-ink-500 mt-2">
+                None — add them when you{" "}
+                <Link href={`/hiring/jobs/${jobId}?edit=1`} className="font-semibold text-sky-700 hover:underline">
+                  edit posting
+                </Link>
+                .
+              </p>
+            ) : (
+              <ol className="mt-2 space-y-1.5 text-sm text-ink-700">
+                {job.applicationQuestions.map((q, i) => (
+                  <li key={q.id}>
+                    {i + 1}. {q.prompt}{" "}
+                    <span className="text-xs text-ink-400">
+                      ({HIRING_JOB_QUESTION_TYPE_LABEL[q.type]}
+                      {q.required ? " · required" : " · optional"})
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            )}
+          </div>
         </CardContent>
       </Card>
 
       {job.description && (
-        <div className="rounded-xl border border-ink-100 bg-white p-5 text-sm text-ink-600 leading-relaxed whitespace-pre-wrap">
-          {job.description}
+        <div className="rounded-xl border border-ink-100 bg-white p-5 text-sm text-ink-600">
+          <JobDescriptionBody text={job.description} />
         </div>
       )}
 
@@ -340,8 +425,15 @@ export default async function HiringJobDetailPage(props: Props) {
 
             <div>
               <Label htmlFor="description">Job description</Label>
-              <Textarea id="description" name="description" rows={8} defaultValue={job.description ?? ""} className="mt-1.5" />
+              <JobDescriptionEditor
+                id="description"
+                name="description"
+                defaultValue={job.description ?? ""}
+                className="mt-1.5"
+              />
             </div>
+
+            <JobScreeningQuestionsEditor initialQuestions={toEditorQuestions(job.applicationQuestions)} />
 
             <div>
               <Label htmlFor="applicationDeadline">Application deadline</Label>
@@ -395,7 +487,7 @@ export default async function HiringJobDetailPage(props: Props) {
 
       <Card>
         <CardHeader className="border-b border-ink-100">
-          <CardTitle>Applicants</CardTitle>
+          <CardTitle>Applicants ({job.applications.length})</CardTitle>
         </CardHeader>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
@@ -412,11 +504,15 @@ export default async function HiringJobDetailPage(props: Props) {
                 {job.applications.length === 0 ? (
                   <tr>
                     <td colSpan={4} className="px-5 py-12 text-center text-ink-500 text-sm leading-relaxed">
-                      No applicants yet. Add people from{" "}
+                      No applicants yet. Candidates can apply from the public{" "}
+                      <Link href="/careers/jobs" className="font-semibold text-sky-700 hover:underline">
+                        careers board
+                      </Link>
+                      , or add people from{" "}
                       <Link href="/hiring/candidates/new" className="font-semibold text-sky-700 hover:underline">
                         candidate intake
-                      </Link>{" "}
-                      — they&apos;ll show up here once linked to this opening (e.g. via apply flow or internal tools).
+                      </Link>
+                      .
                     </td>
                   </tr>
                 ) : (
@@ -432,7 +528,12 @@ export default async function HiringJobDetailPage(props: Props) {
                         <div className="text-xs text-ink-400">{a.candidate.email}</div>
                       </td>
                       <td className="px-5 py-3 text-ink-600">
-                        {applicationSourceLabel(a.applicationSource, a.candidate.source)}
+                        <span className="inline-flex flex-wrap items-center gap-1.5">
+                          {applicationSourceLabel(a.applicationSource, a.candidate.source)}
+                          {isSelfSignupSource(a.applicationSource, a.candidate.source) ? (
+                            <Badge tone="sky">Portal</Badge>
+                          ) : null}
+                        </span>
                       </td>
                       <td className="px-5 py-3 whitespace-nowrap text-ink-500">{formatDate(a.appliedAt)}</td>
                       <td className="px-5 py-3">

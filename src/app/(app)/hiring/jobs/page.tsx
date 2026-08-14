@@ -5,7 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import type { HiringJobStatus } from "@/generated/prisma";
 import { WORK_ARRANGEMENT_LABEL } from "@/lib/hiring-job-copy";
-import { closeJobPosting, restoreClosedJobPosting } from "../actions";
+import { closeJobPosting, reopenJobPosting, restoreClosedJobPosting } from "../actions";
+import { CareersLiveJobForm } from "../_components/careers-live-job-form";
 import { SoftRemoveClosedJobForm } from "../_components/soft-remove-closed-job-form";
 import { firstSearchParam } from "@/lib/search-param";
 import { hiringJobActiveClause } from "@/lib/hiring-job-active";
@@ -13,7 +14,14 @@ import { formatDate } from "@/lib/utils";
 import { displayName } from "@/lib/user-display-name";
 
 type Props = {
-  searchParams: Promise<{ closed?: string | string[]; deleted?: string | string[]; restored?: string | string[] }>;
+  searchParams: Promise<{
+    closed?: string | string[];
+    deleted?: string | string[];
+    restored?: string | string[];
+    listed?: string | string[];
+    unlisted?: string | string[];
+    reopened?: string | string[];
+  }>;
 };
 
 export default async function HiringJobsPage(props: Props) {
@@ -21,6 +29,9 @@ export default async function HiringJobsPage(props: Props) {
   const flashClosed = firstSearchParam(sp.closed) === "1";
   const flashDeleted = firstSearchParam(sp.deleted) === "1";
   const flashRestored = firstSearchParam(sp.restored) === "1";
+  const flashListed = firstSearchParam(sp.listed) === "1";
+  const flashUnlisted = firstSearchParam(sp.unlisted) === "1";
+  const flashReopened = firstSearchParam(sp.reopened) === "1";
 
   const [jobs, removedJobs] = await Promise.all([
     prisma.hiringJob.findMany({
@@ -47,7 +58,7 @@ export default async function HiringJobsPage(props: Props) {
       <PageHeader
         title="Job openings"
         emoji="🪧"
-        subtitle="Post roles, track applicants, and move people through stages. Public OPEN listings (with apply links) appear at /careers."
+        subtitle="Post roles, track applicants, and move people through stages. Click Go live on careers to show an open role at /careers/jobs — Close does not list it there."
         action={
           <div className="flex gap-2">
             <Link href="/hiring">
@@ -74,7 +85,22 @@ export default async function HiringJobsPage(props: Props) {
       )}
       {flashRestored && (
         <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
-          Posting restored to active lists.
+          Posting restored as open in hiring. It stays off careers until you Go live.
+        </div>
+      )}
+      {flashListed && (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+          Role is now live on /careers/jobs.
+        </div>
+      )}
+      {flashUnlisted && (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+          Role is hidden from the careers page. It stays open in hiring.
+        </div>
+      )}
+      {flashReopened && (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+          Posting reopened in hiring. It stays off careers until you Go live.
         </div>
       )}
 
@@ -88,15 +114,16 @@ export default async function HiringJobsPage(props: Props) {
                 <th className="px-5 py-3">Location</th>
                 <th className="px-5 py-3 text-right tabular-nums">Openings</th>
                 <th className="px-5 py-3">Status</th>
+                <th className="px-5 py-3">Careers</th>
                 <th className="px-5 py-3 text-center">Ext. apply</th>
-                <th className="px-5 py-3 text-right">Pipeline</th>
+                <th className="px-5 py-3 text-right">Applicants</th>
                 <th className="px-5 py-3 text-right whitespace-nowrap">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-ink-100">
               {jobs.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-5 py-16 text-center text-ink-500">
+                  <td colSpan={9} className="px-5 py-16 text-center text-ink-500">
                     No postings yet.{" "}
                     <Link href="/hiring/jobs/new" className="font-semibold text-sky-700 hover:underline">
                       Create the first job
@@ -135,6 +162,15 @@ export default async function HiringJobsPage(props: Props) {
                     <td className="px-5 py-3">
                       <StatusBadge status={j.status} />
                     </td>
+                    <td className="px-5 py-3">
+                      {j.status === "OPEN" && j.listedOnCareers ? (
+                        <Badge tone="green">Live</Badge>
+                      ) : j.status === "OPEN" ? (
+                        <Badge tone="ink">Hidden</Badge>
+                      ) : (
+                        <span className="text-ink-300">—</span>
+                      )}
+                    </td>
                     <td className="px-5 py-3 text-center text-ink-600">
                       {j.externalApplyUrl ? (
                         <span className="inline-flex rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-emerald-800">
@@ -147,8 +183,23 @@ export default async function HiringJobsPage(props: Props) {
                     <td className="px-5 py-3 text-right tabular-nums text-ink-600">{j._count.applications}</td>
                     <td className="px-5 py-3 text-right">
                       <div className="flex flex-wrap justify-end gap-2 items-center">
+                        {j.status === "OPEN" || j.status === "CLOSED" ? (
+                          <CareersLiveJobForm
+                            jobId={j.id}
+                            listedOnCareers={j.listedOnCareers}
+                            returnTo="list"
+                          />
+                        ) : null}
                         {j.status === "CLOSED" ? (
-                          <SoftRemoveClosedJobForm jobId={j.id} layout="inline" />
+                          <>
+                            <form action={reopenJobPosting.bind(null, j.id)} className="inline">
+                              <input type="hidden" name="returnTo" value="list" />
+                              <Button type="submit" variant="outline" size="sm">
+                                Reopen
+                              </Button>
+                            </form>
+                            <SoftRemoveClosedJobForm jobId={j.id} layout="inline" />
+                          </>
                         ) : (
                           <form action={closeJobPosting.bind(null, j.id)} className="inline">
                             <input type="hidden" name="returnTo" value="list" />

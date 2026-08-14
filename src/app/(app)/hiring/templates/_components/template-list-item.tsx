@@ -15,6 +15,7 @@ import {
   updateHiringTemplate,
 } from "../actions";
 import type { HiringTemplateTab } from "./hiring-template-tabs";
+import { JobDescriptionEditor } from "@/components/hiring/job-description-editor";
 
 export type TemplateRow = {
   id: string;
@@ -195,7 +196,7 @@ export function TemplateListItem({
                   <>
                     <div className="sm:col-span-2">
                       <Label htmlFor={`desc-${row.id}`}>Job description</Label>
-                      <Textarea
+                      <JobDescriptionEditor
                         id={`desc-${row.id}`}
                         name="jobDescription"
                         rows={6}

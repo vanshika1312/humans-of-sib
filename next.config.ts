@@ -8,6 +8,9 @@ const nextConfig: NextConfig = {
   },
   serverExternalPackages: ["unpdf", "mammoth"],
   experimental: {
+    // Proxy clones POST bodies in memory; default 10MB truncates image uploads
+    // (base64 JSON / multipart) and surfaces as parse errors.
+    proxyClientMaxBodySize: "40mb",
     serverActions: {
       bodySizeLimit: "40mb",
     },

@@ -5,9 +5,9 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireAppViewer } from "@/lib/app-viewer";
-import { canUploadDocument } from "@/lib/member-documents";
+import { canManageDocument, canUploadDocument } from "@/lib/member-documents";
 import { persistLiaPolicyDocumentFile } from "@/lib/lia-document-upload";
-import { ingestOrgPolicyDocument } from "@/lib/lia-policy-ingest";
+import { ingestOrgPolicyDocument, orgPolicyArticleSlug } from "@/lib/lia-policy-ingest";
 
 const documentTypes = [
   "OFFER_LETTER",
@@ -105,4 +105,109 @@ export async function uploadMemberDocument(formData: FormData) {
   const qs = new URLSearchParams({ uploaded: "1" });
   if (liaWarn) qs.set("warn", liaWarn);
   redirect(`/documents?${qs.toString()}`);
+}
+
+const updateSchema = z.object({
+  documentId: z.string().trim().min(1),
+  title: z.string().trim().min(1).max(280),
+  type: z.enum(documentTypes),
+});
+
+async function removeLiaPolicyForDocument(documentId: string) {
+  await prisma.liaKnowledgeArticle.deleteMany({
+    where: { slug: orgPolicyArticleSlug(documentId) },
+  });
+}
+
+export async function updateMemberDocument(formData: FormData) {
+  const me = await requireAppViewer();
+  if (!me) redirect("/login");
+
+  const parsed = updateSchema.safeParse({
+    documentId: String(formData.get("documentId") ?? ""),
+    title: String(formData.get("title") ?? ""),
+    type: String(formData.get("type") ?? ""),
+  });
+  if (!parsed.success) redirect("/documents?error=invalid");
+
+  const { documentId, title, type } = parsed.data;
+  const existing = await prisma.document.findUnique({ where: { id: documentId } });
+  if (!existing) redirect("/documents?error=not-found");
+  if (!canManageDocument(me, existing)) redirect("/documents?error=forbidden");
+
+  const file = formData.get("file");
+  const replacement = file instanceof File && file.size > 0 ? file : null;
+
+  let url = existing.url;
+  let sizeBytes = existing.sizeBytes;
+  let mimeType = existing.mimeType;
+  let liaWarn: string | undefined;
+
+  if (replacement) {
+    const uploaded = await persistLiaPolicyDocumentFile(replacement);
+    if (!uploaded.ok) {
+      if (uploaded.code === "TOO_LARGE") redirect("/documents?error=upload-too-large");
+      if (uploaded.code === "EMPTY") redirect("/documents?error=upload-empty");
+      redirect("/documents?error=upload-unsupported");
+    }
+    url = uploaded.url;
+    sizeBytes = replacement.size;
+    mimeType = replacement.type ? replacement.type.slice(0, 120) : undefined;
+  }
+
+  const doc = await prisma.document.update({
+    where: { id: documentId },
+    data: { title, type, url, sizeBytes, mimeType },
+  });
+
+  if (doc.scope === "FOR_ALL" && type === "POLICY") {
+    if (replacement) {
+      const buffer = Buffer.from(await replacement.arrayBuffer());
+      const ingested = await ingestOrgPolicyDocument({
+        documentId: doc.id,
+        title,
+        detailUrl: url,
+        updatedById: me.id,
+        buffer,
+        fileName: replacement.name,
+      });
+      if (ingested.ok && ingested.extractionWarning) liaWarn = "lia-no-text";
+    } else {
+      await prisma.liaKnowledgeArticle.updateMany({
+        where: { slug: orgPolicyArticleSlug(doc.id) },
+        data: { title: title.slice(0, 200), updatedById: me.id },
+      });
+    }
+    revalidatePath("/admin/lia");
+  } else if (existing.scope === "FOR_ALL" && existing.type === "POLICY") {
+    await removeLiaPolicyForDocument(doc.id);
+    revalidatePath("/admin/lia");
+  }
+
+  revalidatePath("/documents");
+  const qs = new URLSearchParams({ updated: "1" });
+  if (liaWarn) qs.set("warn", liaWarn);
+  redirect(`/documents?${qs.toString()}`);
+}
+
+export async function deleteMemberDocument(formData: FormData) {
+  const me = await requireAppViewer();
+  if (!me) redirect("/login");
+
+  const documentId = String(formData.get("documentId") ?? "").trim();
+  if (!documentId) redirect("/documents?error=invalid");
+
+  const existing = await prisma.document.findUnique({ where: { id: documentId } });
+  if (!existing) redirect("/documents?error=not-found");
+  if (!canManageDocument(me, existing)) redirect("/documents?error=forbidden");
+
+  await prisma.document.delete({ where: { id: documentId } });
+
+  if (existing.scope === "FOR_ALL" && existing.type === "POLICY") {
+    await removeLiaPolicyForDocument(existing.id);
+    revalidatePath("/admin/lia");
+  }
+
+  revalidatePath("/documents");
+  redirect("/documents?deleted=1");
 }

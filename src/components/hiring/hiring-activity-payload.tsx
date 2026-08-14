@@ -242,7 +242,39 @@ function readableExtras(
               </a>
             </li>
           ) : null}
+          {typeof o.googleMeetJoinUrl === "string" && o.googleMeetJoinUrl.trim() ? (
+            <li>
+              <a
+                href={o.googleMeetJoinUrl.trim()}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-sky-700 hover:underline"
+              >
+                Google Meet
+              </a>
+            </li>
+          ) : null}
+          {o.recordAndTranscribe === true ? <li>Recording &amp; transcription requested</li> : null}
         </ul>
+      );
+    }
+    case "APPLICATION_INTERVIEW_NOTES_SAVED": {
+      const title = typeof o.title === "string" ? o.title : null;
+      const preview = typeof o.notesPreview === "string" ? o.notesPreview : null;
+      return (
+        <div className="space-y-1 text-ink-600">
+          {title ? (
+            <p>
+              <span className="text-ink-400">Interview:</span> {title}
+            </p>
+          ) : null}
+          {preview ? (
+            <p className="whitespace-pre-wrap">
+              <span className="text-ink-400">Notes:</span> “{preview}
+              {preview.length >= 280 ? "…" : ""}”
+            </p>
+          ) : null}
+        </div>
       );
     }
     case "APPLICATION_CREATED": {
@@ -421,6 +453,14 @@ function readableExtras(
           <span className="text-ink-400">Rows removed:</span> {count}
         </p>
       );
+    }
+    case "APPLICATION_ASSESSMENT_SUBMITTED": {
+      const count = typeof o.questionCount === "number" ? o.questionCount : null;
+      return count != null ? (
+        <p className="text-ink-600">
+          <span className="text-ink-400">Questions answered:</span> {count}
+        </p>
+      ) : null;
     }
     case "REQUISITION_REJECTED": {
       const note = typeof o.reviewNote === "string" ? o.reviewNote.trim() : "";

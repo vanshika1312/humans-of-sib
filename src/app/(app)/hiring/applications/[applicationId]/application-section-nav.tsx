@@ -8,12 +8,15 @@ const STORAGE_KEY = "hosib-application-section-nav-expanded";
 
 const LINKS = [
   { href: "#section-summary", label: "Summary" },
+  { href: "#section-questions", label: "Application questions" },
+  { href: "#section-assessment", label: "Personality assessment" },
   { href: "#section-ats", label: "ATS match" },
   { href: "#section-details", label: "Application details" },
   { href: "#section-move-delete", label: "Move / delete" },
   { href: "#section-attachments", label: "Attachments" },
   { href: "#section-tags", label: "Tags" },
   { href: "#section-reviews", label: "Interview feedback" },
+  { href: "#section-interviews", label: "Interviews & recordings" },
   { href: "#section-templates", label: "Questionnaires" },
   { href: "#section-submissions", label: "Hiring manager" },
   { href: "#section-emails", label: "Emails" },

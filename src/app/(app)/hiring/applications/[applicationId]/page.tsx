@@ -13,7 +13,20 @@ import {
   formatHiringJobLocation,
   jobSkillKeywords,
 } from "@/lib/hiring-application-display";
+import {
+  isSelfSignupSource,
+  parseEducationJson,
+  parseWorkHistoryJson,
+} from "@/lib/hiring-candidate-portal";
 import { WORK_ARRANGEMENT_LABEL } from "@/lib/hiring-job-copy";
+import { HIRING_JOB_QUESTION_TYPE_LABEL } from "@/lib/hiring-job-questions";
+import { isSafeHttpUrl } from "@/lib/hiring-http-url";
+import {
+  displayAnswerLabel,
+  listDimensionScoreRows,
+  parseDimensionScores,
+  parseStoredResponses,
+} from "@/lib/hiring-assessment";
 import { loadPipelineStagesOrdered } from "@/lib/hiring-pipeline";
 import { HiringActivityPayloadBlock } from "@/components/hiring/hiring-activity-payload";
 import { HIRING_ACTIVITY_KIND_LABEL } from "@/lib/hiring-activity-kind-copy";
@@ -43,6 +56,7 @@ import type { InterviewerOption } from "./_components/round-interviewer-field";
 import { LegacyReviewAssignRoundForm } from "./_components/legacy-review-assign-round-form";
 import { HiringApplicationEmailComposer } from "@/components/hiring/hiring-application-email-composer";
 import { HiringInterviewScheduleTrigger } from "@/components/hiring/hiring-interview-scheduler";
+import { HiringInterviewNotesPanel } from "@/components/hiring/hiring-interview-notes-panel";
 import { isBulkImportStoredResumeUrl } from "@/lib/hiring-resume-upload";
 import type { HiringTemplateMergeContext } from "@/lib/hiring-template-merge";
 import { googleCalendarConfigured } from "@/lib/google-calendar";
@@ -68,6 +82,8 @@ type Props = {
     emailError?: string | string[];
     interviewScheduled?: string | string[];
     interviewError?: string | string[];
+    interviewSynced?: string | string[];
+    interviewNotesSaved?: string | string[];
   }>;
 };
 
@@ -94,6 +110,8 @@ export default async function HiringApplicationDetailPage(props: Props) {
   const emailError = firstSearchParam(sp.emailError);
   const interviewScheduled = firstSearchParam(sp.interviewScheduled) === "1";
   const interviewError = firstSearchParam(sp.interviewError);
+  const interviewSynced = firstSearchParam(sp.interviewSynced) === "1";
+  const interviewNotesSaved = firstSearchParam(sp.interviewNotesSaved) === "1";
 
   const session = await auth();
   const viewer = session?.user?.email
@@ -120,6 +138,8 @@ export default async function HiringApplicationDetailPage(props: Props) {
         orderBy: { createdAt: "desc" },
         include: { addedBy: { select: { name: true, email: true } } },
       },
+      questionAnswers: { orderBy: { createdAt: "asc" } },
+      assessment: true,
       reviews: {
         orderBy: { createdAt: "desc" },
         take: 50,
@@ -179,8 +199,8 @@ export default async function HiringApplicationDetailPage(props: Props) {
       take: 400,
     }),
     prisma.hiringInterview.findMany({
-      where: { applicationId, status: "SCHEDULED" },
-      orderBy: { scheduledAt: "asc" },
+      where: { applicationId },
+      orderBy: { scheduledAt: "desc" },
       include: { scheduledBy: { select: { name: true, email: true } } },
     }),
     prisma.user.findMany({
@@ -193,6 +213,9 @@ export default async function HiringApplicationDetailPage(props: Props) {
 
   const stageSelectOptions = pipelineStagesOrdered.map((s) => ({ id: s.id, label: s.label }));
   const sourceLabel = applicationSourceLabel(app.applicationSource, app.candidate.source);
+  const fromPortal = isSelfSignupSource(app.applicationSource, app.candidate.source);
+  const education = parseEducationJson(app.candidate.educationJson);
+  const workHistory = parseWorkHistoryJson(app.candidate.workHistoryJson);
   const jobLoc = formatHiringJobLocation(app.job);
   const skills = jobSkillKeywords(app.job.skillsRequired);
   const recruiter = app.candidate.createdBy?.name ?? app.candidate.createdBy?.email ?? "—";
@@ -343,7 +366,19 @@ export default async function HiringApplicationDetailPage(props: Props) {
                 jobTitle={app.job.title}
                 canSchedule={canScheduleInterview}
                 calendarConfigured={calendarConfigured}
-                scheduledInterviews={scheduledInterviews}
+                scheduledInterviews={scheduledInterviews.map((iv) => ({
+                  id: iv.id,
+                  scheduledAt: iv.scheduledAt,
+                  durationMinutes: iv.durationMinutes,
+                  timezone: iv.timezone,
+                  title: iv.title,
+                  locationOrLink: iv.locationOrLink,
+                  googleCalendarHtmlLink: iv.googleCalendarHtmlLink,
+                  googleMeetJoinUrl: iv.googleMeetJoinUrl,
+                  recordAndTranscribe: iv.recordAndTranscribe,
+                  interviewerUserIds: iv.interviewerUserIds,
+                  scheduledBy: iv.scheduledBy,
+                }))}
                 candidateResumeUrl={profileResumeHref ?? null}
                 applicationAttachments={app.attachments.map((a) => ({
                   id: a.id,
@@ -437,6 +472,16 @@ export default async function HiringApplicationDetailPage(props: Props) {
             Interview scheduled — calendar invites sent to the candidate and interviewers.
           </div>
         )}
+        {interviewSynced && (
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+            Recording and transcript sync attempted — check the Interviews section below.
+          </div>
+        )}
+        {interviewNotesSaved && (
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+            Interview notes saved on the candidate profile.
+          </div>
+        )}
         {interviewError && (
           <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">
             {decodeURIComponent(interviewError)}
@@ -513,11 +558,71 @@ export default async function HiringApplicationDetailPage(props: Props) {
                   <SummaryItem label="Email" value={app.candidate.email} />
                   <SummaryItem label="Mobile / phone" value={app.candidate.phone ?? "—"} />
                   <SummaryItem label="Candidate location" value={app.candidate.candidateLocation ?? "—"} />
-                  <SummaryItem label="Application source" value={sourceLabel} />
+                  <SummaryItem
+                    label="Portfolio"
+                    value={
+                      isSafeHttpUrl(app.candidate.portfolioUrl) ? (
+                        <a
+                          href={app.candidate.portfolioUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="font-medium text-sky-700 hover:underline break-all"
+                        >
+                          {app.candidate.portfolioUrl}
+                        </a>
+                      ) : (
+                        "—"
+                      )
+                    }
+                  />
+                  <SummaryItem
+                    label="Application source"
+                    value={
+                      <span className="inline-flex flex-wrap items-center gap-1.5">
+                        {sourceLabel}
+                        {fromPortal ? <Badge tone="sky">Portal</Badge> : null}
+                      </span>
+                    }
+                  />
                   <SummaryItem label="Job opening" value={<Link href={`/hiring/jobs/${app.jobId}`} className="font-medium text-sky-700 hover:underline">{app.job.title}</Link>} />
                   <SummaryItem label="Posting location" value={jobLoc} />
                   <SummaryItem label="Department" value={jobDept} />
                   <SummaryItem label="Assigned recruiter" value={recruiter} />
+                  {education.length > 0 ? (
+                    <div className="sm:col-span-2">
+                      <div className="text-[11px] font-semibold uppercase tracking-wider text-ink-400">Education</div>
+                      <ul className="mt-1 space-y-1 text-ink-700">
+                        {education.map((e, i) => (
+                          <li key={`${e.school}-${i}`}>
+                            {e.school}
+                            {e.degree ? ` · ${e.degree}` : ""}
+                            {e.year ? ` (${e.year})` : ""}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                  {workHistory.length > 0 ? (
+                    <div className="sm:col-span-2">
+                      <div className="text-[11px] font-semibold uppercase tracking-wider text-ink-400">Work history</div>
+                      <ul className="mt-1 space-y-2 text-ink-700">
+                        {workHistory.map((w, i) => (
+                          <li key={`${w.company}-${i}`}>
+                            <div className="font-medium">
+                              {w.company}
+                              {w.title ? ` · ${w.title}` : ""}
+                            </div>
+                            {(w.start || w.end) && (
+                              <div className="text-xs text-ink-500">
+                                {[w.start, w.end].filter(Boolean).join(" – ")}
+                              </div>
+                            )}
+                            {w.description ? <p className="text-sm text-ink-600 mt-0.5">{w.description}</p> : null}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
                   <div className="sm:col-span-2">
                     <div className="text-[11px] font-semibold uppercase tracking-wider text-ink-400">Skills from posting</div>
                     {skills.length === 0 ? (
@@ -535,6 +640,112 @@ export default async function HiringApplicationDetailPage(props: Props) {
                       </div>
                     )}
                   </div>
+                </CardContent>
+              </Card>
+            </section>
+
+            <section id="section-questions" className="scroll-mt-24">
+              <Card>
+                <CardHeader className="border-b border-ink-100 bg-ink-50/60">
+                  <CardTitle>Application questions</CardTitle>
+                  <CardDescription>Answers submitted with this application.</CardDescription>
+                </CardHeader>
+                <CardContent className="pt-5">
+                  {app.questionAnswers.length === 0 ? (
+                    <p className="text-sm text-ink-500">No custom questions were answered on this application.</p>
+                  ) : (
+                    <ol className="space-y-4">
+                      {app.questionAnswers.map((a, i) => (
+                        <li key={a.id} className="rounded-lg border border-ink-100 bg-ink-50/40 p-4">
+                          <p className="text-xs font-semibold uppercase tracking-wider text-ink-400">
+                            {i + 1}. {HIRING_JOB_QUESTION_TYPE_LABEL[a.type]}
+                          </p>
+                          <p className="text-sm font-medium text-ink-800 mt-1">{a.prompt}</p>
+                          {a.type === "FILE" ? (
+                            a.fileUrl ? (
+                              <a
+                                href={a.fileUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="mt-2 inline-flex text-sm font-semibold text-sky-700 hover:underline"
+                              >
+                                {a.fileName || "Open file"} →
+                              </a>
+                            ) : (
+                              <p className="text-sm text-ink-500 mt-2">No file uploaded.</p>
+                            )
+                          ) : (
+                            <p className="text-sm text-ink-700 mt-2 whitespace-pre-wrap">
+                              {a.textValue?.trim() ? a.textValue : "—"}
+                            </p>
+                          )}
+                        </li>
+                      ))}
+                    </ol>
+                  )}
+                </CardContent>
+              </Card>
+            </section>
+
+            <section id="section-assessment" className="scroll-mt-24">
+              <Card>
+                <CardHeader className="border-b border-ink-100 bg-ink-50/60">
+                  <CardTitle>Personality + role assessment</CardTitle>
+                  <CardDescription>
+                    A short Big Five personality snapshot, then questions about this role. Work style is left for DISC in
+                    a later round.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="pt-5 space-y-5">
+                  {!app.assessment ? (
+                    <p className="text-sm text-ink-500">Not submitted yet.</p>
+                  ) : (
+                    <>
+                      {(() => {
+                        const snapshot = listDimensionScoreRows(
+                          parseDimensionScores(app.assessment.dimensionScoresJson),
+                        );
+                        if (!snapshot.rows.length) return null;
+                        const isPersonality = snapshot.source === "personality";
+                        return (
+                          <div>
+                            <div className="text-[11px] font-semibold uppercase tracking-wider text-ink-400">
+                              {isPersonality ? "Personality snapshot (1–5)" : "Work-style snapshot (1–5)"}
+                            </div>
+                            <ul className="mt-2 grid sm:grid-cols-2 gap-2">
+                              {snapshot.rows.map((row) => (
+                                <li
+                                  key={row.key}
+                                  className="flex items-center justify-between rounded-lg border border-ink-100 bg-ink-50/50 px-3 py-2 text-sm"
+                                >
+                                  <span className="text-ink-600">{row.label}</span>
+                                  <span className="font-semibold tabular-nums text-ink-900">{row.value.toFixed(1)}</span>
+                                </li>
+                              ))}
+                            </ul>
+                            <p className="text-xs text-ink-400 mt-2">
+                              Submitted {formatDate(app.assessment.submittedAt)}. Conversation starter only — not a
+                              cutoff.
+                              {isPersonality ? " Work style will be covered in DISC later." : null}
+                            </p>
+                          </div>
+                        );
+                      })()}
+                      <ol className="space-y-4">
+                        {parseStoredResponses(app.assessment.responsesJson).map((row, i) => (
+                          <li key={row.key || String(i)} className="rounded-lg border border-ink-100 bg-ink-50/40 p-4">
+                            <p className="text-xs font-semibold uppercase tracking-wider text-ink-400">
+                              {i + 1}. {row.kind === "PSYCHOMETRIC" ? "Personality" : "Role"}
+                            </p>
+                            <p className="text-sm font-medium text-ink-800 mt-1">{row.prompt}</p>
+                            <p className="text-sm text-ink-700 mt-2 whitespace-pre-wrap">
+                              {displayAnswerLabel(row)}
+                            </p>
+                          </li>
+                        ))}
+                      </ol>
+                    </>
+                  )}
                 </CardContent>
               </Card>
             </section>
@@ -882,6 +1093,70 @@ export default async function HiringApplicationDetailPage(props: Props) {
                   <p className="text-sm text-ink-500">No tags on this submission yet.</p>
                 </CardContent>
               </Card>
+            </section>
+
+            <section id="section-interviews" className="scroll-mt-24">
+              <HiringInterviewNotesPanel
+                interviews={scheduledInterviews.map((iv) => ({
+                  id: iv.id,
+                  applicationId,
+                  scheduledAt: iv.scheduledAt,
+                  durationMinutes: iv.durationMinutes,
+                  timezone: iv.timezone,
+                  title: iv.title,
+                  status: iv.status,
+                  locationOrLink: iv.locationOrLink,
+                  googleCalendarHtmlLink: iv.googleCalendarHtmlLink,
+                  googleMeetJoinUrl: iv.googleMeetJoinUrl,
+                  recordAndTranscribe: iv.recordAndTranscribe,
+                  recordingStatus: iv.recordingStatus,
+                  recordingUrl: iv.recordingUrl,
+                  transcriptStatus: iv.transcriptStatus,
+                  transcriptText: iv.transcriptText,
+                  transcriptDocUrl: iv.transcriptDocUrl,
+                  notesSummary: iv.notesSummary,
+                  artifactError: iv.artifactError,
+                  interviewerUserIds: iv.interviewerUserIds,
+                }))}
+                interviewerOptions={interviewerOptions.map((u) => ({
+                  id: u.id,
+                  name: displayName(u),
+                  email: u.email,
+                }))}
+                canManage={canScheduleInterview}
+                returnPath={`${overviewHref}#section-interviews`}
+                scheduleProps={{
+                  applicationId,
+                  candidateName: app.candidate.fullName,
+                  jobTitle: app.job.title,
+                  interviewers: interviewerOptions.map((u) => ({
+                    id: u.id,
+                    name: displayName(u),
+                    email: u.email,
+                  })),
+                  scheduledInterviews: scheduledInterviews.map((iv) => ({
+                    id: iv.id,
+                    scheduledAt: iv.scheduledAt,
+                    durationMinutes: iv.durationMinutes,
+                    timezone: iv.timezone,
+                    title: iv.title,
+                    locationOrLink: iv.locationOrLink,
+                    googleCalendarHtmlLink: iv.googleCalendarHtmlLink,
+                    googleMeetJoinUrl: iv.googleMeetJoinUrl,
+                    recordAndTranscribe: iv.recordAndTranscribe,
+                    interviewerUserIds: iv.interviewerUserIds,
+                    scheduledBy: iv.scheduledBy,
+                  })),
+                  applicationAttachments: app.attachments.map((a) => ({
+                    id: a.id,
+                    fileName: a.fileName,
+                    category: a.category,
+                    canAttachToCalendar: isBulkImportStoredResumeUrl(a.url),
+                  })),
+                  candidateResumeUrl: profileResumeHref ?? null,
+                  calendarConfigured,
+                }}
+              />
             </section>
 
             <section id="section-reviews" className="scroll-mt-24">

@@ -130,3 +130,77 @@ export async function persistHiringResumeFile(
   const buf = Buffer.from(await file.arrayBuffer());
   return persistHiringResumeBuffer(buf, file.name, file.type || undefined);
 }
+
+const EXTRA_MIME_EXT: Record<string, string> = {
+  ...MIME_EXT,
+  "image/png": ".png",
+  "image/jpeg": ".jpg",
+  "image/jpg": ".jpg",
+  "image/webp": ".webp",
+  "image/gif": ".gif",
+  "application/zip": ".zip",
+  "application/x-zip-compressed": ".zip",
+  "text/plain": ".txt",
+  "application/vnd.ms-powerpoint": ".ppt",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation": ".pptx",
+};
+
+function extFromFilenameGeneric(name: string): string | null {
+  const resume = extFromFilename(name);
+  if (resume) return resume;
+  const lower = name.toLowerCase().trim();
+  const extras = [".png", ".jpg", ".jpeg", ".webp", ".gif", ".zip", ".txt", ".ppt", ".pptx"] as const;
+  for (const ext of extras) {
+    if (lower.endsWith(ext)) return ext === ".jpeg" ? ".jpg" : ext;
+  }
+  return null;
+}
+
+function contentTypeForExtGeneric(ext: string): string {
+  const mapped = contentTypeForExt(ext);
+  if (mapped !== "application/octet-stream") return mapped;
+  if (ext === ".png") return "image/png";
+  if (ext === ".jpg") return "image/jpeg";
+  if (ext === ".webp") return "image/webp";
+  if (ext === ".gif") return "image/gif";
+  if (ext === ".zip") return "application/zip";
+  if (ext === ".txt") return "text/plain";
+  if (ext === ".ppt") return "application/vnd.ms-powerpoint";
+  if (ext === ".pptx") return "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+  return "application/octet-stream";
+}
+
+/**
+ * Stores a screening-question / work-sample file (résumé types plus images, zip, slides, txt).
+ */
+export async function persistHiringUploadFile(
+  file: unknown,
+): Promise<{ url: string; fileName: string } | "TOO_LARGE" | "UNSUPPORTED_TYPE"> {
+  if (!(file instanceof File) || file.size <= 0) return "UNSUPPORTED_TYPE";
+  if (file.size > MAX_BYTES) return "TOO_LARGE";
+  const type = (file.type || "").toLowerCase();
+  const ext = EXTRA_MIME_EXT[type] ?? extFromFilenameGeneric(file.name);
+  if (!ext) return "UNSUPPORTED_TYPE";
+
+  const buf = Buffer.from(await file.arrayBuffer());
+  const contentType = contentTypeForExtGeneric(ext);
+  let url: string;
+  if (r2ConfigComplete()) {
+    url = await persistBufferToR2(buf, ext, contentType);
+  } else if (blobToken()) {
+    const pathname = `hiring-uploads/${randomUUID()}${ext}`;
+    const uploaded = await put(pathname, buf, {
+      access: "public",
+      token: blobToken(),
+      contentType,
+      addRandomSuffix: false,
+    });
+    url = uploaded.url;
+  } else if (isServerlessReadOnlyDeploy()) {
+    throw new Error(MISSING_REMOTE_STORAGE_MESSAGE);
+  } else {
+    url = await persistBufferToLocalPublic(buf, ext);
+  }
+  const fileName = (file.name || `upload${ext}`).slice(0, 280);
+  return { url, fileName };
+}

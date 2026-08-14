@@ -17,6 +17,7 @@ import { WORK_ARRANGEMENT_OPTIONS } from "@/lib/hiring-job-copy";
 import { HiringTemplateTabs, type HiringTemplateTab } from "./_components/hiring-template-tabs";
 import { PlaceholderCheatsheet } from "./_components/placeholder-cheatsheet";
 import { TemplateListItem, type TemplateRow } from "./_components/template-list-item";
+import { JobDescriptionEditor } from "@/components/hiring/job-description-editor";
 import type { HiringEmailPurpose } from "@/generated/prisma";
 
 type Props = {
@@ -146,10 +147,9 @@ export default async function HiringTemplatesPage(props: Props) {
                 </div>
                 <div>
                   <Label htmlFor="jobDescription">Job description</Label>
-                  <Textarea
+                  <JobDescriptionEditor
                     id="jobDescription"
                     name="jobDescription"
-                    rows={8}
                     className="mt-1.5"
                     placeholder="Responsibilities, expectations, team context…"
                   />

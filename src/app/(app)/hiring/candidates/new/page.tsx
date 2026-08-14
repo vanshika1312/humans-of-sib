@@ -193,6 +193,15 @@ export default async function AddCandidatePage(props: Props) {
               />
             </div>
             <div className="sm:col-span-2">
+              <Label htmlFor="portfolioUrl">Portfolio URL (optional)</Label>
+              <Input
+                id="portfolioUrl"
+                name="portfolioUrl"
+                className="mt-1.5"
+                placeholder="https://github.com/… or a personal site"
+              />
+            </div>
+            <div className="sm:col-span-2">
               <Label htmlFor="resumeFile">Résumé file (PDF, Word)</Label>
               <ResumeAutofillPanel
                 inputId="resumeFile"

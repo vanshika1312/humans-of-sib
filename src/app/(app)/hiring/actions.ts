@@ -16,6 +16,8 @@ import type { HiringJobWorkArrangement } from "@/generated/prisma";
 import { departmentIdFromForm } from "@/lib/department-resolve";
 import { normalizeExternalApplyUrl } from "@/lib/hiring-external-apply-url";
 import { persistHiringResumeFile } from "@/lib/hiring-resume-upload";
+import { parseHiringJobQuestionsFromForm, syncJobQuestionsInTxn } from "@/lib/hiring-job-questions";
+import { normalizeOptionalHttpUrl } from "@/lib/hiring-http-url";
 import { computeResumeSkillMatch } from "@/lib/hiring-resume-match";
 import { defaultAppliedPipelineStageIdInTxn } from "@/lib/hiring-pipeline";
 import {
@@ -211,7 +213,12 @@ function invalidateHiring(jobId?: string, applicationId?: string) {
   revalidatePath("/hiring/pipeline-stages");
   revalidatePath("/requisitions");
   revalidatePath("/careers");
-  if (jobId) revalidatePath(`/hiring/jobs/${jobId}`);
+  revalidatePath("/careers/jobs");
+  if (jobId) {
+    revalidatePath(`/hiring/jobs/${jobId}`);
+    revalidatePath(`/careers/${jobId}`);
+    revalidatePath(`/careers/${jobId}/apply`);
+  }
   if (applicationId) revalidatePath(`/hiring/applications/${applicationId}`);
 }
 
@@ -274,38 +281,54 @@ export async function createJob(formData: FormData) {
     );
   }
 
+  const { questions: screeningQuestions, error: questionsError } = parseHiringJobQuestionsFromForm(formData);
+  if (questionsError) {
+    redirect("/hiring/jobs/new?error=" + encodeURIComponent(questionsError));
+  }
+
+  let jobId = "";
   try {
-    const job = await prisma.hiringJob.create({
-      data: {
-        title,
-        description,
-        employmentType,
-        location,
-        workArrangement: wa,
-        experienceRequired: nu(String(formData.get("experienceRequired"))),
-        salaryRange: nu(String(formData.get("salaryRange"))),
-        skillsRequired: nu(String(formData.get("skillsRequired"))),
-        applicationDeadline: deadline,
-        openings,
-        externalApplyUrl,
-        departmentId,
-        status,
-        createdById: me.id,
-      },
+    const job = await prisma.$transaction(async (tx) => {
+      const created = await tx.hiringJob.create({
+        data: {
+          title,
+          description,
+          employmentType,
+          location,
+          workArrangement: wa,
+          experienceRequired: nu(String(formData.get("experienceRequired"))),
+          salaryRange: nu(String(formData.get("salaryRange"))),
+          skillsRequired: nu(String(formData.get("skillsRequired"))),
+          applicationDeadline: deadline,
+          openings,
+          externalApplyUrl,
+          departmentId,
+          status,
+          createdById: me.id,
+        },
+      });
+      await syncJobQuestionsInTxn(tx, created.id, screeningQuestions);
+      await tx.hiringActivity.create({
+        data: {
+          kind: "JOB_CREATED",
+          summary: `Job posting created: ${title} (${status})`,
+          payloadJson: JSON.stringify({
+            jobId: created.id,
+            title,
+            status,
+            screeningQuestionCount: screeningQuestions.length,
+          }),
+          actorUserId: me.id,
+        },
+      });
+      return created;
     });
-    await prisma.hiringActivity.create({
-      data: {
-        kind: "JOB_CREATED",
-        summary: `Job posting created: ${title} (${status})`,
-        payloadJson: JSON.stringify({ jobId: job.id, title, status }),
-        actorUserId: me.id,
-      },
-    });
-    invalidateHiring(job.id);
-    redirect(`/hiring/jobs/${job.id}`);
+    jobId = job.id;
   } catch {
     redirect("/hiring/jobs/new?error=" + encodeURIComponent("Could not save the job."));
   }
+  invalidateHiring(jobId);
+  redirect(`/hiring/jobs/${jobId}`);
 }
 
 export async function updateJobPosting(jobId: string, formData: FormData) {
@@ -364,6 +387,11 @@ export async function updateJobPosting(jobId: string, formData: FormData) {
     );
   }
 
+  const { questions: screeningQuestions, error: questionsError } = parseHiringJobQuestionsFromForm(formData);
+  if (questionsError) {
+    redirect(`/hiring/jobs/${jobId}?error=` + encodeURIComponent(questionsError) + "&edit=1");
+  }
+
   const after = {
     title,
     description,
@@ -392,8 +420,10 @@ export async function updateJobPosting(jobId: string, formData: FormData) {
           externalApplyUrl,
           departmentId,
           status,
+          ...(status !== "OPEN" ? { listedOnCareers: false } : {}),
         },
       });
+      await syncJobQuestionsInTxn(tx, jobId, screeningQuestions);
       await tx.hiringActivity.create({
         data: {
           kind: "JOB_UPDATED",
@@ -402,16 +432,17 @@ export async function updateJobPosting(jobId: string, formData: FormData) {
             jobId,
             before: beforeJob,
             after,
+            screeningQuestionCount: screeningQuestions.length,
           }),
           actorUserId: me.id,
         },
       });
     });
-    invalidateHiring(jobId);
-    redirect(`/hiring/jobs/${jobId}?saved=1&edit=1`);
   } catch {
     redirect(`/hiring/jobs/${jobId}?error=` + encodeURIComponent("Could not update this job."));
   }
+  invalidateHiring(jobId);
+  redirect(`/hiring/jobs/${jobId}?saved=1&edit=1`);
 }
 
 export async function closeJobPosting(jobId: string, formData: FormData) {
@@ -427,7 +458,7 @@ export async function closeJobPosting(jobId: string, formData: FormData) {
   await prisma.$transaction(async (tx) => {
     await tx.hiringJob.update({
       where: { id: jobId },
-      data: { status: "CLOSED" },
+      data: { status: "CLOSED", listedOnCareers: false },
     });
     await tx.hiringActivity.create({
       data: {
@@ -444,6 +475,94 @@ export async function closeJobPosting(jobId: string, formData: FormData) {
     redirect(`/hiring/jobs/${jobId}?closed=1`);
   }
   redirect("/hiring/jobs?closed=1");
+}
+
+/** Reopens a closed posting in hiring without listing it on careers. */
+export async function reopenJobPosting(jobId: string, formData: FormData) {
+  const me = await requireHiringUser();
+  await assertJobNotRemovedFromList(jobId);
+  const returnTo = String(formData.get("returnTo") || "list").trim();
+
+  const job = await prisma.hiringJob.findUnique({
+    where: { id: jobId },
+    select: { title: true, status: true },
+  });
+  if (!job) redirect("/hiring/jobs");
+  if (job.status !== "CLOSED") {
+    redirect(returnTo === "detail" ? `/hiring/jobs/${jobId}` : "/hiring/jobs");
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.hiringJob.update({
+      where: { id: jobId },
+      data: { status: "OPEN", listedOnCareers: false },
+    });
+    await tx.hiringActivity.create({
+      data: {
+        kind: "JOB_UPDATED",
+        summary: `Reopened in hiring: ${job.title}`,
+        payloadJson: JSON.stringify({ jobId, status: "OPEN" }),
+        actorUserId: me.id,
+      },
+    });
+  });
+
+  invalidateHiring(jobId);
+  if (returnTo === "detail") {
+    redirect(`/hiring/jobs/${jobId}?reopened=1`);
+  }
+  redirect("/hiring/jobs?reopened=1");
+}
+
+/** Lists or unlists an OPEN posting on the public careers page without changing pipeline status. */
+export async function setJobListedOnCareers(jobId: string, formData: FormData) {
+  const me = await requireHiringUser();
+  await assertJobNotRemovedFromList(jobId);
+  const live = String(formData.get("live") || "") === "1";
+  const returnTo = String(formData.get("returnTo") || "list").trim();
+
+  const job = await prisma.hiringJob.findUnique({
+    where: { id: jobId },
+    select: { title: true, status: true, listedOnCareers: true },
+  });
+  if (!job) redirect("/hiring/jobs");
+
+  if (live && job.status !== "OPEN" && job.status !== "CLOSED") {
+    redirect(
+      `/hiring/jobs/${jobId}?error=` +
+        encodeURIComponent("Only open or closed roles can go live on the careers page."),
+    );
+  }
+
+  const shouldReopen = live && job.status === "CLOSED";
+  if (job.listedOnCareers !== live || shouldReopen) {
+    await prisma.$transaction(async (tx) => {
+      await tx.hiringJob.update({
+        where: { id: jobId },
+        data: {
+          listedOnCareers: live,
+          ...(shouldReopen ? { status: "OPEN" as const } : {}),
+        },
+      });
+      await tx.hiringActivity.create({
+        data: {
+          kind: "JOB_UPDATED",
+          summary: live
+            ? `Listed on careers: ${job.title}`
+            : `Taken off careers: ${job.title}`,
+          payloadJson: JSON.stringify({ jobId, listedOnCareers: live }),
+          actorUserId: me.id,
+        },
+      });
+    });
+    invalidateHiring(jobId);
+  }
+
+  const flash = live ? "listed=1" : "unlisted=1";
+  if (returnTo === "detail") {
+    redirect(`/hiring/jobs/${jobId}?${flash}`);
+  }
+  redirect(`/hiring/jobs?${flash}`);
 }
 
 /** Soft-removes a **closed** posting from careers/lists (restore from Job openings → Removed postings). */
@@ -500,12 +619,17 @@ export async function restoreClosedJobPosting(jobId: string) {
   await prisma.$transaction(async (tx) => {
     await tx.hiringJob.update({
       where: { id: jobId },
-      data: { deletedAt: null, deletedById: null },
+      data: {
+        deletedAt: null,
+        deletedById: null,
+        status: "OPEN",
+        listedOnCareers: false,
+      },
     });
     await tx.hiringActivity.create({
       data: {
         kind: "JOB_RESTORED",
-        summary: `Restored to listings: ${job.title}`,
+        summary: `Restored as open in hiring: ${job.title}`,
         payloadJson: JSON.stringify({ jobId }),
         actorUserId: me.id,
       },
@@ -528,6 +652,13 @@ export async function createCandidate(formData: FormData) {
   const candidateLocation = nu(String(formData.get("candidateLocation")));
   const source = nu(String(formData.get("source")));
   const notes = nu(String(formData.get("notes")));
+  const portfolioUrl = normalizeOptionalHttpUrl(formData.get("portfolioUrl"));
+  if (portfolioUrl === "INVALID") {
+    redirect(
+      "/hiring/candidates/new?error=" +
+        encodeURIComponent("Portfolio must be a valid http(s) link, or leave it blank."),
+    );
+  }
 
   const targetJobIdRaw = nu(String(formData.get("targetJobId")));
   let targetJobId: string | null = null;
@@ -558,6 +689,7 @@ export async function createCandidate(formData: FormData) {
     candidateLocation,
     source,
     resumeUrl,
+    portfolioUrl,
     notes,
     targetJobId,
   });
@@ -634,6 +766,7 @@ export async function createCandidate(formData: FormData) {
           candidateLocation,
           source,
           resumeUrl,
+          portfolioUrl,
           resumeExtractedText: resumeText,
           resumeParsedAt: resumeText ? new Date() : null,
           notes,
@@ -2312,6 +2445,14 @@ export async function updateHiringCandidate(candidateId: string, formData: FormD
     redirect(`/hiring/timeline/${candidateId}?error=` + encodeURIComponent(resumeErr));
   }
 
+  const portfolioUrl = normalizeOptionalHttpUrl(formData.get("portfolioUrl"));
+  if (portfolioUrl === "INVALID") {
+    redirect(
+      `/hiring/timeline/${candidateId}?error=` +
+        encodeURIComponent("Portfolio must be a valid http(s) link, or leave it blank."),
+    );
+  }
+
   const after = {
     fullName,
     email,
@@ -2319,6 +2460,7 @@ export async function updateHiringCandidate(candidateId: string, formData: FormD
     candidateLocation: nu(String(formData.get("candidateLocation"))),
     source: nu(String(formData.get("source"))),
     resumeUrl: mergedResumeUrl,
+    portfolioUrl,
     notes: nu(String(formData.get("notes"))),
     ...(resumeReplaced
       ? { resumeExtractedText: newResumeText, resumeParsedAt: newResumeText ? new Date() : null }
@@ -2342,6 +2484,7 @@ export async function updateHiringCandidate(candidateId: string, formData: FormD
             candidateLocation: before.candidateLocation,
             source: before.source,
             resumeUrl: before.resumeUrl,
+            portfolioUrl: before.portfolioUrl,
             notes: before.notes,
           },
           after,

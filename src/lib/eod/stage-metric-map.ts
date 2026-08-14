@@ -39,6 +39,7 @@ export const STAGE_KEY_TO_EOD_BUCKET: Record<string, StageMetricMapEntry> = {
   SCREEN: { bucket: "screening" },
   HR_SCREEN: { bucket: "screening" },
   PHONE_SCREEN: { bucket: "screening" },
+  PSYCHOMETRIC: { bucket: "screening", description: "Personality / role assessment" },
 
   ROUND_1: { bucket: "round1" },
   ROUND1: { bucket: "round1" },
@@ -69,6 +70,7 @@ export const STAGE_KEY_TO_EOD_BUCKET: Record<string, StageMetricMapEntry> = {
   REJECTED: { bucket: "rejected" },
   DECLINED: { bucket: "rejected" },
   NOT_SELECTED: { bucket: "rejected" },
+  WITHDRAWN: { bucket: "other", description: "Candidate withdrew their application" },
 
   DNP: { bucket: "dnp" },
   NO_SHOW: { bucket: "dnp" },

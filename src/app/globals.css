@@ -95,3 +95,64 @@
     background-size: 120px 120px;
   }
 }
+
+@keyframes careers-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes careers-hero-in {
+  from {
+    opacity: 0.55;
+    transform: scale(1.04);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes careers-orb {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+  50% {
+    transform: translate(12px, -18px) scale(1.06);
+  }
+}
+
+@keyframes careers-marquee {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    transform: translate3d(-50%, 0, 0);
+  }
+}
+
+@keyframes careers-marquee-reverse {
+  from {
+    transform: translate3d(-50%, 0, 0);
+  }
+  to {
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-\[careers-fade-up_0\.7s_ease-out\],
+  .animate-\[careers-hero-in_1\.1s_ease-out\],
+  .animate-\[careers-orb_12s_ease-in-out_infinite\],
+  .animate-\[careers-orb_16s_ease-in-out_infinite_reverse\],
+  .animate-\[careers-marquee_42s_linear_infinite\],
+  .animate-\[careers-marquee-reverse_52s_linear_infinite\] {
+    animation: none;
+  }
+}

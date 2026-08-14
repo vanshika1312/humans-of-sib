@@ -1,5 +1,6 @@
 import type { HiringJobWorkArrangement } from "@/generated/prisma";
 import { WORK_ARRANGEMENT_LABEL } from "@/lib/hiring-job-copy";
+import { isSelfSignupSource, SELF_SIGNUP_LABEL } from "@/lib/hiring-candidate-portal";
 
 export function splitCandidateFullName(fullName: string): { firstName: string; lastName: string } {
   const t = fullName.trim();
@@ -24,6 +25,7 @@ export function applicationSourceLabel(
   applicationSource: string | null | undefined,
   candidateSource: string | null | undefined,
 ): string {
+  if (isSelfSignupSource(applicationSource, candidateSource)) return SELF_SIGNUP_LABEL;
   const a = applicationSource?.trim();
   if (a) return a;
   const c = candidateSource?.trim();

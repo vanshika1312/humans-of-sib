@@ -11,35 +11,84 @@ import { ResumeAutofillPanel } from "@/components/hiring/resume-autofill-panel";
 import { HIRING_ACTIVITY_KIND_LABEL } from "@/lib/hiring-activity-kind-copy";
 import { updateHiringCandidate } from "../../actions";
 import { firstSearchParam } from "@/lib/search-param";
+import { HiringInterviewNotesPanel } from "@/components/hiring/hiring-interview-notes-panel";
+import { displayName } from "@/lib/user-display-name";
 
 type Props = {
   params: Promise<{ candidateId: string }>;
-  searchParams: Promise<{ saved?: string | string[]; error?: string | string[] }>;
+  searchParams: Promise<{
+    saved?: string | string[];
+    error?: string | string[];
+    interviewSynced?: string | string[];
+    interviewNotesSaved?: string | string[];
+    interviewError?: string | string[];
+  }>;
 };
 
 export default async function CandidateTimelinePage(props: Props) {
   const { candidateId } = await props.params;
   const sp = await props.searchParams;
-  const flashError = firstSearchParam(sp.error);
+  const flashError = firstSearchParam(sp.error) ?? firstSearchParam(sp.interviewError);
   const flashSaved = firstSearchParam(sp.saved) === "1";
+  const interviewSynced = firstSearchParam(sp.interviewSynced) === "1";
+  const interviewNotesSaved = firstSearchParam(sp.interviewNotesSaved) === "1";
 
   const candidate = await prisma.hiringCandidate.findUnique({
     where: { id: candidateId },
     include: {
       applications: {
         orderBy: { appliedAt: "desc" },
-        include: { job: { select: { title: true, id: true } } },
+        include: {
+          job: { select: { title: true, id: true } },
+          interviews: {
+            orderBy: { scheduledAt: "desc" },
+            include: { scheduledBy: { select: { name: true, email: true } } },
+          },
+        },
       },
     },
   });
 
   if (!candidate) notFound();
 
-  const events = await prisma.hiringActivity.findMany({
-    where: { candidateId },
-    orderBy: { createdAt: "desc" },
-    include: { actor: { select: { name: true, email: true } } },
-  });
+  const [events, interviewerUsers] = await Promise.all([
+    prisma.hiringActivity.findMany({
+      where: { candidateId },
+      orderBy: { createdAt: "desc" },
+      include: { actor: { select: { name: true, email: true } } },
+    }),
+    prisma.user.findMany({
+      where: { invitationPending: false },
+      orderBy: [{ name: "asc" }, { email: "asc" }],
+      select: { id: true, name: true, firstName: true, lastName: true, email: true },
+      take: 300,
+    }),
+  ]);
+
+  const interviewRows = candidate.applications.flatMap((a) =>
+    a.interviews.map((iv) => ({
+      id: iv.id,
+      applicationId: a.id,
+      scheduledAt: iv.scheduledAt,
+      durationMinutes: iv.durationMinutes,
+      timezone: iv.timezone,
+      title: iv.title,
+      status: iv.status,
+      locationOrLink: iv.locationOrLink,
+      googleCalendarHtmlLink: iv.googleCalendarHtmlLink,
+      googleMeetJoinUrl: iv.googleMeetJoinUrl,
+      recordAndTranscribe: iv.recordAndTranscribe,
+      recordingStatus: iv.recordingStatus,
+      recordingUrl: iv.recordingUrl,
+      transcriptStatus: iv.transcriptStatus,
+      transcriptText: iv.transcriptText,
+      transcriptDocUrl: iv.transcriptDocUrl,
+      notesSummary: iv.notesSummary,
+      artifactError: iv.artifactError,
+      interviewerUserIds: iv.interviewerUserIds,
+      jobTitle: a.job.title,
+    })),
+  );
 
   const action = updateHiringCandidate.bind(null, candidateId);
 
@@ -68,6 +117,16 @@ export default async function CandidateTimelinePage(props: Props) {
       {flashSaved && (
         <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
           Profile saved — timeline updated.
+        </div>
+      )}
+      {interviewNotesSaved && (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+          Interview notes saved on this candidate profile.
+        </div>
+      )}
+      {interviewSynced && (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+          Recording and transcript sync attempted.
         </div>
       )}
       {flashError && (
@@ -131,6 +190,16 @@ export default async function CandidateTimelinePage(props: Props) {
               />
             </div>
             <div className="sm:col-span-2">
+              <Label htmlFor="portfolioUrl">Portfolio URL (optional)</Label>
+              <Input
+                id="portfolioUrl"
+                name="portfolioUrl"
+                defaultValue={candidate.portfolioUrl ?? ""}
+                className="mt-1.5"
+                placeholder="https://github.com/… or a personal site"
+              />
+            </div>
+            <div className="sm:col-span-2">
               <Label htmlFor="resumeFile">Replace résumé file (PDF, Word)</Label>
               <ResumeAutofillPanel
                 inputId="resumeFile"
@@ -157,6 +226,17 @@ export default async function CandidateTimelinePage(props: Props) {
           </form>
         </CardContent>
       </Card>
+
+      <HiringInterviewNotesPanel
+        interviews={interviewRows}
+        interviewerOptions={interviewerUsers.map((u) => ({
+          id: u.id,
+          name: displayName(u),
+          email: u.email,
+        }))}
+        canManage
+        returnPath={`/hiring/timeline/${candidateId}`}
+      />
 
       <Card>
         <CardHeader>

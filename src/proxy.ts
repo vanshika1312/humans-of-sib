@@ -6,12 +6,17 @@ import { NextResponse, type NextRequest } from "next/server";
 const PUBLIC_PATHS = [
   "/sign-in",
   "/onboarding",
+  "/careers",
   "/api/auth",
+  "/api/candidate-auth",
   "/api/integrations/eod",
+  "/api/cron",
   "/_next",
   "/favicon",
   "/logo",
   "/images",
+  "/hiring-uploads",
+  "/task-uploads",
 ];
 
 export default function proxy(request: NextRequest) {
@@ -26,6 +31,8 @@ export default function proxy(request: NextRequest) {
   // chunks — "authjs.session-token.0", ".1", etc. — and never sets the plain
   // "authjs.session-token" cookie. An exact-name lookup then misses logged-in
   // users, so match either the unchunked cookie or any of its chunks.
+  // Employee Google JWT cookie only. Careers uses a separate
+  // `authjs.candidate-session-token` and must not unlock /home.
   const hasSessionCookie = request.cookies.getAll().some(
     (c) =>
       c.name === "authjs.session-token" ||

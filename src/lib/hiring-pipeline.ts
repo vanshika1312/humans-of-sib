@@ -34,3 +34,13 @@ export async function defaultAppliedPipelineStageIdInTxn(tx: Prisma.TransactionC
 export function funnelActiveFilter(stages: HiringPipelineStage[]): HiringPipelineStage[] {
   return stages.filter((s) => !s.isHired && !s.isRejected);
 }
+
+export async function findPsychometricPipelineStageId(
+  tx: Prisma.TransactionClient | typeof prisma = prisma,
+): Promise<string | null> {
+  const row = await tx.hiringPipelineStage.findFirst({
+    where: { key: "PSYCHOMETRIC" },
+    select: { id: true },
+  });
+  return row?.id ?? null;
+}

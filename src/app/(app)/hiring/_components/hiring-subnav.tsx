@@ -31,6 +31,11 @@ const LINKS: { href: string; label: string; isActive: (pathname: string) => bool
     isActive: (p) => p.startsWith("/hiring/templates"),
   },
   {
+    href: "/hiring/careers-landing",
+    label: "Careers page",
+    isActive: (p) => p.startsWith("/hiring/careers-landing"),
+  },
+  {
     href: "/hiring/activity",
     label: "Activity",
     isActive: (p) => p === "/hiring/activity" || p.startsWith("/hiring/activity/"),

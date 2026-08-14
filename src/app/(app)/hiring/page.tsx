@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import type { HiringJobStatus } from "@/generated/prisma";
+import type { HiringJobStatus, HiringPipelineStage } from "@/generated/prisma";
 import { Badge } from "@/components/ui/badge";
 import { Avatar } from "@/components/ui/avatar";
 import { Label, Textarea } from "@/components/ui/input";
@@ -11,7 +11,7 @@ import { approveHiringRequisition, rejectHiringRequisition } from "./actions";
 import { firstSearchParam } from "@/lib/search-param";
 import { formatCalendarDate } from "@/lib/calendar-date";
 import { loadPipelineStagesOrdered, funnelActiveFilter } from "@/lib/hiring-pipeline";
-import { hiringJobActiveClause, hiringOpenJobsWhere } from "@/lib/hiring-job-active";
+import { hiringJobActiveClause, hiringOpenOrClosedJobsWhere } from "@/lib/hiring-job-active";
 
 export default async function HiringOverviewPage(props: {
   searchParams: Promise<{ reqApproved?: string; reqRejected?: string; reqError?: string }>;
@@ -28,8 +28,8 @@ export default async function HiringOverviewPage(props: {
     closedJobsCount,
     pendingReqs,
     pipelineStagesOrdered,
-    openJobs,
-    openAppByJobStage,
+    listedJobs,
+    listedAppByJobStage,
   ] = await Promise.all([
     prisma.hiringJob.count({ where: { status: "OPEN", ...hiringJobActiveClause } }),
     prisma.hiringCandidate.count(),
@@ -49,7 +49,7 @@ export default async function HiringOverviewPage(props: {
     }),
     loadPipelineStagesOrdered(),
     prisma.hiringJob.findMany({
-      where: hiringOpenJobsWhere(),
+      where: hiringOpenOrClosedJobsWhere(),
       orderBy: { updatedAt: "desc" },
       select: {
         id: true,
@@ -60,7 +60,7 @@ export default async function HiringOverviewPage(props: {
     }),
     prisma.hiringApplication.groupBy({
       by: ["jobId", "pipelineStageId"],
-      where: { job: hiringOpenJobsWhere() },
+      where: { job: hiringOpenOrClosedJobsWhere() },
       _count: { _all: true },
     }),
   ]);
@@ -75,7 +75,7 @@ export default async function HiringOverviewPage(props: {
   const inFlight = funnelActiveStages.reduce((n, s) => n + (byPipelineStageId.get(s.id) ?? 0), 0);
 
   const countsByJobStage = new Map<string, Map<string, number>>();
-  for (const row of openAppByJobStage) {
+  for (const row of listedAppByJobStage) {
     let inner = countsByJobStage.get(row.jobId);
     if (!inner) {
       inner = new Map<string, number>();
@@ -83,6 +83,9 @@ export default async function HiringOverviewPage(props: {
     }
     inner.set(row.pipelineStageId, row._count._all);
   }
+
+  const openJobs = listedJobs.filter((j) => j.status === "OPEN");
+  const closedJobs = listedJobs.filter((j) => j.status === "CLOSED");
 
   return (
     <div className="space-y-8">
@@ -94,6 +97,9 @@ export default async function HiringOverviewPage(props: {
           <div className="flex flex-wrap gap-2">
             <Link href="/hiring/jobs/new">
               <Button variant="accent">New job</Button>
+            </Link>
+            <Link href="/hiring/careers-landing">
+              <Button variant="outline">Edit careers page</Button>
             </Link>
             <Link href="/requisitions">
               <Button variant="outline">Requisitions (submitters) →</Button>
@@ -136,57 +142,40 @@ export default async function HiringOverviewPage(props: {
               .
             </p>
           ) : (
-            openJobs.map((j) => {
-              const perJob = countsByJobStage.get(j.id);
-              const stageTotal =
-                perJob?.size != null ? [...perJob.values()].reduce((a, b) => a + b, 0) : 0;
-              return (
-                <div key={j.id} className="py-4 first:pt-0 space-y-2">
-                  <Link
-                    href={`/hiring/jobs/${j.id}`}
-                    className="flex flex-wrap items-start justify-between gap-3 group"
-                  >
-                    <div className="min-w-0">
-                      <div className="font-medium text-ink-700 truncate group-hover:text-sky-800">{j.title}</div>
-                      <div className="text-xs text-ink-400 mt-0.5 flex items-center gap-1 flex-wrap">
-                        {j.department ? (
-                          <>
-                            <span>{j.department.emoji}</span>
-                            <span>{j.department.name}</span>
-                          </>
-                        ) : (
-                          <span>Any dept</span>
-                        )}
-                        <span aria-hidden>·</span>
-                        <span>{stageTotal} applicant{stageTotal === 1 ? "" : "s"}</span>
-                      </div>
-                    </div>
-                    <JobStatusBadge status={j.status} />
-                  </Link>
-                  <div className="overflow-x-auto pb-0.5 -mx-1 px-1">
-                    <div className="flex gap-2 min-w-min">
-                      {funnelActiveStages.map((st) => {
-                        const n = perJob?.get(st.id) ?? 0;
-                        const stageHref = `/hiring/applications?job=${encodeURIComponent(j.id)}&stage=${encodeURIComponent(st.id)}`;
-                        return (
-                          <Link
-                            key={st.id}
-                            href={stageHref}
-                            className="shrink-0 rounded-lg border border-ink-100 bg-ink-50/40 px-2.5 py-1.5 min-w-[4.5rem] hover:border-ink-200 hover:bg-ink-50/80 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2"
-                            title={`${st.label} — view applicants`}
-                          >
-                            <div className="text-[10px] font-medium uppercase tracking-wide text-ink-400 truncate max-w-[6rem]">
-                              {st.label}
-                            </div>
-                            <div className="text-sm font-semibold tabular-nums text-ink-800">{n}</div>
-                          </Link>
-                        );
-                      })}
-                    </div>
-                  </div>
-                </div>
-              );
-            })
+            openJobs.map((j) => (
+              <JobPipelineByStageRow
+                key={j.id}
+                job={j}
+                perJob={countsByJobStage.get(j.id)}
+                stages={funnelActiveStages}
+              />
+            ))
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="border-b border-ink-100 bg-ink-50/60">
+          <CardTitle>Closed jobs — applications received</CardTitle>
+        </CardHeader>
+        <CardContent className="pt-5 space-y-0 divide-y divide-ink-100">
+          {closedJobs.length === 0 ? (
+            <p className="text-sm text-ink-500 py-8 text-center">
+              No closed postings on the active list. Close a job from{" "}
+              <Link href="/hiring/jobs" className="font-medium text-sky-700 hover:underline">
+                Job openings
+              </Link>{" "}
+              to keep its applicant counts here.
+            </p>
+          ) : (
+            closedJobs.map((j) => (
+              <JobPipelineByStageRow
+                key={j.id}
+                job={j}
+                perJob={countsByJobStage.get(j.id)}
+                stages={pipelineStagesOrdered}
+              />
+            ))
           )}
         </CardContent>
       </Card>
@@ -198,6 +187,24 @@ export default async function HiringOverviewPage(props: {
         <MetricCard title="Pending requisitions" value={String(pendingReqCount)} tone="orange" />
         <MetricCard title="Archived jobs" value={String(closedJobsCount)} tone="ink" />
       </div>
+
+      <Card>
+        <CardHeader className="border-b border-ink-100 bg-sky-50/50">
+          <CardTitle>Public careers landing</CardTitle>
+        </CardHeader>
+        <CardContent className="pt-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <p className="text-sm text-ink-600 max-w-xl leading-relaxed">
+            Update Life @ SIB copy, the team hero photo, and culture gallery — candidates see it at{" "}
+            <Link href="/careers" className="font-medium text-sky-700 hover:underline">
+              /careers
+            </Link>{" "}
+            without a deploy.
+          </p>
+          <Link href="/hiring/careers-landing" className="shrink-0">
+            <Button variant="outline">Edit careers page</Button>
+          </Link>
+        </CardContent>
+      </Card>
 
       <Card className="border-orange-100/80 shadow-sm overflow-hidden">
         <CardHeader className="border-b border-ink-100 bg-gradient-to-r from-orange-50/80 to-white">
@@ -364,6 +371,70 @@ function MetricCard({
       <div className="text-[11px] font-semibold uppercase tracking-wider text-ink-400">{title}</div>
       <div className="text-2xl font-bold text-ink-800 mt-1 tabular-nums">{value}</div>
       {hint ? <div className="text-xs text-ink-500 mt-1">{hint}</div> : null}
+    </div>
+  );
+}
+
+type OverviewJobRow = {
+  id: string;
+  title: string;
+  status: HiringJobStatus;
+  department: { name: string; emoji: string | null } | null;
+};
+
+function JobPipelineByStageRow({
+  job,
+  perJob,
+  stages,
+}: {
+  job: OverviewJobRow;
+  perJob: Map<string, number> | undefined;
+  stages: HiringPipelineStage[];
+}) {
+  const stageTotal = perJob ? [...perJob.values()].reduce((a, b) => a + b, 0) : 0;
+  return (
+    <div className="py-4 first:pt-0 space-y-2">
+      <Link href={`/hiring/jobs/${job.id}`} className="flex flex-wrap items-start justify-between gap-3 group">
+        <div className="min-w-0">
+          <div className="font-medium text-ink-700 truncate group-hover:text-sky-800">{job.title}</div>
+          <div className="text-xs text-ink-400 mt-0.5 flex items-center gap-1 flex-wrap">
+            {job.department ? (
+              <>
+                <span>{job.department.emoji}</span>
+                <span>{job.department.name}</span>
+              </>
+            ) : (
+              <span>Any dept</span>
+            )}
+            <span aria-hidden>·</span>
+            <span>
+              {stageTotal} applicant{stageTotal === 1 ? "" : "s"}
+            </span>
+          </div>
+        </div>
+        <JobStatusBadge status={job.status} />
+      </Link>
+      <div className="overflow-x-auto pb-0.5 -mx-1 px-1">
+        <div className="flex gap-2 min-w-min">
+          {stages.map((st) => {
+            const n = perJob?.get(st.id) ?? 0;
+            const stageHref = `/hiring/applications?job=${encodeURIComponent(job.id)}&stage=${encodeURIComponent(st.id)}`;
+            return (
+              <Link
+                key={st.id}
+                href={stageHref}
+                className="shrink-0 rounded-lg border border-ink-100 bg-ink-50/40 px-2.5 py-1.5 min-w-[4.5rem] hover:border-ink-200 hover:bg-ink-50/80 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2"
+                title={`${st.label} — view applicants`}
+              >
+                <div className="text-[10px] font-medium uppercase tracking-wide text-ink-400 truncate max-w-[6rem]">
+                  {st.label}
+                </div>
+                <div className="text-sm font-semibold tabular-nums text-ink-800">{n}</div>
+              </Link>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 }

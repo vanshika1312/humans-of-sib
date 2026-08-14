@@ -8,12 +8,13 @@ import { PageHeader, EmptyState } from "@/components/ui/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { formatDate } from "@/lib/utils";
-import { FileText, Download } from "lucide-react";
+import { FileText } from "lucide-react";
 import type { Document } from "@/generated/prisma";
 import {
   DocumentUploadDialog,
   type DocumentUploadMember,
 } from "./_components/document-upload-dialog";
+import { DocumentRowActions } from "./_components/document-row-actions";
 
 const TYPE_LABEL: Record<string, string> = {
   OFFER_LETTER: "Offer Letter",
@@ -45,10 +46,11 @@ const TYPE_EMOJI: Record<string, string> = {
   OTHER: "📎",
 };
 
-const UPLOAD_ERRORS: Record<string, string> = {
+const FLASH_ERRORS: Record<string, string> = {
   invalid: "Check the form fields and try again.",
-  forbidden: "You don't have permission to upload this document.",
+  forbidden: "You don't have permission to change this document.",
   "invalid-member": "Select a valid active team member.",
+  "not-found": "That document is no longer available.",
   "upload-too-large": "File is too large (max 12 MB).",
   "upload-empty": "Choose a file to upload.",
   "upload-unsupported": "Use PDF, DOC, or DOCX.",
@@ -56,6 +58,8 @@ const UPLOAD_ERRORS: Record<string, string> = {
 
 type SearchParams = Promise<{
   uploaded?: string | string[];
+  updated?: string | string[];
+  deleted?: string | string[];
   error?: string | string[];
   warn?: string | string[];
 }>;
@@ -73,14 +77,25 @@ export default function DocumentsPage({ searchParams }: { searchParams: SearchPa
 async function DocumentsPageWithFlash({ searchParams }: { searchParams: SearchParams }) {
   const sp = await searchParams;
   const uploaded = firstSearchParam(sp.uploaded);
+  const updated = firstSearchParam(sp.updated);
+  const deleted = firstSearchParam(sp.deleted);
   const error = firstSearchParam(sp.error);
   const warn = firstSearchParam(sp.warn);
 
+  const successMessage =
+    uploaded === "1"
+      ? "Document uploaded successfully."
+      : updated === "1"
+        ? "Document updated."
+        : deleted === "1"
+          ? "Document deleted."
+          : null;
+
   return (
     <>
-      {uploaded === "1" ? (
+      {successMessage ? (
         <div className="mb-6 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-950">
-          Document uploaded successfully.
+          {successMessage}
           {warn === "lia-no-text" ? (
             <p className="mt-2 text-emerald-900/90">
               LIA could not read text from this PDF (it may be scanned). The file is saved; HR can paste
@@ -91,7 +106,7 @@ async function DocumentsPageWithFlash({ searchParams }: { searchParams: SearchPa
       ) : null}
       {error ? (
         <div className="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">
-          {UPLOAD_ERRORS[error] ?? "Something went wrong. Please try again."}
+          {FLASH_ERRORS[error] ?? "Something went wrong. Please try again."}
         </div>
       ) : null}
       <PageHeader
@@ -187,12 +202,16 @@ async function DocumentsPageBody() {
         description="Shared with the whole organisation."
         docs={forAll}
         emptyHint="No company-wide documents yet."
+        currentUserId={me.id}
+        canManageAll={canManage}
       />
       <DocumentScopeSection
         heading="Personal"
         description="Visible only to you."
         docs={personal}
         emptyHint="No personal documents yet."
+        currentUserId={me.id}
+        canManageAll={canManage}
       />
     </div>
   );
@@ -203,11 +222,15 @@ function DocumentScopeSection({
   description,
   docs,
   emptyHint,
+  currentUserId,
+  canManageAll,
 }: {
   heading: string;
   description: string;
   docs: Document[];
   emptyHint: string;
+  currentUserId: string;
+  canManageAll: boolean;
 }) {
   const byType = docs.reduce<Record<string, Document[]>>((acc, d) => {
     (acc[d.type] ||= []).push(d);
@@ -236,20 +259,18 @@ function DocumentScopeSection({
                 <CardContent className="pt-4">
                   <ul className="divide-y divide-ink-100">
                     {items.map((d) => (
-                      <li key={d.id} className="py-3 flex items-center gap-3">
+                      <li key={d.id} className="py-3 flex flex-wrap items-center gap-3">
                         <FileText className="size-5 text-ink-400 shrink-0" />
                         <div className="flex-1 min-w-0">
                           <div className="text-sm font-medium text-ink-700 truncate">{d.title}</div>
                           <div className="text-xs text-ink-400">Uploaded {formatDate(d.createdAt)}</div>
                         </div>
-                        <a
-                          href={d.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1.5 px-3 h-8 rounded-md text-xs font-medium text-sky-700 bg-sky-50 hover:bg-sky-100 shrink-0"
-                        >
-                          <Download className="size-3.5" /> Open
-                        </a>
+                        <DocumentRowActions
+                          document={{ id: d.id, title: d.title, type: d.type, url: d.url }}
+                          canManage={
+                            canManageAll || (d.scope === "PERSONAL" && d.userId === currentUserId)
+                          }
+                        />
                       </li>
                     ))}
                   </ul>

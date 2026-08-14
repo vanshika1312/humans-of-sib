@@ -22,6 +22,8 @@ export type ScheduledInterviewRow = {
   title: string;
   locationOrLink: string | null;
   googleCalendarHtmlLink: string | null;
+  googleMeetJoinUrl: string | null;
+  recordAndTranscribe: boolean;
   interviewerUserIds: string[];
   scheduledBy: { name: string | null; email: string | null };
 };
@@ -51,6 +53,7 @@ export function HiringInterviewScheduleTrigger({
   candidateResumeUrl,
   canSchedule,
   calendarConfigured,
+  showLabel = false,
 }: {
   applicationId: string;
   candidateName: string;
@@ -61,8 +64,11 @@ export function HiringInterviewScheduleTrigger({
   candidateResumeUrl: string | null;
   canSchedule: boolean;
   calendarConfigured: boolean;
+  showLabel?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const [createMeet, setCreateMeet] = useState(true);
+  const [recordMeet, setRecordMeet] = useState(true);
   const scheduleAction = scheduleHiringInterview.bind(null, applicationId);
   const interviewerById = new Map(interviewers.map((u) => [u.id, u]));
   const hasResume = Boolean(candidateResumeUrl?.trim());
@@ -95,7 +101,7 @@ export function HiringInterviewScheduleTrigger({
         variant="outline"
         size="sm"
         onClick={() => setOpen(true)}
-        className="relative size-8 px-0"
+        className={showLabel ? undefined : "relative size-8 px-0"}
         aria-label={
           scheduledCount > 0
             ? `Schedule interview (${scheduledCount} scheduled)`
@@ -104,7 +110,8 @@ export function HiringInterviewScheduleTrigger({
         title="Schedule interview"
       >
         <Calendar className="size-4 text-sky-700" aria-hidden />
-        {scheduledCount > 0 ? (
+        {showLabel ? <span>Schedule interview</span> : null}
+        {!showLabel && scheduledCount > 0 ? (
           <span className="absolute -top-1.5 -right-1.5 flex size-4 items-center justify-center rounded-full bg-sky-600 text-[10px] font-bold text-white">
             {scheduledCount > 9 ? "9+" : scheduledCount}
           </span>
@@ -150,9 +157,22 @@ export function HiringInterviewScheduleTrigger({
                 <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
                   Google Calendar is not configured. Add service account credentials and{" "}
                   <code className="text-xs bg-amber-100/80 px-1 rounded">GOOGLE_CALENDAR_ORGANIZER_EMAIL</code> to send
-                  invites.
+                  invites. Recording also needs the Google Meet API plus domain-wide delegation scopes{" "}
+                  <code className="text-xs bg-amber-100/80 px-1 rounded">meetings.space.created</code>,{" "}
+                  <code className="text-xs bg-amber-100/80 px-1 rounded">meetings.space.settings</code>,{" "}
+                  <code className="text-xs bg-amber-100/80 px-1 rounded">meetings.space.readonly</code>, and{" "}
+                  <code className="text-xs bg-amber-100/80 px-1 rounded">drive.readonly</code>.
                 </div>
-              ) : null}
+              ) : (
+                <p className="text-xs text-ink-500 leading-relaxed">
+                  Recording uses Google Meet auto-record (Workspace Business Standard or higher). Enable the Meet API
+                  and add domain-wide delegation scopes{" "}
+                  <code className="text-[10px] bg-ink-100 px-1 rounded">meetings.space.created</code>,{" "}
+                  <code className="text-[10px] bg-ink-100 px-1 rounded">meetings.space.settings</code>,{" "}
+                  <code className="text-[10px] bg-ink-100 px-1 rounded">meetings.space.readonly</code>, and{" "}
+                  <code className="text-[10px] bg-ink-100 px-1 rounded">drive.readonly</code> for the service account.
+                </p>
+              )}
 
               {scheduledInterviews.length > 0 ? (
                 <div className="space-y-2">
@@ -172,6 +192,12 @@ export function HiringInterviewScheduleTrigger({
                               </p>
                               {names.length > 0 ? (
                                 <p className="text-xs text-ink-500 mt-1">Interviewers: {names.join(", ")}</p>
+                              ) : null}
+                              {iv.googleMeetJoinUrl ? (
+                                <p className="text-xs text-ink-500 mt-1">
+                                  Meet ready
+                                  {iv.recordAndTranscribe ? " · recording on" : ""}
+                                </p>
                               ) : null}
                             </div>
                             {iv.googleCalendarHtmlLink ? (
@@ -196,7 +222,7 @@ export function HiringInterviewScheduleTrigger({
                 <p className="text-xs text-ink-500 leading-relaxed">
                   Creates a Google Calendar event and emails invites to{" "}
                   <strong className="font-medium text-ink-700">{candidateName}</strong>, selected interviewers, and
-                  you.
+                  you. Invites show up on each person&apos;s Google Calendar.
                 </p>
 
                 <div className="grid sm:grid-cols-2 gap-4">
@@ -230,15 +256,57 @@ export function HiringInterviewScheduleTrigger({
                     </Select>
                   </div>
                   <div>
-                    <Label htmlFor="locationOrLink">Meeting link or location (optional)</Label>
+                    <Label htmlFor="locationOrLink">Room or extra location (optional)</Label>
                     <Input
                       id="locationOrLink"
                       name="locationOrLink"
-                      placeholder="https://meet.google.com/…"
+                      placeholder="Office room, or leave blank"
                       className="mt-1.5"
                     />
                   </div>
                 </div>
+
+                <fieldset className="space-y-3 rounded-xl border border-ink-100 bg-sky-50/40 p-4 border-solid">
+                  <legend className="text-sm font-medium text-ink-700 px-1">Google Meet</legend>
+                  <label className="flex items-start gap-2 cursor-pointer text-sm">
+                    <input
+                      type="checkbox"
+                      name="createGoogleMeet"
+                      value="on"
+                      checked={createMeet}
+                      onChange={(e) => {
+                        const on = e.target.checked;
+                        setCreateMeet(on);
+                        if (!on) setRecordMeet(false);
+                      }}
+                      className="mt-1 rounded border-ink-300"
+                    />
+                    <span>
+                      <span className="font-medium text-ink-800">Create a Google Meet link</span>
+                      <span className="block text-xs text-ink-500">
+                        Added to the calendar invite so interviewers join from Google Calendar.
+                      </span>
+                    </span>
+                  </label>
+                  <label className="flex items-start gap-2 cursor-pointer text-sm">
+                    <input
+                      type="checkbox"
+                      name="recordAndTranscribe"
+                      value="on"
+                      checked={recordMeet}
+                      disabled={!createMeet}
+                      onChange={(e) => setRecordMeet(e.target.checked)}
+                      className="mt-1 rounded border-ink-300"
+                    />
+                    <span>
+                      <span className="font-medium text-ink-800">Record and transcribe</span>
+                      <span className="block text-xs text-ink-500">
+                        Auto-records the Meet (when Workspace recording is enabled). Transcript and notes are stored on
+                        the candidate profile after the call. Tell the candidate the interview may be recorded.
+                      </span>
+                    </span>
+                  </label>
+                </fieldset>
 
                 <div>
                   <Label htmlFor="notes">Notes for calendar description (optional)</Label>

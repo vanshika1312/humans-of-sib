@@ -12,7 +12,9 @@ import {
   formatHiringJobLocation,
   splitCandidateFullName,
 } from "@/lib/hiring-application-display";
+import { isSelfSignupSource } from "@/lib/hiring-candidate-portal";
 import type { HiringJobWorkArrangement } from "@/generated/prisma";
+import { Badge } from "@/components/ui/badge";
 import { ApplicationStageControl, type PipelineStageOption } from "./application-stage-control";
 import {
   bulkDeleteHiringApplications,
@@ -346,7 +348,16 @@ export function ApplicationsTableWithBulk({
                     </td>
                     <td className="px-4 py-3 text-ink-600">{jobLoc}</td>
                     <td className="px-4 py-3 text-ink-600">{app.candidate.candidateLocation ?? "—"}</td>
-                    <td className="px-4 py-3 text-ink-600">{portal}</td>
+                    <td className="px-4 py-3 text-ink-600">
+                      <span className="inline-flex flex-wrap items-center gap-1.5">
+                        {portal}
+                        {isSelfSignupSource(app.applicationSource, app.candidate.source) ? (
+                          <Badge tone="sky" className="text-[10px] uppercase tracking-wide">
+                            Portal
+                          </Badge>
+                        ) : null}
+                      </span>
+                    </td>
                     <td className="px-4 py-3">
                       <ApplicationStageControl
                         applicationId={app.id}

@@ -20,3 +20,13 @@ export function canUploadDocument(
   if (args.targetUserId === me.id) return true;
   return canManageAllDocuments(me);
 }
+
+/** Personal files: the owner or HR/admin. Company-wide files: HR/admin only. */
+export function canManageDocument(
+  me: AppViewer | null,
+  doc: { scope: DocumentScope; userId: string | null },
+): boolean {
+  if (!me) return false;
+  if (canManageAllDocuments(me)) return true;
+  return doc.scope === "PERSONAL" && doc.userId === me.id;
+}

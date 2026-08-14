@@ -224,6 +224,8 @@ model User {
   liaConversations                LiaConversation[]
   liaKnowledgeArticlesUpdated     LiaKnowledgeArticle[] @relation("LiaKnowledgeArticleUpdatedBy")
 
+  careersLandingContentUpdated    CareersLandingContent[] @relation("CareersLandingContentUpdatedBy")
+
   deptOkrObjectivesCreated        DeptOkrObjective[]    @relation("DeptOkrCreatedBy")
   dailyWorkTasksAssigned          DailyWorkTask[]       @relation("DailyWorkTaskAssignee")
   dailyWorkTasksAssignedBy        DailyWorkTask[]       @relation("DailyWorkTaskAssigner")
@@ -342,6 +344,15 @@ enum HiringJobWorkArrangement {
   HYBRID
 }
 
+/// Answer shape for recruiter-defined questions on a job application form.
+enum HiringJobQuestionType {
+  SHORT_TEXT
+  LONG_TEXT
+  DROPDOWN
+  FILE
+  YES_NO
+}
+
 enum HiringActivityKind {
   CANDIDATE_CREATED
   CANDIDATE_DUPLICATE_INTAKE
@@ -369,13 +380,23 @@ enum HiringActivityKind {
   HIRING_TEMPLATE_DELETED
   APPLICATION_EMAIL_SENT
   APPLICATION_INTERVIEW_SCHEDULED
+  APPLICATION_INTERVIEW_NOTES_SAVED
+  APPLICATION_ASSESSMENT_SUBMITTED
   REQUISITION_APPROVED
   REQUISITION_REJECTED
 }
 
 enum HiringInterviewStatus {
   SCHEDULED
+  COMPLETED
   CANCELLED
+}
+
+enum HiringInterviewArtifactStatus {
+  NONE
+  PENDING
+  AVAILABLE
+  FAILED
 }
 
 /// Fixed interview rounds for per-round feedback on an application.
@@ -443,12 +464,15 @@ model HiringJob {
   openings       Int             @default(1)
   /// Public / job-board button: redirects candidates to your application form (e.g. HRMS). https recommended.
   externalApplyUrl String?       @db.VarChar(2048)
+  /// When true and status is OPEN, this posting appears on /careers/jobs. Independent of Close.
+  listedOnCareers Boolean        @default(false)
   departmentId   String?
   department     Department?      @relation(fields: [departmentId], references: [id], onDelete: SetNull)
   status         HiringJobStatus  @default(DRAFT)
   createdById    String?
   createdBy      User?            @relation("HiringJobCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   applications   HiringApplication[]
+  applicationQuestions HiringJobQuestion[]
   resumeImportBatches HiringResumeImportBatch[]
   /// If this job came from an approved headcount request.
   sourcingRequisition HiringRequisition?
@@ -508,20 +532,39 @@ model HiringCandidate {
   candidateLocation String?         @db.VarChar(200)
   source      String?               @db.VarChar(120)
   resumeUrl   String?               @db.VarChar(2000)
+  /// Optional personal / work portfolio link (GitHub, Behance, site). Never required.
+  portfolioUrl String?              @db.VarChar(2048)
   /// Plain text extracted from the résumé file (PDF/DOCX), cached so ATS scoring and
   /// re-parsing don't need to re-download/re-read the file. Refreshed whenever the résumé is replaced.
   resumeExtractedText String?       @db.Text
   resumeParsedAt DateTime?
+  /// Structured education entries from the candidate portal (JSON array).
+  educationJson   Json?
+  /// Structured work history from the candidate portal (JSON array).
+  workHistoryJson Json?
   notes       String?               @db.Text
   createdById String?
   createdBy   User?                 @relation("HiringCandidateCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   applications HiringApplication[]
   activityLog  HiringActivity[]
+  portalAccount HiringCandidatePortalAccount?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([email])
+}
+
+/// Email/password login for the public careers portal (separate from employee Google SSO).
+model HiringCandidatePortalAccount {
+  id           String   @id @default(cuid())
+  email        String   @unique @db.VarChar(320)
+  passwordHash String   @db.VarChar(200)
+  candidateId  String   @unique
+  candidate    HiringCandidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model HiringApplication {
@@ -546,6 +589,8 @@ model HiringApplication {
   updatedAt   DateTime                 @updatedAt
   activityLog HiringActivity[]
   attachments HiringApplicationAttachment[]
+  questionAnswers HiringApplicationQuestionAnswer[]
+  assessment  HiringApplicationAssessment?
   reviews     HiringApplicationReview[]
   emailsSent  HiringApplicationEmail[]
   interviews  HiringInterview[]
@@ -553,6 +598,65 @@ model HiringApplication {
   @@unique([jobId, candidateId])
   @@index([jobId, pipelineStageId])
   @@index([candidateId])
+}
+
+/// Recruiter-defined questions shown on the public apply form for this posting.
+model HiringJobQuestion {
+  id          String                @id @default(cuid())
+  jobId       String
+  job         HiringJob             @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  prompt      String                @db.VarChar(500)
+  helpText    String?               @db.VarChar(500)
+  type        HiringJobQuestionType
+  required    Boolean               @default(false)
+  /// JSON string array of labels when type is DROPDOWN.
+  optionsJson String?               @db.Text
+  sortOrder   Int                   @default(0)
+
+  answers HiringApplicationQuestionAnswer[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([jobId, sortOrder])
+}
+
+/// Candidate responses to a job's custom questions. Prompt/type are snapshotted so later edits to the posting stay readable.
+model HiringApplicationQuestionAnswer {
+  id            String @id @default(cuid())
+  applicationId String
+  application   HiringApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  questionId    String?
+  question      HiringJobQuestion? @relation(fields: [questionId], references: [id], onDelete: SetNull)
+
+  prompt    String                @db.VarChar(500)
+  type      HiringJobQuestionType
+  textValue String?               @db.Text
+  fileUrl   String?               @db.VarChar(2048)
+  fileName  String?               @db.VarChar(280)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([applicationId])
+  @@index([questionId])
+}
+
+/// Candidate psychometric + role assessment submitted after applying (one per application).
+model HiringApplicationAssessment {
+  id            String             @id @default(cuid())
+  applicationId String             @unique
+  application   HiringApplication  @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  submittedAt DateTime @default(now())
+
+  /// Snapshot of prompts, options, and answers shown at submit time.
+  responsesJson Json
+  /// Psychometric dimension averages 1–5 (e.g. { "learnerFirst": 4.0 }).
+  dimensionScoresJson Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 /// Résumés and other documents attached to one application submission (beyond the candidate profile résumé).
@@ -682,6 +786,26 @@ model HiringInterview {
   googleCalendarEventId  String? @db.VarChar(256)
   googleCalendarHtmlLink String? @db.VarChar(2048)
 
+  /// When true, a Google Meet is created on the calendar event and auto-record/transcript is requested.
+  recordAndTranscribe Boolean @default(false)
+  googleMeetSpaceName String? @db.VarChar(256)
+  googleMeetJoinUrl   String? @db.VarChar(500)
+  googleMeetConferenceRecordName String? @db.VarChar(256)
+
+  recordingStatus      HiringInterviewArtifactStatus @default(NONE)
+  recordingDriveFileId String? @db.VarChar(256)
+  recordingUrl         String? @db.VarChar(2048)
+
+  transcriptStatus HiringInterviewArtifactStatus @default(NONE)
+  transcriptText   String? @db.Text
+  transcriptDocUrl String? @db.VarChar(2048)
+
+  /// Recruiter-facing notes (Meet smart notes / AI summary / manual). Also copied onto the candidate profile.
+  notesSummary       String? @db.Text
+  notesSummarySource String? @db.VarChar(16)
+  notesSyncedAt      DateTime?
+  artifactError      String? @db.Text
+
   /// Internal interviewers (User ids); candidate is always included from application profile.
   interviewerUserIds String[] @default([])
 
@@ -742,6 +866,68 @@ model HiringResumeImportItem {
   createdAt DateTime @default(now())
 
   @@index([batchId])
+}
+
+enum CareersGallerySection {
+  LIFE
+  CULTURE
+}
+
+/// Public careers landing copy + hero (singleton row id = "singleton").
+model CareersLandingContent {
+  id               String  @id @default("singleton")
+  brandLabel       String  @default("Skillinabox") @db.VarChar(120)
+  heroHeadline     String  @default("Build skills. Change lives.") @db.VarChar(240)
+  heroSubcopy      String  @default("Join a team that believes in equitable skilling across India.") @db.Text
+  heroImageUrl     String? @db.VarChar(2048)
+  /// 0 = photo as-shot; 100 = strongest dark wash (white text still readable).
+  heroOverlayOpacity Int   @default(40)
+  primaryCtaLabel  String  @default("Join the team") @db.VarChar(80)
+  primaryCtaHref   String  @default("/careers/sign-up") @db.VarChar(500)
+  secondaryCtaLabel String @default("See open roles") @db.VarChar(80)
+  secondaryCtaHref String  @default("/careers/jobs") @db.VarChar(500)
+  lifeTitle        String  @default("Life @ SIB") @db.VarChar(160)
+  lifeBody         String  @default("We work hard, celebrate loudly, and keep learners at the center of everything we ship.") @db.Text
+  voicesTitle      String  @default("Notes from the core team") @db.VarChar(160)
+  voicesBody       String  @default("Straight from the people building this — not a press release.") @db.Text
+
+  updatedById String?
+  updatedBy   User?    @relation("CareersLandingContentUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+}
+
+model CareersGalleryImage {
+  id        String                @id @default(cuid())
+  imageUrl  String                @db.VarChar(2048)
+  caption   String?               @db.VarChar(240)
+  alt       String                @default("") @db.VarChar(240)
+  section   CareersGallerySection @default(LIFE)
+  sortOrder Int                   @default(0)
+  published Boolean               @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([section, published, sortOrder])
+}
+
+/// Signed notes from core team on the public careers landing.
+model CareersTeamVoice {
+  id          String  @id @default(cuid())
+  name        String  @db.VarChar(120)
+  title       String  @db.VarChar(160)
+  quote       String  @default("") @db.Text
+  promptLabel String? @db.VarChar(80)
+  photoUrl    String? @db.VarChar(2048)
+  sortOrder   Int     @default(0)
+  published   Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([published, sortOrder])
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

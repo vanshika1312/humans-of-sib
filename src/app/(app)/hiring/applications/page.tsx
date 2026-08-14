@@ -24,6 +24,7 @@ type Props = {
     q?: string | string[];
     job?: string | string[];
     stage?: string | string[];
+    source?: string | string[];
   }>;
 };
 
@@ -37,11 +38,13 @@ function applicationsReturnPath(opts: {
   q?: string | null;
   job?: string | null;
   stage?: string | null;
+  source?: string | null;
 }): `/hiring/applications${string}` {
   const qs = new URLSearchParams();
   if (opts.q?.trim()) qs.set("q", opts.q.trim());
   if (opts.job?.trim()) qs.set("job", opts.job.trim());
   if (opts.stage?.trim()) qs.set("stage", opts.stage.trim());
+  if (opts.source?.trim()) qs.set("source", opts.source.trim());
   const tail = qs.toString();
   return (tail ? `/hiring/applications?${tail}` : `/hiring/applications`) as `/hiring/applications${string}`;
 }
@@ -61,11 +64,34 @@ export default async function ApplicationsPage(props: Props) {
   const qRaw = firstSearchParam(searchParams.q)?.trim() ?? "";
   const jobFilter = firstSearchParam(searchParams.job)?.trim() ?? "";
   const stageFilter = firstSearchParam(searchParams.stage)?.trim() ?? "";
-  const filtersActive = !!(qRaw || jobFilter || stageFilter);
+  const sourceFilter = firstSearchParam(searchParams.source)?.trim() ?? "";
+  const filtersActive = !!(qRaw || jobFilter || stageFilter || sourceFilter);
 
   const clauses: Prisma.HiringApplicationWhereInput[] = [{ job: hiringJobActiveClause }];
   if (jobFilter) clauses.push({ jobId: jobFilter });
   if (stageFilter) clauses.push({ pipelineStageId: stageFilter });
+  if (sourceFilter === "self_signup") {
+    clauses.push({
+      OR: [
+        { applicationSource: { equals: "self_signup", mode: "insensitive" } },
+        { candidate: { source: { equals: "self_signup", mode: "insensitive" } } },
+      ],
+    });
+  } else if (sourceFilter === "manual") {
+    clauses.push({
+      AND: [
+        {
+          OR: [{ applicationSource: null }, { NOT: { applicationSource: { equals: "self_signup", mode: "insensitive" } } }],
+        },
+        {
+          OR: [
+            { candidate: { source: null } },
+            { NOT: { candidate: { source: { equals: "self_signup", mode: "insensitive" } } } },
+          ],
+        },
+      ],
+    });
+  }
   if (qRaw) clauses.push(hiringApplicationTextSearchWhere(qRaw));
   const where: Prisma.HiringApplicationWhereInput = clauses.length ? { AND: clauses } : {};
 
@@ -126,6 +152,7 @@ export default async function ApplicationsPage(props: Props) {
     q: qRaw || null,
     job: jobFilter || null,
     stage: stageFilter || null,
+    source: sourceFilter || null,
   });
 
   return (
@@ -254,6 +281,21 @@ export default async function ApplicationsPage(props: Props) {
                     {s.label}
                   </option>
                 ))}
+              </select>
+            </div>
+            <div className="min-w-[160px]">
+              <label htmlFor="app-source" className="sr-only">
+                Source
+              </label>
+              <select
+                id="app-source"
+                name="source"
+                defaultValue={sourceFilter}
+                className="w-full h-9 rounded-lg border border-ink-200 bg-white px-3 text-sm text-ink-800 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+              >
+                <option value="">All sources</option>
+                <option value="self_signup">Self signup (careers)</option>
+                <option value="manual">Manual / other</option>
               </select>
             </div>
             <Button type="submit" variant="outline" size="sm" className="h-9 shrink-0">

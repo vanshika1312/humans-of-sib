@@ -6,9 +6,15 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createInterviewCalendarEvent, googleCalendarConfigured } from "@/lib/google-calendar";
 import { uploadFileForCalendarAttachment } from "@/lib/google-drive";
+import { enableMeetAutoArtifacts, meetApiErrorMessage, meetSpaceNameFromCodeOrName } from "@/lib/google-meet";
+import { googleApiErrorMessage } from "@/lib/google-workspace-auth";
 import { zonedLocalDateTimeToUtc } from "@/lib/eod/zoned-day";
 import { loadHiringStoredFileBuffer, mimeTypeFromFileName } from "@/lib/hiring-stored-file";
 import { isBulkImportStoredResumeUrl } from "@/lib/hiring-resume-upload";
+import {
+  syncHiringInterviewArtifacts,
+  upsertInterviewNotesOnCandidateProfile,
+} from "@/lib/hiring-interview-artifacts";
 
 const HR_GATE = ["CEO", "ADMIN", "HR"];
 
@@ -26,6 +32,12 @@ async function requireHiringInterviewUser() {
 function applicationDetailPath(applicationId: string, params: Record<string, string>) {
   const q = new URLSearchParams(params);
   return `/hiring/applications/${applicationId}?${q.toString()}`;
+}
+
+function safeHiringReturnPath(raw: unknown, fallback: string): string {
+  const value = String(raw ?? "").trim();
+  if (value.startsWith("/hiring/")) return value;
+  return fallback;
 }
 
 function parseInterviewerIds(formData: FormData): string[] {
@@ -146,6 +158,8 @@ export async function scheduleHiringInterview(applicationId: string, formData: F
   const durationMinutes = parseDuration(formData);
   const locationOrLink = String(formData.get("locationOrLink") ?? "").trim() || null;
   const notes = String(formData.get("notes") ?? "").trim() || null;
+  const createGoogleMeet = checkboxOn(formData, "createGoogleMeet");
+  const recordAndTranscribe = checkboxOn(formData, "recordAndTranscribe");
   const interviewerUserIds = parseInterviewerIds(formData);
 
   if (!scheduledAtLocal) {
@@ -228,6 +242,9 @@ export async function scheduleHiringInterview(applicationId: string, formData: F
     `Role: ${app.job.title}`,
     `Stage: ${app.pipelineStage.label}`,
     notes ? `\nNotes:\n${notes}` : "",
+    recordAndTranscribe
+      ? "\nThis interview may be recorded and transcribed. Notes will be stored on the candidate profile in Humans of SIB."
+      : "",
     linkOnlyUrls.length
       ? `\nDocument links (open in browser):\n${linkOnlyUrls.map((u) => `• ${u}`).join("\n")}`
       : "",
@@ -246,7 +263,7 @@ export async function scheduleHiringInterview(applicationId: string, formData: F
     }
   }
 
-  let calendar: { eventId: string; htmlLink: string | null };
+  let calendar: Awaited<ReturnType<typeof createInterviewCalendarEvent>>;
   try {
     calendar = await createInterviewCalendarEvent({
       title,
@@ -257,9 +274,10 @@ export async function scheduleHiringInterview(applicationId: string, formData: F
       timezone,
       attendeeEmails,
       attachments: calendarAttachments,
+      createGoogleMeet,
     });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "Could not create calendar event.";
+    const msg = googleApiErrorMessage(err);
     console.error("[Humans of SIB] schedule interview calendar failed", err);
     redirect(
       applicationDetailPath(applicationId, {
@@ -268,7 +286,25 @@ export async function scheduleHiringInterview(applicationId: string, formData: F
     );
   }
 
+  const meetJoinUrl = calendar.hangoutLink || locationOrLink;
+  let meetSpaceName = meetSpaceNameFromCodeOrName(calendar.meetConferenceId ?? calendar.hangoutLink);
+  let artifactError: string | null = null;
+
+  if (recordAndTranscribe && meetSpaceName) {
+    try {
+      const space = await enableMeetAutoArtifacts(meetSpaceName);
+      meetSpaceName = space.spaceName;
+    } catch (err) {
+      artifactError = meetApiErrorMessage(err);
+      console.error("[Humans of SIB] enable Meet recording failed", err);
+    }
+  } else if (recordAndTranscribe && !meetSpaceName) {
+    artifactError =
+      "Recording was requested but no Google Meet was created. Add Meet API scopes or leave “Create Google Meet” checked.";
+  }
+
   const interviewerNames = interviewers.map((u) => u.name ?? u.email);
+  const storedLocation = locationOrLink || meetJoinUrl;
 
   await prisma.$transaction(async (tx) => {
     await tx.hiringInterview.create({
@@ -279,9 +315,15 @@ export async function scheduleHiringInterview(applicationId: string, formData: F
         timezone,
         title,
         notes,
-        locationOrLink,
+        locationOrLink: storedLocation,
         googleCalendarEventId: calendar.eventId,
         googleCalendarHtmlLink: calendar.htmlLink,
+        recordAndTranscribe,
+        googleMeetSpaceName: meetSpaceName,
+        googleMeetJoinUrl: meetJoinUrl,
+        recordingStatus: recordAndTranscribe ? "PENDING" : "NONE",
+        transcriptStatus: recordAndTranscribe ? "PENDING" : "NONE",
+        artifactError,
         interviewerUserIds: interviewers.map((u) => u.id),
         scheduledById: me.id,
       },
@@ -299,7 +341,9 @@ export async function scheduleHiringInterview(applicationId: string, formData: F
           candidateEmail,
           interviewerEmails,
           interviewerNames,
-          locationOrLink,
+          locationOrLink: storedLocation,
+          googleMeetJoinUrl: meetJoinUrl,
+          recordAndTranscribe,
           googleCalendarHtmlLink: calendar.htmlLink,
           attachmentCount: calendarAttachments.length,
           attachmentTitles: calendarAttachments.map((a) => a.title),
@@ -312,4 +356,110 @@ export async function scheduleHiringInterview(applicationId: string, formData: F
   revalidatePath(`/hiring/applications/${applicationId}`);
   revalidatePath("/hiring/activity");
   redirect(applicationDetailPath(applicationId, { interviewScheduled: "1" }));
+}
+
+export async function syncHiringInterviewFromMeet(
+  applicationId: string,
+  interviewId: string,
+  formData: FormData,
+) {
+  await requireHiringInterviewUser();
+  const fallback = applicationDetailPath(applicationId, {});
+  const returnPath = safeHiringReturnPath(formData.get("returnPath"), fallback);
+  const result = await syncHiringInterviewArtifacts(interviewId);
+  revalidatePath(`/hiring/applications/${applicationId}`);
+  revalidatePath("/hiring/activity");
+  const app = await prisma.hiringApplication.findUnique({
+    where: { id: applicationId },
+    select: { candidateId: true },
+  });
+  if (app) revalidatePath(`/hiring/timeline/${app.candidateId}`);
+  if (!result.ok) {
+    const sep = returnPath.includes("?") ? "&" : "?";
+    redirect(`${returnPath}${sep}interviewError=${encodeURIComponent(result.message.slice(0, 400))}`);
+  }
+  const sep = returnPath.includes("?") ? "&" : "?";
+  redirect(`${returnPath}${sep}interviewSynced=1`);
+}
+
+export async function saveHiringInterviewNotes(applicationId: string, interviewId: string, formData: FormData) {
+  const me = await requireHiringInterviewUser();
+  const notesSummary = String(formData.get("notesSummary") ?? "").trim() || null;
+  const rawTranscript = formData.get("transcriptText");
+  const pastedTranscript =
+    rawTranscript == null ? null : String(rawTranscript).trim() || null;
+  const fallback = applicationDetailPath(applicationId, { interviewNotesSaved: "1" });
+  const returnPath = safeHiringReturnPath(
+    formData.get("returnPath"),
+    fallback,
+  );
+
+  const interview = await prisma.hiringInterview.findUnique({
+    where: { id: interviewId },
+    include: {
+      application: { select: { id: true, candidateId: true, job: { select: { title: true } } } },
+    },
+  });
+
+  if (!interview || interview.applicationId !== applicationId) {
+    redirect(
+      applicationDetailPath(applicationId, {
+        interviewError: encodeURIComponent("Interview not found."),
+      }),
+    );
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.hiringInterview.update({
+      where: { id: interviewId },
+      data: {
+        notesSummary,
+        notesSummarySource: notesSummary ? "manual" : interview.notesSummarySource,
+        transcriptText: pastedTranscript || interview.transcriptText,
+        transcriptStatus: pastedTranscript ? "AVAILABLE" : interview.transcriptStatus,
+        notesSyncedAt: new Date(),
+      },
+    });
+
+    if (notesSummary) {
+      const candidate = await tx.hiringCandidate.findUnique({
+        where: { id: interview.application.candidateId },
+        select: { notes: true },
+      });
+      const when = interview.scheduledAt.toISOString().slice(0, 10);
+      const heading = `Interview notes · ${when} · ${interview.application.job.title}`;
+      const nextNotes = upsertInterviewNotesOnCandidateProfile(
+        candidate?.notes,
+        interview.id,
+        heading,
+        notesSummary,
+      );
+      await tx.hiringCandidate.update({
+        where: { id: interview.application.candidateId },
+        data: { notes: nextNotes },
+      });
+      await tx.hiringActivity.create({
+        data: {
+          kind: "APPLICATION_INTERVIEW_NOTES_SAVED",
+          applicationId,
+          candidateId: interview.application.candidateId,
+          summary: `Interview notes saved · ${interview.title}`,
+          payloadJson: JSON.stringify({
+            interviewId,
+            title: interview.title,
+            notesPreview: notesSummary.slice(0, 280),
+          }),
+          actorUserId: me.id,
+        },
+      });
+    }
+  });
+
+  revalidatePath(`/hiring/applications/${applicationId}`);
+  revalidatePath(`/hiring/timeline/${interview.application.candidateId}`);
+  revalidatePath("/hiring/activity");
+  const dest = returnPath.includes("interviewNotesSaved=")
+    ? returnPath
+    : `${returnPath}${returnPath.includes("?") ? "&" : "?"}interviewNotesSaved=1`;
+  redirect(dest);
 }

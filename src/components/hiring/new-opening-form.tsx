@@ -12,6 +12,8 @@ import {
   JobProfileTemplatePicker,
   type JobProfileTemplateOption,
 } from "@/components/hiring/job-profile-template-picker";
+import { JobDescriptionEditor } from "@/components/hiring/job-description-editor";
+import { JobScreeningQuestionsEditor } from "@/components/hiring/job-screening-questions-editor";
 
 const STORAGE_KEY = "humans-of-sib:hiring-new-job-draft:v1";
 
@@ -210,15 +212,16 @@ export function NewOpeningForm({ jobProfileTemplates = [] }: { jobProfileTemplat
 
       <div>
         <Label htmlFor={`${draftFormId}-description`}>Job description</Label>
-        <Textarea
+        <JobDescriptionEditor
           id={`${draftFormId}-description`}
           name="description"
-          rows={8}
           defaultValue={d.description ?? ""}
           placeholder="Responsibilities, expectations, team context, benefits…"
           className="mt-1.5"
         />
       </div>
+
+      <JobScreeningQuestionsEditor defaultJson={d.screeningQuestionsJson} />
 
       <div>
         <Label htmlFor={`${draftFormId}-applicationDeadline`}>Application deadline</Label>
